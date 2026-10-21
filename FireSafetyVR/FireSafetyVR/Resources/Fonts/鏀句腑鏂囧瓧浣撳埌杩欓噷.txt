@@ -1,0 +1,4 @@
+把任意中文字体(.ttf/.otf)放这里，命名为 ChineseFont
+例如 ChineseFont.ttf / ChineseFont.otf
+推荐: 思源黑体 SourceHanSansSC-Regular.otf
+Windows 自带: C:\Windows\Fonts\msyh.ttc(需转为ttf) 或 simhei.ttf
