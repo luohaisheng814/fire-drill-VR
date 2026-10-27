@@ -34,6 +34,7 @@ namespace FireSafety
         private void Awake()
         {
             if (!sirenSource) sirenSource = GetComponent<AudioSource>();
+            if (sirenClip == null) sirenClip = Resources.Load<AudioClip>("Sounds/BGM/fire_alarm_siren");
             if (sirenSource)
             {
                 sirenSource.playOnAwake = false;

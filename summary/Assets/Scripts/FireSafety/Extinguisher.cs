@@ -35,6 +35,13 @@ namespace FireSafety
         public bool checkOcclusion = false;
         public LayerMask blockingMask = ~0;
 
+        [Header("常识问答（拾取灭火器时弹出）")]
+        [Tooltip("拾取灭火器后必须先完成常识问答才能拔销/喷射")]
+        public bool quizRequired = true;
+        public ExtinguisherQuizPanel quizPanel;
+        public bool QuizPassed { get; private set; }
+        public bool CanPullPin => !quizRequired || QuizPassed;
+
         [Header("步骤判定")]
         [Tooltip("玩家离灭火器多近算“移动到灭火器处”")]
         public float reachRadius = 1.2f;
@@ -86,6 +93,9 @@ namespace FireSafety
                 else Debug.LogWarning($"[Extinguisher] 找不到 Tag 为 {playerTag} 的对象。");
             }
 
+            if (pinPullClip == null) pinPullClip = Resources.Load<AudioClip>("Sounds/SFX/pin_pull");
+            if (sprayLoopClip == null) sprayLoopClip = Resources.Load<AudioClip>("Sounds/SFX/spray_loop");
+
             if (!audioSource) audioSource = GetComponent<AudioSource>();
             if (sprayLoopSource)
             {
@@ -119,6 +129,20 @@ namespace FireSafety
                 mgr.ForceCompleteUpTo(DrillStep.ReachedExtinguisher); // 兜底补 ④
                 mgr.CompleteStep(DrillStep.ExtinguisherGrabbed);
             }
+
+            // 弹出灭火器常识问答（回答完毕后才能拔销/喷射）
+            if (quizRequired && !QuizPassed && quizPanel != null)
+            {
+                quizPanel.onPassed.RemoveListener(OnQuizPassed);
+                quizPanel.onPassed.AddListener(OnQuizPassed);
+                quizPanel.Open(transform);
+            }
+        }
+
+        private void OnQuizPassed()
+        {
+            QuizPassed = true;
+            Debug.Log("[Extinguisher] 常识问答通过，现在可以拔销灭火");
         }
 
         private void OnDropped() => StopSpray();
@@ -127,6 +151,11 @@ namespace FireSafety
         public void PullPin()   // ⑥
         {
             if (PinPulled) return;
+            if (quizRequired && !QuizPassed)
+            {
+                Debug.Log("[Extinguisher] 请先完成灭火器常识问答再拔销。");
+                return;
+            }
             PinPulled = true;
 
             if (audioSource && pinPullClip) audioSource.PlayOneShot(pinPullClip, sfxVolume);
@@ -151,7 +180,14 @@ namespace FireSafety
                 Debug.Log("[Extinguisher] 请先拔出保险销！");
             }
 
-            if (trigger && PinPulled) StartSpray();
+            if (trigger && PinPulled)
+            {
+                if (quizRequired && !QuizPassed)
+                {
+                    if (!_prevTrigger) Debug.Log("[Extinguisher] 请先完成灭火器常识问答再喷射！");
+                }
+                else StartSpray();
+            }
             else if (!trigger && IsSpraying) StopSpray();
 
             if (IsSpraying) ApplySprayToFires();

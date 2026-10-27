@@ -21,6 +21,9 @@ namespace FireSafety
 
         private void Awake()
         {
+            if (pickupClip == null) pickupClip = Resources.Load<AudioClip>("Sounds/SFX/grab_pickup");
+            if (dropClip == null) dropClip = Resources.Load<AudioClip>("Sounds/SFX/grab_drop");
+
             _src = GetComponent<AudioSource>();
             if (_src)
             {

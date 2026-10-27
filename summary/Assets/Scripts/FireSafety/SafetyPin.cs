@@ -38,6 +38,7 @@ namespace FireSafety
         {
             if (IsPulled || !owner || !grab) return;
             if (!grab.IsHeld) return;
+            if (owner != null && !owner.CanPullPin) return;   // 常识问答未通过时不能拔销
 
             Vector3 homeWorld = owner.transform.TransformPoint(_homeLocalPos);
             if (Vector3.Distance(transform.position, homeWorld) >= pullDistance)
