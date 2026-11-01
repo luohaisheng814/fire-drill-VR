@@ -88,6 +88,10 @@ namespace FireSafety.EditorTools
             // 5. 背景音乐
             SetupBackgroundMusic();
 
+            // 5.5 演练倒计时（3 分钟上限）+ 地面引导箭头
+            SetupDrillCountdown();
+            SetupGuidanceArrows();
+
             // 6. 灭火器
             SetupExtinguisher("Extinguisher01", rig, leftHand, rightHand);
             SetupExtinguisher("Extinguisher02", rig, leftHand, rightHand);
@@ -101,7 +105,8 @@ namespace FireSafety.EditorTools
 
             Debug.Log("[Setup] ==== 搭建完成，场景已保存：" + ScenePath + " ====");
             Debug.Log("[Setup] 提示：开始界面玩法说明文字请在场景 StartScreen 的 Instructions 字段修改；"
-                      + "灭火器抓握姿态在 ToggleGrab.heldLocalPosition/heldLocalEuler 微调。");
+                      + "灭火器抓握姿态在 ToggleGrab.heldLocalPosition/heldLocalEuler 微调；"
+                      + "倒计时时长在 DrillCountdown.durationSeconds 调整（上限 180 秒）。");
         }
 
         // ================================================================
@@ -284,6 +289,33 @@ namespace FireSafety.EditorTools
         }
 
         // ================================================================
+        // 5.5 演练倒计时 + 地面引导箭头
+        // ================================================================
+
+        static void SetupDrillCountdown()
+        {
+            var go = GameObject.Find("DrillCountdown") ?? new GameObject("DrillCountdown");
+            var cd = go.GetComponent<DrillCountdown>() ?? go.AddComponent<DrillCountdown>();
+            cd.durationSeconds = 180f;       // 上限 3 分钟（脚本内再做 180s 钳制）
+            cd.warningSeconds = 30f;
+            cd.dangerSeconds = 10f;
+            cd.hudOffset = new Vector3(0f, 0.35f, 0.6f);
+            cd.canvasScale = 0.0035f;
+            Debug.Log("[Setup] ✔ 演练倒计时：DrillCountdown（点击开始后启动，上限 180 秒）");
+        }
+
+        static void SetupGuidanceArrows()
+        {
+            var go = GameObject.Find("GuidanceArrows") ?? new GameObject("GuidanceArrows");
+            var arrows = go.GetComponent<GuidanceArrows>() ?? go.AddComponent<GuidanceArrows>();
+            arrows.arrowCount = 6;
+            arrows.spacing = 1.2f;
+            arrows.floorY = 0.02f;
+            arrows.autoStartOnAlarm = true;
+            Debug.Log("[Setup] ✔ 地面引导箭头：GuidanceArrows（警报响起后指向最近灭火器）");
+        }
+
+        // ================================================================
         // 6. 灭火器装配
         // ================================================================
 
@@ -380,6 +412,13 @@ namespace FireSafety.EditorTools
 
             // 手部姿态匹配（抓握时手指贴合瓶身）
             if (root.GetComponent<GrabPoseMatcher>() == null) root.AddComponent<GrabPoseMatcher>();
+
+            // 视线高亮：灭火器进入玩家视野后发光 + 光环 + 光柱提示
+            var highlight = root.GetComponent<ExtinguisherHighlight>() ?? root.AddComponent<ExtinguisherHighlight>();
+            highlight.checkInterval = 0.15f;
+            highlight.gazeAngle = 60f;
+            highlight.maxDistance = 20f;
+            highlight.checkOcclusion = true;
 
             // 保险销
             SetupSafetyPin(root, ext, leftHand, rightHand);
