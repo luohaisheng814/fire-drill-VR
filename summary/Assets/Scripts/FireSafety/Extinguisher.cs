@@ -66,6 +66,13 @@ namespace FireSafety
         private bool _reachedReported;
         private bool _prevTrigger;
 
+        private void Awake()
+        {
+            // 兜底解析：场景里 pin / quizPanel 若是空的，从子物体里找回来（否则鼠标拔销会没有反应）
+            if (pin == null) pin = GetComponentInChildren<SafetyPin>(true);
+            if (quizPanel == null) quizPanel = GetComponentInChildren<ExtinguisherQuizPanel>(true);
+        }
+
         private void OnEnable()
         {
             if (grab != null)

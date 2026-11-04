@@ -3,6 +3,7 @@ using System;
 using System.Reflection;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.UI;
 using FireSafety;
 
 namespace FireSafety.EditorTools
@@ -22,7 +23,9 @@ namespace FireSafety.EditorTools
             TestHandleLeverLogic();
             TestSprayParticles();
             TestDesktopMouseFlow();
+            TestDesktopHud();
             TestStepChain();
+            TestSceneWiring();
 
             if (_fail == 0) Debug.Log("[TEST] ==== 全部通过 ====");
             else Debug.LogError("[TEST] ==== 失败项：" + _fail + " ====");
@@ -211,6 +214,28 @@ namespace FireSafety.EditorTools
         }
 
         // ------------------------------------------------------------
+        // 3.5 桌面 HUD：屏幕提示能正常生成并包含键位说明
+        // ------------------------------------------------------------
+        static void TestDesktopHud()
+        {
+            var go = new GameObject("TEST_DesktopInput");
+            var input = go.AddComponent<DesktopDrillInput>();
+            InvokeAwake(input);                       // Awake 里会创建 DesktopHand 与 HUD
+
+            var canvasField = typeof(DesktopDrillInput).GetField("_hudCanvas", BindingFlags.NonPublic | BindingFlags.Instance);
+            var textField = typeof(DesktopDrillInput).GetField("_hudText", BindingFlags.NonPublic | BindingFlags.Instance);
+            var canvas = canvasField != null ? canvasField.GetValue(input) as Canvas : null;
+            var text = textField != null ? textField.GetValue(input) as Text : null;
+
+            Check("HUD 画布已创建", canvas != null);
+            Check("HUD 文本已创建", text != null);
+            Check("HUD 文本包含鼠标键位说明", text != null && text.text != null && text.text.Contains("右键单击"));
+
+            if (canvas != null) UnityEngine.Object.DestroyImmediate(canvas.gameObject);
+            UnityEngine.Object.DestroyImmediate(go);
+        }
+
+        // ------------------------------------------------------------
         // 4. 步骤链：⑤拿起 → ⑥拔销 → ⑦压把 → ⑧喷射 → ⑨扑灭
         // ------------------------------------------------------------
         static void TestStepChain()
@@ -262,6 +287,94 @@ namespace FireSafety.EditorTools
             UnityEngine.Object.DestroyImmediate(fireGo);
             UnityEngine.Object.DestroyImmediate(extGo);
             UnityEngine.Object.DestroyImmediate(mgrGo);
+        }
+
+        // ------------------------------------------------------------
+        // 5. 真实场景装配校验：直接打开 FireSafetyOffice.unity 查引用
+        // ------------------------------------------------------------
+        static void TestSceneWiring()
+        {
+            if (!Application.isBatchMode)
+            {
+                Debug.Log("[TEST] 跳过场景装配校验（仅在 batchmode 下执行，避免打断当前编辑）");
+                return;
+            }
+            ResetManagerInstance();
+
+            UnityEditor.SceneManagement.EditorSceneManager.OpenScene(
+                "Assets/Scenes/FireSafetyOffice.unity",
+                UnityEditor.SceneManagement.OpenSceneMode.Single);
+
+            var exts = UnityEngine.Object.FindObjectsByType<Extinguisher>(FindObjectsSortMode.None);
+            Check("场景：找到 2 台灭火器（实际 " + exts.Length + "）", exts.Length == 2);
+
+            foreach (var e in exts)
+            {
+                string n = e.gameObject.name;
+                Check("场景 " + n + "：grab 已引用", e.grab != null);
+                Check("场景 " + n + "：pin 已引用（鼠标拔销依赖）", e.pin != null);
+                Check("场景 " + n + "：handleLever 已引用", e.handleLever != null);
+                Check("场景 " + n + "：sprayParticles 已引用", e.sprayParticles != null);
+                Check("场景 " + n + "：quizPanel 已引用", e.quizPanel != null);
+            }
+
+            var input = UnityEngine.Object.FindObjectOfType<DesktopDrillInput>();
+            Check("场景：DesktopDrillInput 存在", input != null);
+            if (input != null)
+            {
+                Check("场景：桌面输入 extinguisher 已引用", input.extinguisher != null);
+                Check("场景：桌面输入 startScreen 已引用", input.startScreen != null);
+                Check("场景：桌面输入 handAnchor 已引用", input.handAnchor != null);
+                Check("场景：桌面输入 cameraTransform 已引用", input.cameraTransform != null);
+            }
+
+            // ---- 在真实场景对象上跑一遍鼠标链路（只改内存，不保存场景）----
+            Extinguisher e1 = null;
+            foreach (var e in exts)
+                if (e.gameObject.name == "Extinguisher01") { e1 = e; break; }
+
+            if (e1 != null)
+            {
+                e1.quizRequired = false;      // 编辑模式无法跑问答协程，这里跳过门控
+                if (e1.pin != null) e1.pin.hideDelay = 0f;   // 编辑模式不能延迟 Destroy
+                InvokeMethod(e1, "OnEnable"); // 订阅 onPickedUp（编辑模式不自动调用）
+                InvokeAwake(e1.grab);         // 场景里的 Awake 也不会自动跑，缓存刚体等状态
+                if (e1.pin != null) InvokeAwake(e1.pin);
+                if (e1.handleLever != null) InvokeAwake(e1.handleLever);
+
+                var mgrGo = new GameObject("TEST_SceneManager");
+                var mgr = mgrGo.AddComponent<FireDrillManager>();
+                InvokeAwake(mgr);
+                InvokeMethod(mgr, "Start");
+
+                var anchor = new GameObject("TEST_SceneHand").transform;
+
+                e1.grab.GrabExternal(anchor, HandSide.Right);
+                Check("场景链路：右键单击拿起（⑤）",
+                    e1.grab.IsHeld && FireDrillManager.Instance.CurrentStep >= DrillStep.ExtinguisherGrabbed);
+
+                Check("场景链路：左键单击拔销（⑥）",
+                    e1.pin != null && e1.pin.PullByInput() && e1.PinPulled
+                    && FireDrillManager.Instance.CurrentStep == DrillStep.PinPulled);
+
+                Check("场景链路：左键双击压把（⑦）",
+                    e1.handleLever != null && e1.handleLever.PressExternal()
+                    && FireDrillManager.Instance.CurrentStep == DrillStep.HandlePressed);
+
+                Check("场景链路：右键双击喷射（⑧）",
+                    e1.TryStartSpray() && e1.IsSpraying
+                    && FireDrillManager.Instance.CurrentStep == DrillStep.Spraying);
+
+                e1.StopSprayExternal();
+                e1.handleLever.ReleaseExternal();
+                e1.grab.ReleaseExternal();
+                Check("场景链路：P 放下后复位",
+                    !e1.grab.IsHeld && !e1.IsSpraying && !e1.handleLever.IsSqueezed);
+
+                UnityEngine.Object.DestroyImmediate(anchor.gameObject);
+                ResetManagerInstance();
+                UnityEngine.Object.DestroyImmediate(mgrGo);
+            }
         }
 
         static void Check(string name, bool ok)

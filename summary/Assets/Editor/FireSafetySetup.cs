@@ -392,6 +392,7 @@ namespace FireSafety.EditorTools
             ext.sprayLoopSource = spraySrc;
             ext.pinPullClip = Resources.Load<AudioClip>("Sounds/SFX/pin_pull");
             ext.sprayLoopClip = Resources.Load<AudioClip>("Sounds/SFX/spray_loop");
+            ext.blockedClip = Resources.Load<AudioClip>("Sounds/SFX/quiz_wrong");   // 未拔销就喷射的提示音
             ext.leftActivateAction = GetOrCreateRef("XRI Left Interaction", "Activate");
             ext.rightActivateAction = GetOrCreateRef("XRI Right Interaction", "Activate");
             ext.quizRequired = true;
@@ -555,6 +556,7 @@ namespace FireSafety.EditorTools
             pin.pullDistance = 0.12f;
             pin.dropAfterPull = true;
             pin.hideDelay = 2f;
+            ext.pin = pin;                    // 关键：反填到灭火器，鼠标拔销（PullByInput）依赖该引用
         }
 
         // ================================================================
@@ -602,19 +604,23 @@ namespace FireSafety.EditorTools
             }
             input.handAnchor = anchor;
 
-            // 主灭火器（桌面输入只接管第一个）
+            // 主灭火器：优先按名字取 Extinguisher01，保证每次装配结果一致
             Extinguisher primary = null;
-            foreach (var e in UnityEngine.Object.FindObjectsByType<Extinguisher>(FindObjectsSortMode.None))
+            var all = UnityEngine.Object.FindObjectsByType<Extinguisher>(FindObjectsSortMode.None);
+            foreach (var e in all)
+                if (e.gameObject.name == "Extinguisher01") { primary = e; break; }
+            if (primary == null && all.Length > 0) primary = all[0];
+
+            // 两台都要能走桌面喷射（避免玩家拿起另一台时压把自动喷射/右键失效）
+            foreach (var e in all)
             {
-                primary = e;
-                break;
+                e.desktopMode = true;
+                if (e.pin == null) e.pin = e.GetComponentInChildren<SafetyPin>(true);
             }
+
             input.extinguisher = primary;
-            if (primary != null)
-            {
-                primary.desktopMode = true;
-                input.quizPanel = primary.quizPanel;
-            }
+            input.extinguishers = all;
+            if (primary != null) input.quizPanel = primary.quizPanel;
 
             input.startScreen = UnityEngine.Object.FindObjectOfType<StartScreen>();
 
