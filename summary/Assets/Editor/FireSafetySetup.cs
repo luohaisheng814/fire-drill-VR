@@ -99,6 +99,9 @@ namespace FireSafety.EditorTools
             // 7. UI 输入
             SetupEventSystem();
 
+            // 8. 桌面鼠标调试输入（无头显也能走完阶段一操作流程）
+            SetupDesktopInput(rig);
+
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene, ScenePath);
             AssetDatabase.SaveAssets();
@@ -106,7 +109,8 @@ namespace FireSafety.EditorTools
             Debug.Log("[Setup] ==== 搭建完成，场景已保存：" + ScenePath + " ====");
             Debug.Log("[Setup] 提示：开始界面玩法说明文字请在场景 StartScreen 的 Instructions 字段修改；"
                       + "灭火器抓握姿态在 ToggleGrab.heldLocalPosition/heldLocalEuler 微调；"
-                      + "倒计时时长在 DrillCountdown.durationSeconds 调整（上限 180 秒）。");
+                      + "倒计时时长在 DrillCountdown.durationSeconds 调整（上限 180 秒）。"
+                      + "桌面鼠标操作：右键单击拿起 / 左键单击拔销 / 左键双击压把 / 右键双击喷射 / P 放下。");
         }
 
         // ================================================================
@@ -423,7 +427,93 @@ namespace FireSafety.EditorTools
             // 保险销
             SetupSafetyPin(root, ext, leftHand, rightHand);
 
-            Debug.Log("[Setup] ✔ 灭火器：" + objName + "（抓取/问答/拔销/喷射/手型匹配已装配）");
+            // 压把（按下压把 → 喷射）+ 粒子喷射效果
+            SetupHandleAndSpray(root, ext, nozzle, sfx, leftHand, rightHand);
+
+            Debug.Log("[Setup] ✔ 灭火器：" + objName + "（抓取/问答/拔销/压把/粒子喷射/手型匹配已装配）");
+        }
+
+        /// <summary>装配压把（HandleLever）与喷射粒子（ExtinguisherSpray）。</summary>
+        static void SetupHandleAndSpray(GameObject root, Extinguisher ext, Transform nozzle,
+                                        AudioSource sfx, Transform leftHand, Transform rightHand)
+        {
+            // ---------- 压把 ----------
+            var pivotT = root.transform.Find("HandlePivot");
+            if (pivotT == null)
+            {
+                var pivot = new GameObject("HandlePivot");
+                pivot.transform.SetParent(root.transform, false);
+                pivot.transform.localPosition = new Vector3(0f, 0.33f, 0.07f);
+                pivotT = pivot.transform;
+            }
+
+            var leverT = pivotT.Find("Handle");
+            if (leverT == null)
+            {
+                var lever = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                lever.name = "Handle";
+                lever.transform.SetParent(pivotT, false);
+                lever.transform.localPosition = new Vector3(0f, 0f, 0.08f);
+                lever.transform.localScale = new Vector3(0.09f, 0.03f, 0.18f);
+                UnityEngine.Object.DestroyImmediate(lever.GetComponent<Collider>());
+
+                var mat = new Material(Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard"));
+                if (mat != null)
+                {
+                    mat.color = new Color(0.78f, 0.10f, 0.10f);
+                    lever.GetComponent<Renderer>().sharedMaterial = mat;
+                }
+                leverT = lever.transform;
+            }
+
+            var handle = root.GetComponent<HandleLever>() ?? root.AddComponent<HandleLever>();
+            handle.owner = ext;
+            handle.lever = leverT;
+            handle.handPoints = new[] { leftHand, rightHand };
+            handle.touchRadius = 0.09f;          // 另一只手按到压把即触发
+            handle.allowTrigger = true;          // 也可用扳机代替按压
+            handle.pressAngle = 22f;
+            handle.smoothSpeed = 12f;
+            handle.audioSource = sfx;
+            handle.pressClip = Resources.Load<AudioClip>("Sounds/SFX/ui_click");
+            handle.blockedClip = Resources.Load<AudioClip>("Sounds/SFX/quiz_wrong");
+            handle.leftActivateAction = GetOrCreateRef("XRI Left Interaction", "Activate");
+            handle.rightActivateAction = GetOrCreateRef("XRI Right Interaction", "Activate");
+            ext.handleLever = handle;
+
+            // ---------- 喷射粒子 ----------
+            var sprayT = nozzle.Find("SprayVFX");
+            if (sprayT == null)
+            {
+                var vfx = new GameObject("SprayVFX");
+                vfx.transform.SetParent(nozzle, false);
+                vfx.transform.localRotation = Quaternion.Euler(6f, 0f, 0f);   // 略微朝下喷
+                sprayT = vfx.transform;
+            }
+
+            var ps = sprayT.GetComponent<ParticleSystem>();
+            if (ps == null) ps = sprayT.gameObject.AddComponent<ParticleSystem>();
+            var psMain = ps.main;
+            psMain.playOnAwake = false;
+            ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+
+            var spray = sprayT.GetComponent<ExtinguisherSpray>() ?? sprayT.gameObject.AddComponent<ExtinguisherSpray>();
+            spray.owner = ext;
+            spray.nozzle = nozzle;
+            spray.rate = 280f;
+            spray.startSpeed = 3.4f;
+            spray.coneAngle = 9f;
+            spray.lifetime = 1.2f;
+            spray.startSize = 0.05f;
+            spray.sizeGrowth = 5.5f;
+            spray.gravity = 0.45f;
+            spray.noiseStrength = 0.45f;
+            spray.spinUpTime = 0.12f;
+            spray.sprayColor = new Color(0.94f, 0.96f, 0.98f, 0.75f);
+
+            ext.sprayParticles = ps;
+
+            Debug.Log("[Setup] ✔ 压把 + 粒子喷射：" + root.name + "（HandleLever · ExtinguisherSpray）");
         }
 
         static void SetupSafetyPin(GameObject root, Extinguisher ext, Transform leftHand, Transform rightHand)
@@ -478,6 +568,58 @@ namespace FireSafety.EditorTools
             if (es.GetComponent<EventSystem>() == null) es.AddComponent<EventSystem>();
             if (es.GetComponent<XRUIInputModule>() == null) es.AddComponent<XRUIInputModule>();
             Debug.Log("[Setup] ✔ EventSystem + XRUIInputModule（手柄射线点按 UI）");
+        }
+
+        // ================================================================
+        // 8. 桌面鼠标调试输入
+        // ================================================================
+
+        static void SetupDesktopInput(XROrigin rig)
+        {
+            var go = GameObject.Find("DesktopInput") ?? new GameObject("DesktopInput");
+            var input = go.GetComponent<DesktopDrillInput>() ?? go.AddComponent<DesktopDrillInput>();
+
+            var cam = rig.Camera != null ? rig.Camera.transform : Camera.main != null ? Camera.main.transform : null;
+            input.cameraTransform = cam;
+            input.doubleClickWindow = 0.25f;
+            input.handOffset = new Vector3(0.26f, -0.20f, 0.45f);
+            input.handEuler = new Vector3(0f, -12f, 0f);
+
+            // 桌面手部锚点：挂在相机下，随视角移动
+            Transform anchor = null;
+            if (cam != null)
+            {
+                var existing = cam.Find("DesktopHand");
+                if (existing == null)
+                {
+                    var h = new GameObject("DesktopHand");
+                    h.transform.SetParent(cam, false);
+                    h.transform.localPosition = input.handOffset;
+                    h.transform.localRotation = Quaternion.Euler(input.handEuler);
+                    existing = h.transform;
+                }
+                anchor = existing;
+            }
+            input.handAnchor = anchor;
+
+            // 主灭火器（桌面输入只接管第一个）
+            Extinguisher primary = null;
+            foreach (var e in UnityEngine.Object.FindObjectsByType<Extinguisher>(FindObjectsSortMode.None))
+            {
+                primary = e;
+                break;
+            }
+            input.extinguisher = primary;
+            if (primary != null)
+            {
+                primary.desktopMode = true;
+                input.quizPanel = primary.quizPanel;
+            }
+
+            input.startScreen = UnityEngine.Object.FindObjectOfType<StartScreen>();
+
+            Debug.Log("[Setup] ✔ 桌面鼠标输入：右键单击拿起 / 左键单击拔销 / 左键双击压把 / 右键双击喷射 / P 放下"
+                      + "（主灭火器：" + (primary != null ? primary.gameObject.name : "未找到") + "）");
         }
 
         // ================================================================

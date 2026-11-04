@@ -59,5 +59,28 @@ namespace FireSafety
             owner.PullPin();
             if (hideDelay > 0f) Destroy(gameObject, hideDelay);
         }
+
+        /// <summary>
+        /// 鼠标等外部输入直接拔销：必须已手持灭火器，且问答门控已通过。
+        /// 返回是否拔出成功。
+        /// </summary>
+        public bool PullByInput()
+        {
+            if (IsPulled || !owner) return false;
+
+            if (owner.grab == null || !owner.grab.IsHeld)
+            {
+                Debug.Log("[Pin] 需先手持灭火器才能拔销。");
+                return false;
+            }
+            if (!owner.CanPullPin)
+            {
+                Debug.Log("[Pin] 灭火器常识问答尚未通过，暂不能拔销。");
+                return false;
+            }
+
+            Pull();
+            return true;
+        }
     }
 }

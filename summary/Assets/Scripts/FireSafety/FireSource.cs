@@ -77,6 +77,21 @@ namespace FireSafety
 
             Debug.Log("[Fire] 火源已被扑灭");
             onExtinguished?.Invoke();
+
+            // 全部火源扑灭 → ⑨ 演练完成
+            if (AllExtinguished())
+            {
+                FireDrillManager.Instance?.CompleteStep(DrillStep.FireExtinguished);
+                Debug.Log("[Fire] 所有火源已扑灭，演练完成");
+            }
+        }
+
+        /// <summary>场景内是否已无明火。</summary>
+        public static bool AllExtinguished()
+        {
+            foreach (var f in Active)
+                if (f != null && !f.IsExtinguished) return false;
+            return true;
         }
     }
 }

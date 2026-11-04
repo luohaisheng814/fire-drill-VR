@@ -128,6 +128,19 @@ namespace FireSafety
             if (_canvas != null) _canvas.gameObject.SetActive(false);
         }
 
+        /// <summary>键盘/鼠标等外部输入作答（0 起）。仅当面板打开且该选项可点时生效。</summary>
+        public bool AnswerOption(int optionIndex)
+        {
+            if (!IsOpen) return false;
+            if (_optionButtons == null || optionIndex < 0 || optionIndex >= _optionButtons.Count) return false;
+
+            var btn = _optionButtons[optionIndex];
+            if (btn == null || !btn.gameObject.activeSelf || !btn.interactable) return false;
+
+            OnOptionClicked(optionIndex);
+            return true;
+        }
+
         // ---------------- UI ----------------
 
         void BuildUI()

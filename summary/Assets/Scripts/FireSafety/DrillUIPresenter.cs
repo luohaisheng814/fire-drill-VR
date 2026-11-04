@@ -66,18 +66,20 @@ namespace FireSafety
 
         private void OnStepChanged(DrillStep step) => Refresh(step);
 
-        private void OnCompleted() => ShowToast("演练完成：已拔出保险销，可对准火焰根部喷射！", 6f);
+        private void OnCompleted() => ShowToast("演练完成：拿起 → 拔销 → 压下压把 → 喷射，火焰已扑灭！", 6f);
 
         private void Refresh(DrillStep step)
         {
             int i = (int)step;
+            int last = (int)FireDrillManager.LastStep;
             if (stepText)
             {
-                string done = step == DrillStep.PinPulled ? "（已完成）" : "";
-                stepText.text = $"{FireDrillManager.StepNames[i]} {done}\n下一步：{FireDrillManager.StepNames[System.Math.Min(i + 1, 6)]}";
+                string done = step == FireDrillManager.LastStep ? "（已完成）" : "";
+                string next = i < last ? FireDrillManager.StepNames[i + 1] : "—";
+                stepText.text = $"{FireDrillManager.StepNames[i]} {done}\n下一步：{next}";
             }
             if (hintText)
-                hintText.text = FireDrillManager.StepHints[System.Math.Min(i + 1, 6)];
+                hintText.text = FireDrillManager.StepHints[Mathf.Min(i + 1, last)];
         }
 
         /// <summary>显示一条临时提示（几秒后自动恢复为当前步骤提示）。</summary>

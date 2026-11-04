@@ -47,8 +47,8 @@ namespace FireSafety
         [Range(0f, 1f)] public float sfxVolume = 1f;
 
         [Header("事件")]
-        public UnityEvent onPickedUp;
-        public UnityEvent onDropped;
+        public UnityEvent onPickedUp = new UnityEvent();
+        public UnityEvent onDropped = new UnityEvent();
 
         [Header("限制")]
         [Tooltip("勾选后放下即锁定，不能再抓（保险销拔出后可防止被塞回）")]
@@ -94,6 +94,8 @@ namespace FireSafety
         private void Update()
         {
             if (hands == null) return;
+            // 桌面鼠标接管时（_holding 为空），忽略手柄按键，避免两套输入互相打架
+            if (IsHeld && _holding == null) return;
 
             foreach (var h in hands)
             {
@@ -159,6 +161,49 @@ namespace FireSafety
         public void ForceRelease()
         {
             if (IsHeld) Release(_holding);
+        }
+
+        /// <summary>
+        /// 桌面鼠标接管：把物体吸附到给定锚点（相机前的手部位置）。
+        /// 不经过手柄按键，其余状态（刚体、音效、事件）与正常抓取一致。
+        /// </summary>
+        public void GrabExternal(Transform anchor, HandSide side = HandSide.Right)
+        {
+            if (IsHeld || _locked || anchor == null) return;
+
+            IsHeld = true;
+            _holding = null;                 // 无手柄绑定
+            CurrentHandSide = side;
+
+            _wasKinematic = _rb.isKinematic;
+            _usedGravity = _rb.useGravity;
+            _rb.linearVelocity = Vector3.zero;
+            _rb.angularVelocity = Vector3.zero;
+            _rb.useGravity = false;
+            _rb.isKinematic = true;
+
+            if (_snap != null) StopCoroutine(_snap);
+            transform.SetParent(anchor, true);
+            if (Application.isPlaying)
+            {
+                _snap = StartCoroutine(SnapToHand());
+            }
+            else
+            {
+                // 编辑模式（自检）下不能跑协程，直接瞬时对齐
+                transform.localPosition = heldLocalPosition;
+                transform.localRotation = Quaternion.Euler(heldLocalEuler);
+            }
+
+            Play(pickupClip);
+            onPickedUp?.Invoke();
+        }
+
+        /// <summary>桌面鼠标接管：放下当前手持物体（落回原父物体并恢复重力）。</summary>
+        public void ReleaseExternal()
+        {
+            if (!IsHeld || _holding != null) return;
+            Release(null);
         }
 
         private void Release(HandBinding h)

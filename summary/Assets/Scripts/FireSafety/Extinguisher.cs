@@ -13,6 +13,12 @@ namespace FireSafety
         [Tooltip("喷嘴口空物体，Z 轴（蓝轴）朝前作为喷射方向")]
         public Transform nozzle;
         public ParticleSystem sprayParticles;
+        [Tooltip("压把：按下压把才输出喷射压力（步骤 ⑦）")]
+        public HandleLever handleLever;
+
+        [Header("桌面调试模式")]
+        [Tooltip("开启后喷射改由外部输入触发（如鼠标右键双击），压把不再自动持续喷射")]
+        public bool desktopMode = false;
 
         [Header("音效")]
         public AudioSource audioSource;      // 一次性音效（拔销等）
@@ -166,8 +172,20 @@ namespace FireSafety
 
         private void CheckSpray()
         {
+            // 桌面调试模式：喷射由外部（右键双击）触发，这里只持续结算灭火
+            if (desktopMode)
+            {
+                if (IsSpraying) ApplySprayToFires();
+                return;
+            }
+
+            // 压把按下 = 输出压力；没有压把时退回“扣扳机直接喷射”的旧逻辑
             bool trigger = false;
-            if (grab != null && grab.IsHeld)
+            if (handleLever != null)
+            {
+                trigger = handleLever.IsSqueezed;
+            }
+            else if (grab != null && grab.IsHeld)
             {
                 var a = grab.CurrentHandSide == HandSide.Left ? leftActivateAction : rightActivateAction;
                 if (a == null) a = leftActivateAction != null ? leftActivateAction : rightActivateAction;
@@ -176,7 +194,8 @@ namespace FireSafety
 
             if (trigger && !_prevTrigger && !PinPulled)
             {
-                if (audioSource && blockedClip) audioSource.PlayOneShot(blockedClip, sfxVolume);
+                if (handleLever == null && audioSource && blockedClip)
+                    audioSource.PlayOneShot(blockedClip, sfxVolume);
                 Debug.Log("[Extinguisher] 请先拔出保险销！");
             }
 
@@ -201,7 +220,53 @@ namespace FireSafety
             if (sprayParticles) sprayParticles.Play();
             if (sprayLoopSource && sprayLoopClip) sprayLoopSource.Play();
             onSprayStarted?.Invoke();
+
+            // ⑦ 按下压把 → ⑧ 开始喷射
+            var mgr = FireDrillManager.Instance;
+            if (mgr != null)
+            {
+                if (handleLever == null) mgr.ForceCompleteUpTo(DrillStep.HandlePressed); // 无压把时兜底
+                mgr.CompleteStep(DrillStep.Spraying);
+            }
+            Debug.Log("[Extinguisher] 开始喷射");
         }
+
+        /// <summary>
+        /// 外部输入（鼠标右键双击等）尝试开始喷射，逐项校验门控：
+        /// 必须手持 → 已拔销 → 问答通过 → 压把已按下。返回是否成功起喷。
+        /// </summary>
+        public bool TryStartSpray()
+        {
+            if (IsSpraying) { StopSprayExternal(); return false; }
+
+            if (grab == null || !grab.IsHeld)
+            {
+                Debug.Log("[Extinguisher] 需先拿起灭火器。");
+                return false;
+            }
+            if (!PinPulled)
+            {
+                if (audioSource && blockedClip) audioSource.PlayOneShot(blockedClip, sfxVolume);
+                Debug.Log("[Extinguisher] 请先拔出保险销。");
+                return false;
+            }
+            if (quizRequired && !QuizPassed)
+            {
+                Debug.Log("[Extinguisher] 请先完成灭火器常识问答。");
+                return false;
+            }
+            if (handleLever != null && !handleLever.PressedOnce)
+            {
+                Debug.Log("[Extinguisher] 请先按下压把。");
+                return false;
+            }
+
+            StartSpray();
+            return true;
+        }
+
+        /// <summary>外部输入：停止喷射（桌面鼠标右键双击 / 放下灭火器）。</summary>
+        public void StopSprayExternal() => StopSpray();
 
         private void StopSpray()
         {

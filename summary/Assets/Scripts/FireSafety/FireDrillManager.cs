@@ -3,7 +3,7 @@ using UnityEngine.Events;
 
 namespace FireSafety
 {
-    /// <summary>演练步骤枚举：严格对应“图片1”的六步流程。</summary>
+    /// <summary>演练步骤枚举：拿起 → 拔销 → 按下压把 → 喷射 → 火焰扑灭。</summary>
     public enum DrillStep
     {
         None = 0,
@@ -12,7 +12,10 @@ namespace FireSafety
         FireLocated = 3,        // ③ 用户确认起火位置
         ReachedExtinguisher = 4,// ④ 移动到灭火器处
         ExtinguisherGrabbed = 5,// ⑤ 拿起灭火器
-        PinPulled = 6           // ⑥ 按操作步骤拔出保险销
+        PinPulled = 6,          // ⑥ 拔出保险销
+        HandlePressed = 7,      // ⑦ 按下压把
+        Spraying = 8,           // ⑧ 对准火源喷射
+        FireExtinguished = 9    // ⑨ 火焰扑灭
     }
 
     /// <summary>全局演练状态机：所有子系统只负责“上报完成”，由它统一推进并广播。</summary>
@@ -20,10 +23,14 @@ namespace FireSafety
     {
         public static FireDrillManager Instance { get; private set; }
 
+        /// <summary>流程最后一步，UI 与完成判定都以此为准。</summary>
+        public static readonly DrillStep LastStep = DrillStep.FireExtinguished;
+
         public static readonly string[] StepNames =
         {
             "未开始", "① 身处火灾现场", "② 火灾警报响起", "③ 确认起火位置",
-            "④ 移动到灭火器处", "⑤ 拿起灭火器", "⑥ 拔出保险销"
+            "④ 移动到灭火器处", "⑤ 拿起灭火器", "⑥ 拔出保险销",
+            "⑦ 按下压把", "⑧ 对准火源喷射", "⑨ 火焰扑灭"
         };
 
         public static readonly string[] StepHints =
@@ -33,22 +40,25 @@ namespace FireSafety
             "请环视四周，看向火焰，确认起火点",
             "沿安全通道走到红色灭火器旁",
             "用手柄扣动 Grip 键握住灭火器（再按一次才松开）",
-            "另一只手握住保险销，向外拉出",
-            "保险销已拔出！扣动扳机，对准火焰根部喷射"
+            "用另一只手握住保险销，向外拉出",
+            "保险销已拔出！用另一只手按向红色压把",
+            "压把已按下！扣住扳机不放，对准火焰根部",
+            "正在喷射！持续对准火焰根部，直到火焰熄灭",
+            "火焰已扑灭，演练完成！"
         };
 
         [Header("运行时状态（只读）")]
         [SerializeField] private DrillStep currentStep = DrillStep.None;
 
-        [Header("是否强制 1→6 顺序推进（关闭则可跳步）")]
+        [Header("是否强制 1→9 顺序推进（关闭则可跳步）")]
         public bool enforceOrder = true;
 
         [Header("事件")]
-        public UnityEvent<DrillStep> onStepChanged;
-        public UnityEvent onDrillCompleted;
+        public UnityEvent<DrillStep> onStepChanged = new UnityEvent<DrillStep>();
+        public UnityEvent onDrillCompleted = new UnityEvent();
 
         public DrillStep CurrentStep => currentStep;
-        public bool IsCompleted => currentStep == DrillStep.PinPulled;
+        public bool IsCompleted => currentStep == LastStep;
 
         private void Awake()
         {
