@@ -5,6 +5,7 @@ using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
+using UnityEngine.SceneManagement;
 using UnityEngine.XR;
 using UnityEngine.XR.Interaction.Toolkit;
 using UnityEngine.XR.Interaction.Toolkit.Interactors;
@@ -92,6 +93,9 @@ namespace FireSafety.EditorTools
             SetupDrillCountdown();
             SetupGuidanceArrows();
 
+            // 5.6 阶段一完成面板（暂停倒计时 + 立刻结算 / 继续往下）
+            SetupStageOnePanel();
+
             // 6. 灭火器
             SetupExtinguisher("Extinguisher01", rig, leftHand, rightHand);
             SetupExtinguisher("Extinguisher02", rig, leftHand, rightHand);
@@ -102,6 +106,9 @@ namespace FireSafety.EditorTools
             // 8. 桌面鼠标调试输入（无头显也能走完阶段一操作流程）
             SetupDesktopInput(rig);
 
+            // 9. 清理历史遗留的「缺失脚本」组件
+            RemoveMissingScripts();
+
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene, ScenePath);
             AssetDatabase.SaveAssets();
@@ -110,7 +117,7 @@ namespace FireSafety.EditorTools
             Debug.Log("[Setup] 提示：开始界面玩法说明文字请在场景 StartScreen 的 Instructions 字段修改；"
                       + "灭火器抓握姿态在 ToggleGrab.heldLocalPosition/heldLocalEuler 微调；"
                       + "倒计时时长在 DrillCountdown.durationSeconds 调整（上限 180 秒）。"
-                      + "桌面鼠标操作：右键单击拿起 / 左键单击拔销 / 左键双击压把 / 右键双击喷射 / P 放下。");
+                      + "桌面鼠标操作：右键单击灭火器答题/拿起 / 左键单击拔销 / 左键双击压把 / 右键双击喷射 / P 放下。");
         }
 
         // ================================================================
@@ -231,10 +238,18 @@ namespace FireSafety.EditorTools
             var go = GameObject.Find("StartScreen") ?? new GameObject("StartScreen");
             var start = go.GetComponent<StartScreen>() ?? go.AddComponent<StartScreen>();
             start.worldPosition = new Vector3(0f, 1.3f, 1.8f);
-            start.canvasScale = 0.004f;
+            start.canvasScale = 0.001f;              // 约 1 米宽，避免整块面板糊住视野
             start.startAlarmOnBegin = true;
             start.switchBgmToAlarm = true;
             start.igniteFiresOnBegin = true;
+            start.instructions =
+                "玩法说明：\n" +
+                "① 点击「开始演练」→ 警报响起，倒计时开始（上限 3 分钟）；\n" +
+                "② 找到红色灭火器：进入视线会高亮提示，地面箭头指向它的位置；\n" +
+                "③ 鼠标右键单击灭火器 → 弹出 5 道常识题，每题 10 秒，答对 60%（3 题）才能拿起；\n" +
+                "④ 拿起后：左键单击拔销 → 左键双击压把 → 右键双击喷射，火焰 2~3 秒熄灭即完成阶段一；\n" +
+                "⑤ 阶段一完成后倒计时暂停，可选择「立刻结算」或「继续往下」。\n" +
+                "键盘：P 放下灭火器；回车 / 空格 开始演练；问答时按 1 / 2 / 3 作答。";
             Debug.Log("[Setup] ✔ 开始界面：StartScreen（玩法说明文字可在 Inspector 修改）");
         }
 
@@ -320,6 +335,44 @@ namespace FireSafety.EditorTools
         }
 
         // ================================================================
+        // 5.6 阶段一完成面板（暂停倒计时 + 立刻结算 / 继续往下）
+        // ================================================================
+
+        static void SetupStageOnePanel()
+        {
+            var go = GameObject.Find("StageOnePanel") ?? new GameObject("StageOnePanel");
+            var panel = go.GetComponent<StageOneCompletePanel>() ?? go.AddComponent<StageOneCompletePanel>();
+            panel.countdown = UnityEngine.Object.FindObjectOfType<DrillCountdown>();
+            panel.startScreen = UnityEngine.Object.FindObjectOfType<StartScreen>();
+            panel.distanceFromCamera = 1.2f;
+            panel.title = "阶段一完成";
+            panel.buttonSettlement = "立刻结算";
+            panel.buttonContinue = "继续往下";
+            if (go.GetComponent<AudioSource>() == null) go.AddComponent<AudioSource>();
+            Debug.Log("[Setup] ✔ 阶段一完成面板：StageOneCompletePanel（暂停倒计时 + 立刻结算/继续往下）");
+        }
+
+        /// <summary>清理场景中脚本丢失（Missing Mono Script）的组件。</summary>
+        static void RemoveMissingScripts()
+        {
+            int removed = 0;
+            var scene = SceneManager.GetActiveScene();
+            foreach (var root in scene.GetRootGameObjects())
+            {
+                foreach (var t in root.GetComponentsInChildren<Transform>(true))
+                {
+                    int n = GameObjectUtility.RemoveMonoBehavioursWithMissingScript(t.gameObject);
+                    if (n > 0)
+                    {
+                        removed += n;
+                        Debug.LogWarning("[Setup] 清理缺失脚本组件：" + n + " 个 @ " + t.name);
+                    }
+                }
+            }
+            if (removed > 0) Debug.Log("[Setup] ✔ 已清理缺失脚本组件共 " + removed + " 个");
+        }
+
+        // ================================================================
         // 6. 灭火器装配
         // ================================================================
 
@@ -398,6 +451,7 @@ namespace FireSafety.EditorTools
             ext.quizRequired = true;
             ext.sprayRange = 3f;
             ext.sprayAngle = 20f;
+            ext.extinguishRate = 1f;                 // 火焰 extinguishThreshold=2.5 → 连续喷射约 2.5 秒扑灭
 
             // 喷嘴（喷射方向 = Z 轴）
             var nozzle = root.transform.Find("Nozzle");
@@ -412,7 +466,10 @@ namespace FireSafety.EditorTools
 
             // 常识问答面板（挂在灭火器根上）
             var quiz = root.GetComponent<ExtinguisherQuizPanel>() ?? root.AddComponent<ExtinguisherQuizPanel>();
-            quiz.panelOffset = new Vector3(0f, 1.4f, 0f);
+            quiz.ResetToDefaultQuestions();                 // 5 题，A/B/C 三选项
+            quiz.timePerQuestion = 10f;                     // 每题 10 秒
+            quiz.passRatio = 0.6f;                          // 答对 60%（3/5）才可通过
+            quiz.distanceFromCamera = 1.2f;                 // 面板固定出现在相机前方，不再随灭火器放大
             ext.quizPanel = quiz;
 
             // 手部姿态匹配（抓握时手指贴合瓶身）
@@ -584,7 +641,7 @@ namespace FireSafety.EditorTools
             var cam = rig.Camera != null ? rig.Camera.transform : Camera.main != null ? Camera.main.transform : null;
             input.cameraTransform = cam;
             input.doubleClickWindow = 0.25f;
-            input.handOffset = new Vector3(0.26f, -0.20f, 0.45f);
+            input.handOffset = new Vector3(0.33f, -0.24f, 0.7f);   // 0.7 米：既不糊镜头又能看清瓶身
             input.handEuler = new Vector3(0f, -12f, 0f);
 
             // 桌面手部锚点：挂在相机下，随视角移动
@@ -623,8 +680,9 @@ namespace FireSafety.EditorTools
             if (primary != null) input.quizPanel = primary.quizPanel;
 
             input.startScreen = UnityEngine.Object.FindObjectOfType<StartScreen>();
+            input.stagePanel = UnityEngine.Object.FindObjectOfType<StageOneCompletePanel>();
 
-            Debug.Log("[Setup] ✔ 桌面鼠标输入：右键单击拿起 / 左键单击拔销 / 左键双击压把 / 右键双击喷射 / P 放下"
+            Debug.Log("[Setup] ✔ 桌面鼠标输入：右键单击灭火器答题/拿起 / 左键单击拔销 / 左键双击压把 / 右键双击喷射 / P 放下"
                       + "（主灭火器：" + (primary != null ? primary.gameObject.name : "未找到") + "）");
         }
 

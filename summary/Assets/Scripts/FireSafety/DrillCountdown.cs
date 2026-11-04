@@ -29,6 +29,7 @@ namespace FireSafety
         public UnityEvent onDrillFinished;
 
         public bool IsRunning { get; private set; }
+        public bool IsPaused { get; private set; }
         public bool IsExpired { get; private set; }
         public bool IsFinished { get; private set; }
         public float Remaining { get; private set; }
@@ -98,9 +99,44 @@ namespace FireSafety
             if (IsRunning || IsExpired || IsFinished) return;
             Remaining = Mathf.Min(180f, durationSeconds);
             IsRunning = true;
+            IsPaused = false;
             _lastWholeSecond = -1;
             if (_group) _group.alpha = 1f;
             Debug.Log("[Countdown] 演练倒计时开始：" + Format(Remaining));
+        }
+
+        /// <summary>暂停倒计时（阶段一完成时调用），已走的时间保留。</summary>
+        public void Pause()
+        {
+            if (!IsRunning || IsPaused) return;
+            IsPaused = true;
+            Debug.Log("[Countdown] 倒计时已暂停，剩余 " + Format(Remaining));
+        }
+
+        /// <summary>从暂停处继续走（阶段一完成后点「继续往下」）。</summary>
+        public void Resume()
+        {
+            if (IsExpired) return;
+            IsPaused = false;
+            IsFinished = false;
+            IsRunning = true;
+            _lastWholeSecond = -1;
+            if (_group) _group.alpha = 1f;
+            SetText(Format(Remaining), Remaining <= dangerSeconds
+                ? new Color(1f, 0.5f, 0.2f)
+                : (Remaining <= warningSeconds ? new Color(1f, 0.72f, 0.2f) : Color.white), 56);
+            Debug.Log("[Countdown] 倒计时继续，剩余 " + Format(Remaining));
+        }
+
+        /// <summary>结算：停表并重置为满时长。</summary>
+        public void StopAndReset()
+        {
+            IsRunning = false;
+            IsPaused = false;
+            IsFinished = false;
+            IsExpired = false;
+            Remaining = Mathf.Min(180f, durationSeconds);
+            SetText(Format(Remaining), Color.white);
         }
 
         private void Update()
@@ -115,7 +151,7 @@ namespace FireSafety
                 _canvas.transform.rotation = Quaternion.Slerp(_canvas.transform.rotation, target, Time.deltaTime * 6f);
             }
 
-            if (!IsRunning) return;
+            if (!IsRunning || IsPaused) return;
 
             Remaining -= Time.deltaTime;
             if (Remaining <= dangerSeconds) TickPerSecond();
@@ -171,10 +207,10 @@ namespace FireSafety
         {
             if (IsExpired) return;
             IsFinished = true;
-            IsRunning = false;
-            SetText("演练完成", new Color(0.35f, 0.9f, 0.45f), 44);
+            Pause();
+            SetText("阶段一完成", new Color(0.35f, 0.9f, 0.45f), 40);
             onDrillFinished?.Invoke();
-            Debug.Log("[Countdown] 演练提前完成，倒计时冻结。");
+            Debug.Log("[Countdown] 阶段一完成，倒计时暂停等待玩家选择。");
         }
 
         // ---------------- HUD 构建 ----------------

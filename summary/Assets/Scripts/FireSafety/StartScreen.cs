@@ -1,5 +1,6 @@
 using System.Collections;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 using UnityEngine.XR.Interaction.Toolkit.UI;
 
@@ -49,12 +50,22 @@ namespace FireSafety
 
         public bool Started { get; private set; }
 
+        public static StartScreen Instance { get; private set; }
+
         Canvas _canvas;
         CanvasGroup _panelGroup;
         RectTransform _panelRect;
         Button _startButton;
+        Text _titleText;
+        Text _instText;
+        Text _startLabel;
         Transform _cam;
         AudioSource _alarmFallback;
+
+        void Awake()
+        {
+            Instance = this;
+        }
 
         void Start()
         {
@@ -118,18 +129,19 @@ namespace FireSafety
             _panelGroup = panel.GetComponent<CanvasGroup>();
 
             // 标题（带呼吸动画）
-            var titleText = MakeText(panel.transform, title, 64, new Color(1f, 0.85f, 0.2f), 110f);
-            UIFX.Pulse(this, titleText.transform, 1f, titlePulseAmplitude, titlePulseFrequency);
+            _titleText = MakeText(panel.transform, title, 64, new Color(1f, 0.85f, 0.2f), 110f);
+            UIFX.Pulse(this, _titleText.transform, 1f, titlePulseAmplitude, titlePulseFrequency);
 
             // 玩法说明文本框（可在 Inspector 的 Instructions 里修改）
-            var inst = MakeText(panel.transform, instructions, 30, Color.white, 320f);
-            inst.horizontalOverflow = HorizontalWrapMode.Wrap;
-            inst.verticalOverflow = VerticalWrapMode.Overflow;
-            inst.alignment = TextAnchor.UpperLeft;
+            _instText = MakeText(panel.transform, instructions, 30, Color.white, 320f);
+            _instText.horizontalOverflow = HorizontalWrapMode.Wrap;
+            _instText.verticalOverflow = VerticalWrapMode.Overflow;
+            _instText.alignment = TextAnchor.UpperLeft;
 
             // 开始按钮（带呼吸动画）
             _startButton = MakeButton(panel.transform, buttonLabel, 40,
                 new Color(0.12f, 0.55f, 0.30f, 1f), 100f);
+            _startLabel = _startButton.GetComponentInChildren<Text>();
             UIFX.Pulse(this, _startButton.transform, 1f, buttonPulseAmplitude, buttonPulseFrequency);
             _startButton.onClick.AddListener(StartGame);
         }
@@ -219,6 +231,51 @@ namespace FireSafety
             UIFX.Fade(this, _panelGroup, 1f, 0f, 0.3f);
             yield return new WaitForSeconds(0.35f);
             _canvas.gameObject.SetActive(false);
+        }
+
+        // ---------------- 结算 ----------------
+
+        /// <summary>阶段一「立刻结算」：重新显示开始面板，并改成结算 / 结束界面。</summary>
+        public void ShowSettlement(string summary)
+        {
+            if (_canvas == null) BuildUI();
+            Started = true;                       // 防止再走「开始演练」分支
+
+            _canvas.gameObject.SetActive(true);
+            PlaceInFrontOfCamera(1.25f);
+
+            if (_titleText != null) _titleText.text = "演练结算";
+            if (_instText != null)
+            {
+                _instText.text = summary;
+                _instText.alignment = TextAnchor.UpperCenter;
+            }
+            if (_startLabel != null) _startLabel.text = "重新演练";
+
+            _startButton.onClick.RemoveAllListeners();
+            _startButton.onClick.AddListener(RestartDrill);
+
+            PlayIntroAnimation();
+            Debug.Log("[StartScreen] 已切换为结算面板。");
+        }
+
+        /// <summary>结算面板上的「重新演练」：重载当前场景，回到初始状态。</summary>
+        public void RestartDrill()
+        {
+            PlayClick();
+            var scene = SceneManager.GetActiveScene();
+            if (scene.buildIndex >= 0) SceneManager.LoadScene(scene.buildIndex);
+            else SceneManager.LoadScene(scene.name);
+        }
+
+        void PlaceInFrontOfCamera(float distance)
+        {
+            Camera cam = Camera.main;
+            if (cam == null || _canvas == null) return;
+            var c = cam.transform;
+            Vector3 pos = c.position + c.forward * distance + c.up * -0.05f;
+            _canvas.transform.position = pos;
+            _canvas.transform.rotation = Quaternion.LookRotation(pos - c.position, Vector3.up);
         }
 
         void FireAlarm()

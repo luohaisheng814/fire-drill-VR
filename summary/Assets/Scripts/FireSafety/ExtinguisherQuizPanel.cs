@@ -8,9 +8,11 @@ using UnityEngine.XR.Interaction.Toolkit.UI;
 namespace FireSafety
 {
     /// <summary>
-    /// 拾取灭火器时弹出的「灭火器常识问答」面板（2~3 道选择题，可在 Inspector 增删题目）。
-    /// 答完所有题目（每道题都会给出正确/错误反馈与讲解）后自动关闭并广播 onPassed。
-    /// 纯代码生成世界空间 UI，中文字体自动解析。
+    /// 灭火器常识问答面板（默认 5 题，每题 A/B/C 三个选项）。
+    ///   · 每题限时 10 秒，超时未作答计为答错；
+    ///   · 答对比例达到 passRatio（默认 60%，可改 75%）才算通过，通过后才能拿起 / 拔销 / 喷射；
+    ///   · 未通过时面板关闭并广播 onFailed，可再次右键单击灭火器重新答题。
+    /// 面板固定出现在玩家前方约 1.2 米处、按米制尺寸渲染，不会随灭火器模型一起放大糊住镜头。
     /// </summary>
     public class ExtinguisherQuizPanel : MonoBehaviour
     {
@@ -18,78 +20,180 @@ namespace FireSafety
         public class QuizQuestion
         {
             [TextArea(2, 4)] public string question;
-            [Tooltip("4 个选项，第 correctIndex 个为正确答案（0 起）")]
-            public string[] options = new string[4];
+            [Tooltip("3 个选项，第 correctIndex 个为正确答案（0 起，对应 A/B/C）")]
+            public string[] options = new string[3];
             public int correctIndex;
             [TextArea(1, 3)] public string explanation;
         }
 
-        [Header("题目（默认 3 题，可增删）")]
-        public List<QuizQuestion> questions = new List<QuizQuestion>
-        {
-            new QuizQuestion
-            {
-                question = "使用灭火器灭火时，人应该站在火焰的哪个方向？",
-                options = new[] { "下风方向", "上风方向", "侧面随意站", "任意方向都可以" },
-                correctIndex = 1,
-                explanation = "站在上风方向可以避免被火势与浓烟包围，是最安全的位置。"
-            },
-            new QuizQuestion
-            {
-                question = "喷射灭火剂时，喷口应对准火焰的哪个部位？",
-                options = new[] { "火焰顶部", "火焰中部", "火焰根部", "对准空中" },
-                correctIndex = 2,
-                explanation = "对准火焰根部喷射，才能切断燃烧源，灭火效果最好。"
-            },
-            new QuizQuestion
-            {
-                question = "使用干粉灭火器前，应确认压力表指针位于哪个区域？",
-                options = new[] { "红色区域", "黄色区域", "绿色区域", "黑色区域" },
-                correctIndex = 2,
-                explanation = "指针位于绿色区域表示压力正常，可以正常喷射。"
-            }
-        };
+        [Header("题目（默认 5 题，可增删）")]
+        public List<QuizQuestion> questions = new List<QuizQuestion>();
 
-        [Header("UI 位置")]
-        [Tooltip("相对灭火器/锚点的偏移")]
-        public Vector3 panelOffset = new Vector3(0f, 1.35f, 0f);
-        public float canvasScale = 0.004f;
+        [Header("限时与通过条件")]
+        [Tooltip("每题作答限时（秒），超时计为答错")]
+        public float timePerQuestion = 10f;
+        [Tooltip("通过所需答对比例：0.6 = 60%（3/5），也可设为 0.75")]
+        [Range(0.3f, 1f)] public float passRatio = 0.6f;
+
+        [Header("面板位置（米制，跟随相机的固定距离）")]
+        [Tooltip("面板出现在相机前方多少米")]
+        public float distanceFromCamera = 1.2f;
+        [Tooltip("面板相对视线高度的上下偏移（米）")]
+        public float verticalOffset = 0f;
 
         [Header("行为")]
         [Tooltip("答错时显示正确答案与讲解，随后进入下一题")]
         public bool teachOnWrong = true;
         [Tooltip("每道题作答后的停留秒数")]
-        public float advanceDelay = 1.5f;
+        public float advanceDelay = 1.3f;
 
         [Header("事件")]
-        public UnityEvent onPassed;
+        public UnityEvent onPassed = new UnityEvent();
+        public UnityEvent onFailed = new UnityEvent();
+        public UnityEvent<int> onCorrectChanged = new UnityEvent<int>();
 
         public bool IsOpen { get; private set; }
         public bool Passed { get; private set; }
+        public bool Failed { get; private set; }
         public int CorrectCount { get; private set; }
+        public int QuestionIndex => _index;
+        public int QuestionCount => questions != null ? questions.Count : 0;
+        public int OptionCount => 3;
+        public float TimeLeft => Mathf.Max(0f, _timeLeft);
+        public bool IsAnsweredThisQuestion => _answered;
+        public int PassCorrectCount
+        {
+            get
+            {
+                int n = QuestionCount;
+                if (n <= 0) return 0;
+                return Mathf.CeilToInt(Mathf.Clamp01(passRatio) * n - 0.0001f);
+            }
+        }
 
         Canvas _canvas;
         GameObject _panelRoot;
         CanvasGroup _panelGroup;
         Text _progressText;
+        Text _timerText;
+        Image _timerFill;
         Text _questionText;
         Text _feedbackText;
         List<Button> _optionButtons = new List<Button>();
         List<Text> _optionLabels = new List<Text>();
         int _index;
-        Coroutine _advance;
+        float _timeLeft;
+        bool _answered;
+        float _advanceTimer;
+        bool _finished;
+        float _closeTimer;
+        AudioSource _src;
+
+        // ---------------- 题库 ----------------
+
+        /// <summary>默认 5 题：站上风、对根部、看压力、提拔握压、金属火灾不适用。</summary>
+        public static List<QuizQuestion> BuildDefaultQuestions()
+        {
+            return new List<QuizQuestion>
+            {
+                new QuizQuestion
+                {
+                    question = "使用干粉灭火器灭火时，人应该站在火焰的哪个方向？",
+                    options = new[] { "下风方向", "上风（或侧上风）方向", "正对火焰，站哪都一样" },
+                    correctIndex = 1,
+                    explanation = "应站在上风或侧上风方向，避免火焰和高温烟气扑向自己。"
+                },
+                new QuizQuestion
+                {
+                    question = "喷射灭火剂时，喷管应该对准火焰的哪个部位？",
+                    options = new[] { "火焰顶端", "火焰中部", "火焰根部" },
+                    correctIndex = 2,
+                    explanation = "火焰根部才是燃烧反应发生的核心，对准根部扫射才能有效扑灭。"
+                },
+                new QuizQuestion
+                {
+                    question = "手提式干粉灭火器的压力表指针，指在哪个区域表示压力正常可用？",
+                    options = new[] { "红色区域", "绿色区域", "黄色区域" },
+                    correctIndex = 1,
+                    explanation = "绿区压力正常；红区压力不足；黄区压力偏高。"
+                },
+                new QuizQuestion
+                {
+                    question = "灭火器的标准操作口诀是「提、拔、握、压」，其中「拔」指的是？",
+                    options = new[] { "拔出保险销", "拔下喷管", "拔开压力表" },
+                    correctIndex = 0,
+                    explanation = "提起灭火器摇匀 → 拔出保险销 → 握住喷管对准火焰根部 → 压下压把。"
+                },
+                new QuizQuestion
+                {
+                    question = "干粉灭火器通常不适用于扑救下列哪类火灾？",
+                    options = new[] { "木材、纸张等固体火灾", "汽油、柴油等液体火灾", "钾、钠等活泼金属火灾" },
+                    correctIndex = 2,
+                    explanation = "钾、钠等金属火灾属 D 类火灾，必须使用专用金属火灾灭火剂，普通干粉不适用。"
+                }
+            };
+        }
+
+        /// <summary>让装配脚本把题库刷成默认 5 题。</summary>
+        public void ResetToDefaultQuestions()
+        {
+            questions = BuildDefaultQuestions();
+        }
 
         void Awake()
         {
+            if (questions == null || questions.Count == 0) questions = BuildDefaultQuestions();
             BuildUI();
+            _src = GetComponent<AudioSource>();
+        }
+
+        void Update()
+        {
+            if (!IsOpen) return;
+            AdvanceTime(Time.deltaTime);
+        }
+
+        /// <summary>推进问答计时（Update 调用；自检里可用固定步长直接驱动）。</summary>
+        public void AdvanceTime(float dt)
+        {
+            if (!IsOpen || dt <= 0f) return;
+
+            // 已结束：停留一会儿自动收起面板
+            if (_finished)
+            {
+                _closeTimer -= dt;
+                if (_closeTimer <= 0f) Close();
+                return;
+            }
+
+            // 已作答：等待进入下一题
+            if (_answered)
+            {
+                _advanceTimer -= dt;
+                if (_advanceTimer <= 0f)
+                {
+                    if (_index + 1 < questions.Count) ShowQuestion(_index + 1);
+                    else Finish();
+                }
+                return;
+            }
+
+            if (questions == null || _index >= questions.Count) return;
+            _timeLeft -= dt;
+            RefreshTimer();
+            if (_timeLeft <= 0f)
+            {
+                _timeLeft = 0f;
+                OnTimeOut();
+            }
         }
 
         // ---------------- 对外接口 ----------------
 
-        /// <summary>在世界锚点处打开问答面板。</summary>
-        public void Open(Transform worldAnchor = null)
+        /// <summary>在玩家相机前方打开问答面板（anchor 参数保留兼容，不再按灭火器缩放）。</summary>
+        public void Open(Transform anchor = null)
         {
-            if (Passed) return;
+            if (Passed || IsOpen) return;
             if (questions == null || questions.Count == 0)
             {
                 Debug.LogWarning("[Quiz] 没有配置题目，直接视为通过。");
@@ -98,17 +202,25 @@ namespace FireSafety
                 return;
             }
 
-            Transform anchor = worldAnchor != null ? worldAnchor : transform;
             if (_canvas == null) BuildUI();
-            _canvas.transform.position = anchor.position + panelOffset;
+            PlaceInFrontOfCamera();
             _canvas.gameObject.SetActive(true);
             _panelRoot.SetActive(true);
-            _panelGroup.alpha = 0f;
-            UIFX.Fade(this, _panelGroup, 0f, 1f, 0.25f);
-            UIFX.ScaleIn(this, _panelRoot.transform, 0.88f, 1f, 0.3f, 1.06f);
+            if (Application.isPlaying)
+            {
+                _panelGroup.alpha = 0f;
+                UIFX.Fade(this, _panelGroup, 0f, 1f, 0.25f);
+                UIFX.ScaleIn(this, _panelRoot.transform, 0.9f, 1f, 0.28f, 1.05f);
+            }
+            else _panelGroup.alpha = 1f;
 
             _index = 0;
             CorrectCount = 0;
+            Failed = false;
+            _answered = false;
+            _advanceTimer = 0f;
+            _finished = false;
+            _closeTimer = 0f;
             IsOpen = true;
             ShowQuestion(0);
         }
@@ -116,22 +228,29 @@ namespace FireSafety
         public void Close()
         {
             IsOpen = false;
+            _finished = false;
+            _answered = false;
             if (_canvas != null) _canvas.gameObject.SetActive(false);
         }
 
         public void ResetQuiz()
         {
             Passed = false;
+            Failed = false;
             IsOpen = false;
             CorrectCount = 0;
             _index = 0;
+            _answered = false;
+            _advanceTimer = 0f;
+            _finished = false;
+            _closeTimer = 0f;
             if (_canvas != null) _canvas.gameObject.SetActive(false);
         }
 
-        /// <summary>键盘/鼠标等外部输入作答（0 起）。仅当面板打开且该选项可点时生效。</summary>
+        /// <summary>键盘 / 鼠标作答（0 起，对应 A/B/C）。仅当面板打开且该选项可点时生效。</summary>
         public bool AnswerOption(int optionIndex)
         {
-            if (!IsOpen) return false;
+            if (!IsOpen || _answered) return false;
             if (_optionButtons == null || optionIndex < 0 || optionIndex >= _optionButtons.Count) return false;
 
             var btn = _optionButtons[optionIndex];
@@ -151,8 +270,8 @@ namespace FireSafety
             _canvas.renderMode = RenderMode.WorldSpace;
             _canvas.sortingOrder = 250;
             var rt = go.GetComponent<RectTransform>();
-            rt.sizeDelta = new Vector2(1000, 800);
-            rt.localScale = Vector3.one * canvasScale;
+            rt.sizeDelta = new Vector2(1000, 780);
+            rt.localScale = Vector3.one * 0.0009f;      // 1000 单位 ≈ 0.9 米宽
             go.AddComponent<CanvasScaler>();
             go.AddComponent<GraphicRaycaster>();
             go.AddComponent<TrackedDeviceGraphicRaycaster>();
@@ -164,7 +283,7 @@ namespace FireSafety
             img.color = new Color(0.05f, 0.07f, 0.12f, 0.95f);
             var layout = panel.GetComponent<VerticalLayoutGroup>();
             layout.spacing = 10f;
-            layout.padding = new RectOffset(26, 26, 26, 26);
+            layout.padding = new RectOffset(26, 26, 24, 24);
             layout.childAlignment = TextAnchor.UpperCenter;
             layout.childControlWidth = true;
             layout.childControlHeight = false;
@@ -179,30 +298,73 @@ namespace FireSafety
             _panelGroup = panel.GetComponent<CanvasGroup>();
             _panelRoot = panel;
 
-            AddText(panel.transform, "灭火器常识问答", 46, new Color(1f, 0.85f, 0.2f), 80f);
-            _progressText = AddText(panel.transform, "", 28, new Color(0.6f, 0.8f, 1f), 44f);
-            _questionText = AddText(panel.transform, "", 34, Color.white, 120f);
+            AddText(panel.transform, "灭火器常识问答", 42, new Color(1f, 0.85f, 0.2f), 62f);
+
+            var infoRow = new GameObject("InfoRow", typeof(RectTransform), typeof(HorizontalLayoutGroup));
+            infoRow.transform.SetParent(panel.transform, false);
+            var hl = infoRow.GetComponent<HorizontalLayoutGroup>();
+            hl.spacing = 12f;
+            hl.childAlignment = TextAnchor.MiddleCenter;
+            hl.childControlWidth = true;
+            hl.childControlHeight = false;
+            hl.childForceExpandWidth = true;
+            hl.childForceExpandHeight = false;
+            var hrt = infoRow.GetComponent<RectTransform>();
+            hrt.sizeDelta = new Vector2(880, 40);
+            var le0 = infoRow.AddComponent<LayoutElement>();
+            le0.preferredHeight = 40f;
+
+            _progressText = AddTextTo(infoRow.transform, "", 28, new Color(0.6f, 0.8f, 1f), 40f);
+            _timerText = AddTextTo(infoRow.transform, "", 28, new Color(1f, 0.9f, 0.4f), 40f);
+
+            // 计时条
+            var barBg = new GameObject("TimerBar", typeof(RectTransform), typeof(Image));
+            barBg.transform.SetParent(panel.transform, false);
+            barBg.GetComponent<Image>().color = new Color(0.18f, 0.2f, 0.26f, 1f);
+            barBg.GetComponent<Image>().raycastTarget = false;
+            var bgr = barBg.GetComponent<RectTransform>();
+            bgr.sizeDelta = new Vector2(880, 10);
+            var bgle = barBg.AddComponent<LayoutElement>();
+            bgle.preferredHeight = 10f;
+
+            var fillGo = new GameObject("Fill", typeof(RectTransform), typeof(Image));
+            fillGo.transform.SetParent(barBg.transform, false);
+            _timerFill = fillGo.GetComponent<Image>();
+            _timerFill.color = new Color(0.25f, 0.75f, 0.95f, 1f);
+            _timerFill.type = Image.Type.Filled;
+            _timerFill.fillMethod = Image.FillMethod.Horizontal;
+            _timerFill.fillOrigin = (int)Image.OriginHorizontal.Left;
+            _timerFill.raycastTarget = false;
+            var frt = fillGo.GetComponent<RectTransform>();
+            frt.anchorMin = Vector2.zero;
+            frt.anchorMax = Vector2.one;
+            frt.offsetMin = Vector2.zero;
+            frt.offsetMax = Vector2.zero;
+
+            _questionText = AddText(panel.transform, "", 32, Color.white, 88f);
 
             var optionsHost = new GameObject("Options", typeof(RectTransform), typeof(VerticalLayoutGroup));
             optionsHost.transform.SetParent(panel.transform, false);
             var ol = optionsHost.GetComponent<VerticalLayoutGroup>();
             ol.spacing = 8f;
-            ol.padding = new RectOffset(10, 10, 4, 4);
+            ol.padding = new RectOffset(10, 10, 2, 2);
             var ort = optionsHost.GetComponent<RectTransform>();
-            ort.sizeDelta = new Vector2(880, 300);
+            ort.sizeDelta = new Vector2(880, 232);
             _optionButtons.Clear();
             _optionLabels.Clear();
-            for (int i = 0; i < 4; i++)
+            for (int i = 0; i < 3; i++)
             {
                 int idx = i;
-                var b = AddButton(optionsHost.transform, "", 30, new Color(0.16f, 0.38f, 0.62f, 1f), 66f);
+                var b = AddButton(optionsHost.transform, "", 30, new Color(0.16f, 0.38f, 0.62f, 1f), 64f);
                 _optionButtons.Add(b);
                 _optionLabels.Add(b.GetComponentInChildren<Text>());
                 b.onClick.AddListener(() => OnOptionClicked(idx));
             }
 
-            _feedbackText = AddText(panel.transform, "", 28, Color.cyan, 80f);
-            AddText(panel.transform, "提示：用手柄射线指向选项并扣动扳机选择", 22, new Color(0.75f, 0.75f, 0.75f), 40f);
+            _feedbackText = AddText(panel.transform, "", 26, Color.cyan, 64f);
+            AddText(panel.transform,
+                "每题 10 秒 · 超时计为答错 · 答对 " + PassCorrectCount + " / " + QuestionCount + " 题即可拿起灭火器",
+                20, new Color(0.72f, 0.72f, 0.72f), 34f);
 
             go.SetActive(false);
         }
@@ -225,6 +387,14 @@ namespace FireSafety
             le.preferredHeight = height;
             var trt = t.GetComponent<RectTransform>();
             trt.sizeDelta = new Vector2(trt.sizeDelta.x, height);
+            return text;
+        }
+
+        Text AddTextTo(Transform parent, string content, int size, Color color, float height)
+        {
+            var text = AddText(parent, content, size, color, height);
+            var le = text.GetComponent<LayoutElement>();
+            if (le != null) le.flexibleWidth = 1f;
             return text;
         }
 
@@ -260,6 +430,16 @@ namespace FireSafety
             return btn;
         }
 
+        /// <summary>把面板放到相机正前方固定距离处，并面向玩家。</summary>
+        void PlaceInFrontOfCamera()
+        {
+            Camera cam = Camera.main;
+            Transform c = cam != null ? cam.transform : transform;
+            Vector3 pos = c.position + c.forward * distanceFromCamera + c.up * verticalOffset;
+            _canvas.transform.position = pos;
+            _canvas.transform.rotation = Quaternion.LookRotation(pos - c.position, Vector3.up);
+        }
+
         // ---------------- 答题流程 ----------------
 
         void ShowQuestion(int index)
@@ -267,29 +447,56 @@ namespace FireSafety
             if (index >= questions.Count) { Finish(); return; }
 
             var q = questions[index];
+            _index = index;
+            _answered = false;
+            _timeLeft = Mathf.Max(1f, timePerQuestion);
             _progressText.text = "第 " + (index + 1) + " / " + questions.Count + " 题";
             _questionText.text = q.question;
+            _questionText.color = Color.white;
             _feedbackText.text = "";
+            RefreshTimer();
+
             for (int i = 0; i < _optionButtons.Count; i++)
             {
-                bool valid = i < q.options.Length && !string.IsNullOrEmpty(q.options[i]);
+                bool valid = q.options != null && i < q.options.Length && !string.IsNullOrEmpty(q.options[i]);
                 _optionButtons[i].gameObject.SetActive(valid);
-                if (valid) _optionLabels[i].text = (i + 1) + ". " + q.options[i];
+                if (valid) _optionLabels[i].text = OptionLetter(i) + ". " + q.options[i];
                 _optionButtons[i].interactable = true;
                 _optionButtons[i].image.color = new Color(0.16f, 0.38f, 0.62f, 1f);
             }
         }
 
+        void RefreshTimer()
+        {
+            if (_timerText != null)
+                _timerText.text = "剩余 " + Mathf.CeilToInt(Mathf.Max(0f, _timeLeft)) + " 秒";
+
+            if (_timerFill != null)
+            {
+                float k = timePerQuestion > 0f ? Mathf.Clamp01(_timeLeft / timePerQuestion) : 0f;
+                _timerFill.fillAmount = k;
+                _timerFill.color = k > 0.5f
+                    ? new Color(0.25f, 0.75f, 0.95f, 1f)
+                    : (k > 0.25f ? new Color(1f, 0.75f, 0.25f, 1f) : new Color(0.9f, 0.25f, 0.25f, 1f));
+            }
+        }
+
+        static string OptionLetter(int i) => i == 0 ? "A" : (i == 1 ? "B" : (i == 2 ? "C" : "D"));
+
         void OnOptionClicked(int optionIndex)
         {
-            if (!IsOpen || _index >= questions.Count) return;
+            if (!IsOpen || _answered) return;
+            if (_index >= questions.Count) return;
+
             var q = questions[_index];
+            _answered = true;
 
             for (int i = 0; i < _optionButtons.Count; i++) _optionButtons[i].interactable = false;
 
             if (optionIndex == q.correctIndex)
             {
                 CorrectCount++;
+                onCorrectChanged?.Invoke(CorrectCount);
                 _optionButtons[optionIndex].image.color = new Color(0.15f, 0.65f, 0.30f, 1f);
                 _feedbackText.text = "回答正确！" + (string.IsNullOrEmpty(q.explanation) ? "" : q.explanation);
                 _feedbackText.color = Color.green;
@@ -305,41 +512,70 @@ namespace FireSafety
                 Play("Sounds/SFX/quiz_wrong");
             }
 
-            if (_advance != null) StopCoroutine(_advance);
-            _advance = StartCoroutine(AdvanceRoutine());
+            ScheduleAdvance();
         }
 
-        IEnumerator AdvanceRoutine()
+        void OnTimeOut()
         {
-            yield return new WaitForSeconds(advanceDelay);
-            _index++;
-            if (_index < questions.Count) ShowQuestion(_index);
-            else Finish();
+            if (_answered) return;
+            _answered = true;
+            var q = _index < questions.Count ? questions[_index] : null;
+
+            for (int i = 0; i < _optionButtons.Count; i++) _optionButtons[i].interactable = false;
+            if (q != null && q.correctIndex >= 0 && q.correctIndex < _optionButtons.Count)
+                _optionButtons[q.correctIndex].image.color = new Color(0.15f, 0.65f, 0.30f, 1f);
+
+            _feedbackText.text = "超时！本题计为答错。" +
+                (q != null && !string.IsNullOrEmpty(q.explanation) ? q.explanation : "");
+            _feedbackText.color = new Color(1f, 0.55f, 0.35f);
+            Play("Sounds/SFX/quiz_wrong");
+            ScheduleAdvance();
+        }
+
+        void ScheduleAdvance()
+        {
+            _advanceTimer = Mathf.Max(0.01f, advanceDelay);
         }
 
         void Finish()
         {
-            IsOpen = false;
-            Passed = true;
-            _feedbackText.text = "回答完毕！现在去对准火源灭火吧。";
-            _feedbackText.color = Color.green;
-            Play("Sounds/SFX/quiz_correct");
-            onPassed?.Invoke();
-            if (_advance != null) StopCoroutine(_advance);
-            _advance = StartCoroutine(CloseRoutine());
-        }
+            int total = QuestionCount;
+            bool pass = total > 0 && CorrectCount >= PassCorrectCount;
+            Passed = pass;
+            Failed = !pass;
 
-        IEnumerator CloseRoutine()
-        {
-            UIFX.Fade(this, _panelGroup, 1f, 0f, 0.3f);
-            yield return new WaitForSeconds(0.4f);
-            if (_canvas != null) _canvas.gameObject.SetActive(false);
+            _progressText.text = "答题结束";
+            _questionText.text = pass
+                ? "通过！答对 " + CorrectCount + " / " + total + " 题，已达到 " + Mathf.RoundToInt(passRatio * 100f) + "% 的要求。"
+                : "未通过：答对 " + CorrectCount + " / " + total + " 题，需要至少 " + PassCorrectCount +
+                  " 题（" + Mathf.RoundToInt(passRatio * 100f) + "%）。右键单击灭火器可重新答题。";
+            _questionText.color = pass ? new Color(0.5f, 0.95f, 0.55f) : new Color(1f, 0.45f, 0.45f);
+            _feedbackText.text = "";
+            for (int i = 0; i < _optionButtons.Count; i++) _optionButtons[i].gameObject.SetActive(false);
+
+            if (pass)
+            {
+                Play("Sounds/SFX/quiz_correct");
+                onPassed?.Invoke();
+            }
+            else
+            {
+                Play("Sounds/SFX/quiz_wrong");
+                onFailed?.Invoke();
+            }
+
+            // 结果停留一会儿再自动收起（AdvanceTime 里推进，便于自检）
+            _finished = true;
+            _closeTimer = 1.2f;
         }
 
         void Play(string resourcePath)
         {
             var clip = Resources.Load<AudioClip>(resourcePath);
-            if (clip != null) AudioSource.PlayClipAtPoint(clip, transform.position, 0.7f);
+            if (clip == null) return;
+            if (_src == null) _src = GetComponent<AudioSource>();
+            if (_src != null) _src.PlayOneShot(clip, 0.7f);
+            else AudioSource.PlayClipAtPoint(clip, transform.position, 0.7f);
         }
     }
 }

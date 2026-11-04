@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.UI;
@@ -6,29 +7,36 @@ namespace FireSafety
 {
     /// <summary>
     /// 桌面鼠标调试输入（无需头显即可走完阶段一流程）：
-    ///   右键单击 → 拿起灭火器（自动拿起离视角最近的一台）
+    ///   右键单击灭火器 → 弹出常识问答（5 题 / 每题 10 秒 / 答对 60% 通过）；通过后拿起灭火器
+    ///   右键单击（已通过问答）→ 拿起灭火器
     ///   左键单击 → 拔出保险销
     ///   左键双击 → 按下压把（必须手持灭火器）
     ///   右键双击 → 喷射 / 停止喷射
-    ///   P         → 放下灭火器
+    ///   P        → 放下灭火器
     ///   回车 / 空格 → 开始演练（也可用鼠标点「开始演练」按钮）
-    ///   1~4       → 常识问答作答（也可用鼠标点选项）
+    ///   1~3      → 常识问答作答（也可用鼠标点选项）
     /// 与 XR 手柄输入并存：手持状态由 ToggleGrab 统一维护，压把状态由 HandleLever 统一维护。
     /// </summary>
     public class DesktopDrillInput : MonoBehaviour
     {
         [Header("引用")]
         public Extinguisher extinguisher;
-        [Tooltip("场景中的全部灭火器（右键单击时取离视角最近的一台）")]
+        [Tooltip("场景中的全部灭火器（右键单击时优先取鼠标射中的那台）")]
         public Extinguisher[] extinguishers;
         public ExtinguisherQuizPanel quizPanel;
         public StartScreen startScreen;
+        public StageOneCompletePanel stagePanel;
         public Transform cameraTransform;
 
         [Header("桌面手部锚点（留空自动创建在相机下）")]
         public Transform handAnchor;
-        public Vector3 handOffset = new Vector3(0.26f, -0.20f, 0.45f);
+        [Tooltip("手持位置：太近会糊住镜头，建议 0.6~0.8 米")]
+        public Vector3 handOffset = new Vector3(0.33f, -0.24f, 0.7f);
         public Vector3 handEuler = new Vector3(0f, -12f, 0f);
+
+        [Header("选取灭火器")]
+        [Tooltip("鼠标射不中时，允许在该距离内自动选取视线前方的灭火器")]
+        public float grabRadius = 2.2f;
 
         [Header("双击判定")]
         [Tooltip("两次点击间隔小于该值算双击（秒）")]
@@ -44,6 +52,7 @@ namespace FireSafety
         public bool logHints = true;
 
         Extinguisher _active;
+        Extinguisher _pendingGrab;
         float _lastLeftClick = -99f;
         float _lastRightClick = -99f;
 
@@ -99,6 +108,7 @@ namespace FireSafety
             _active = extinguisher;
             if (quizPanel == null && _active != null) quizPanel = _active.quizPanel;
             if (startScreen == null) startScreen = FindObjectOfType<StartScreen>();
+            if (stagePanel == null) stagePanel = FindObjectOfType<StageOneCompletePanel>();
 
             RefreshHudText(true);
         }
@@ -122,8 +132,10 @@ namespace FireSafety
             if (keyboard.enterKey.wasPressedThisFrame || keyboard.spaceKey.wasPressedThisFrame)
                 TryStartDrill();
 
-            // ---------- 右键：单击拿起 / 双击喷射 ----------
-            if (mouse.rightButton.wasPressedThisFrame)
+            bool modalOpen = IsModalOpen();
+
+            // ---------- 右键：单击（问答/拿起）· 双击喷射 ----------
+            if (mouse.rightButton.wasPressedThisFrame && !modalOpen)
             {
                 float now = Time.unscaledTime;
                 if (now - _lastRightClick <= doubleClickWindow)
@@ -145,13 +157,21 @@ namespace FireSafety
                 {
                     _lastLeftClick = -99f;       // 点 UI 不参与双击判定
                 }
+                else if (modalOpen)
+                {
+                    Hint("请先在面板中选择（鼠标点击面板上的按钮）");
+                }
                 else if (startScreen != null && !startScreen.Started)
                 {
                     Hint("请先用鼠标点击屏幕中的「开始演练」按钮（或按 回车 / 空格）");
                 }
                 else if (quizPanel != null && quizPanel.IsOpen)
                 {
-                    Hint("请先用鼠标点击题目选项作答（也可按 1~4）");
+                    Hint("请先用鼠标点击题目选项作答（也可按 1 / 2 / 3）");
+                }
+                else if (quizPanel != null && quizPanel.Failed)
+                {
+                    Hint("问答未通过：右键单击灭火器可重新答题");
                 }
                 else
                 {
@@ -170,12 +190,13 @@ namespace FireSafety
             }
 
             // ---------- P：放下 ----------
-            if (keyboard.pKey.wasPressedThisFrame) DropExtinguisher();
+            if (keyboard.pKey.wasPressedThisFrame && !modalOpen) DropExtinguisher();
 
-            // ---------- 1~4：问答作答 ----------
+            // ---------- 1~3：问答作答 ----------
             if (quizPanel != null && quizPanel.IsOpen)
             {
-                for (int i = 0; i < 4; i++)
+                int n = Mathf.Clamp(quizPanel.OptionCount, 1, 4);
+                for (int i = 0; i < n; i++)
                 {
                     var key = i switch
                     {
@@ -189,6 +210,14 @@ namespace FireSafety
             }
         }
 
+        private bool IsModalOpen()
+        {
+            // 问答结果展示阶段（已判过对错）不再拦截操作
+            if (quizPanel != null && quizPanel.IsOpen && !quizPanel.Passed && !quizPanel.Failed) return true;
+            if (stagePanel != null && stagePanel.IsOpen) return true;
+            return false;
+        }
+
         // ---------------- 动作 ----------------
 
         private void TryStartDrill()
@@ -196,7 +225,7 @@ namespace FireSafety
             if (startScreen != null && !startScreen.Started)
             {
                 startScreen.StartGame();
-                Hint("演练开始：找灭火器 → 右键单击拿起");
+                Hint("演练开始：找灭火器 → 右键单击灭火器 → 答题 → 拿起 → 拔销 → 压把 → 喷射");
             }
         }
 
@@ -213,15 +242,58 @@ namespace FireSafety
                 return;
             }
 
-            var target = PickNearest();
-            if (target == null || target.grab == null) { Hint("场景中没有可拿取的灭火器"); return; }
+            var target = PickUnderMouse();
+            if (target == null || target.grab == null)
+            {
+                Hint("把鼠标对准灭火器再右键单击（走近一点更容易选中）");
+                return;
+            }
 
             _active = target;
             if (target.pin == null) target.pin = target.GetComponentInChildren<SafetyPin>(true);
             if (target.quizPanel != null) quizPanel = target.quizPanel;
 
+            // 未通过常识问答 → 先弹出问答面板，答对 60% 才能拿起
+            if (target.quizRequired && !target.QuizPassed && quizPanel != null)
+            {
+                if (quizPanel.IsOpen) { Hint("请先完成正在进行的问答"); return; }
+                if (quizPanel.Failed) quizPanel.ResetQuiz();
+
+                _pendingGrab = target;
+                quizPanel.onPassed.RemoveListener(HandleQuizPassed);
+                quizPanel.onFailed.RemoveListener(HandleQuizFailed);
+                quizPanel.onPassed.AddListener(HandleQuizPassed);
+                quizPanel.onFailed.AddListener(HandleQuizFailed);
+
+                quizPanel.Open();
+                Hint("灭火器常识问答：5 题，每题 10 秒，答对 3 题即可拿起（点选项或按 1/2/3）");
+                return;
+            }
+
+            GrabActive(target);
+        }
+
+        private void GrabActive(Extinguisher target)
+        {
             target.grab.GrabExternal(handAnchor, HandSide.Right);
-            Hint("已拿起 " + target.gameObject.name + " → 先完成常识问答，再左键单击拔出保险销");
+            Hint("已拿起 " + target.gameObject.name + " → 左键单击拔出保险销");
+        }
+
+        private void HandleQuizPassed()
+        {
+            if (_pendingGrab == null) return;
+            var target = _pendingGrab;
+            _pendingGrab = null;
+            target.MarkQuizPassed();
+            Hint("问答通过 → 已拿起灭火器，左键单击拔出保险销");
+            GrabActive(target);
+        }
+
+        private void HandleQuizFailed()
+        {
+            if (_pendingGrab != null) _pendingGrab.MarkQuizFailed();
+            _pendingGrab = null;
+            Hint("问答未通过（需答对 60%）：右键单击灭火器可重新答题");
         }
 
         private void OnRightDoubleClick()
@@ -236,14 +308,14 @@ namespace FireSafety
                 return;
             }
             if (ext.TryStartSpray())
-                Hint("正在喷射 → 对准火焰根部；右键双击可停止");
+                Hint("正在喷射 → 持续 2~3 秒对准火焰根部，右键双击可停止");
         }
 
         private void OnLeftClick()
         {
             var ext = Current;
             if (ext == null) return;
-            if (!Held) { Hint("请先右键单击拿起灭火器"); return; }
+            if (!Held) { Hint("请先右键单击灭火器（先答题，再拿起）"); return; }
             if (ext.PinPulled) { Hint("保险销已拔出 → 左键双击按下压把"); return; }
 
             if (ext.pin != null)
@@ -258,7 +330,7 @@ namespace FireSafety
         {
             var ext = Current;
             if (ext == null) return;
-            if (!Held) { Hint("请先右键单击拿起灭火器"); return; }
+            if (!Held) { Hint("请先右键单击灭火器（先答题，再拿起）"); return; }
             if (!ext.PinPulled) { Hint("请先左键单击拔出保险销"); return; }
 
             if (ext.handleLever == null) { Hint("该灭火器没有配置压把（HandleLever）"); return; }
@@ -293,6 +365,60 @@ namespace FireSafety
             }
         }
 
+        private Camera GetCamera()
+        {
+            if (cameraTransform != null)
+            {
+                var cam = cameraTransform.GetComponent<Camera>();
+                if (cam != null) return cam;
+            }
+            return Camera.main;
+        }
+
+        /// <summary>鼠标射线选中灭火器；射不中时退化为「视线前方最近的一台」。</summary>
+        private Extinguisher PickUnderMouse()
+        {
+            var mouse = Mouse.current;
+            var cam = GetCamera();
+
+            if (cam != null && mouse != null)
+            {
+                Ray ray = cam.ScreenPointToRay(mouse.position.ReadValue());
+                var hits = Physics.RaycastAll(ray, 30f, ~0, QueryTriggerInteraction.Collide);
+                Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+                foreach (var h in hits)
+                {
+                    if (h.collider == null) continue;
+                    var e = h.collider.GetComponentInParent<Extinguisher>();
+                    if (e != null) return e;
+                }
+            }
+            return PickNearestInView();
+        }
+
+        private Extinguisher PickNearestInView()
+        {
+            Extinguisher best = null;
+            float bestScore = float.MaxValue;
+            var cam = GetCamera();
+            Vector3 from = cam != null ? cam.transform.position : transform.position;
+            Vector3 fwd = cam != null ? cam.transform.forward : transform.forward;
+
+            if (extinguishers != null)
+            {
+                foreach (var e in extinguishers)
+                {
+                    if (e == null) continue;
+                    Vector3 to = e.transform.position - from;
+                    float d = to.magnitude;
+                    if (d > grabRadius) continue;
+                    if (Vector3.Dot(fwd, to.normalized) < 0.3f) continue;
+                    if (d < bestScore) { bestScore = d; best = e; }
+                }
+            }
+            return best;
+        }
+
         private Extinguisher PickNearest()
         {
             Extinguisher best = null;
@@ -311,13 +437,13 @@ namespace FireSafety
             return best;
         }
 
-        /// <summary>用鼠标点世界空间 UI（开始按钮、问答选项等）：不依赖 EventSystem 的 XR 射线。</summary>
+        /// <summary>用鼠标点世界空间 UI（开始按钮、问答选项、阶段面板按钮）：不依赖 EventSystem 的 XR 射线。</summary>
         private bool TryClickUI()
         {
             var mouse = Mouse.current;
             if (mouse == null) return false;
 
-            Camera cam = cameraTransform != null ? cameraTransform.GetComponent<Camera>() : Camera.main;
+            Camera cam = GetCamera();
             Vector2 pos = mouse.position.ReadValue();
 
             foreach (var b in FindObjectsByType<Button>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
@@ -372,7 +498,7 @@ namespace FireSafety
             rt.anchorMax = new Vector2(0.5f, 0f);
             rt.pivot = new Vector2(0.5f, 0f);
             rt.anchoredPosition = new Vector2(0f, 16f);
-            rt.sizeDelta = new Vector2(1560f, 132f);
+            rt.sizeDelta = new Vector2(1640f, 120f);
 
             var img = bar.GetComponent<Image>();
             img.color = new Color(0f, 0f, 0f, 0.62f);
@@ -383,7 +509,7 @@ namespace FireSafety
             _hudText = textGo.GetComponent<Text>();
             _hudText.font = UIFont.Resolve();
             if (_hudText.font != null) _hudText.material = _hudText.font.material;
-            _hudText.fontSize = 22;
+            _hudText.fontSize = 21;
             _hudText.color = new Color(1f, 0.95f, 0.82f, 1f);
             _hudText.alignment = TextAnchor.MiddleCenter;
             _hudText.raycastTarget = false;
@@ -406,7 +532,7 @@ namespace FireSafety
             _nextHudRefresh = Time.unscaledTime + 0.1f;
 
             const string controls =
-                "【鼠标操作】右键单击：拿起灭火器　｜　左键单击：拔出保险销　｜　左键双击：按下压把　" +
+                "【鼠标操作】右键单击灭火器：答题/拿起　｜　左键单击：拔出保险销　｜　左键双击：按下压把　" +
                 "｜　右键双击：喷射（再双击停止）　｜　P：放下";
 
             string status = Time.unscaledTime < _statusUntil ? _status : "";
@@ -418,13 +544,27 @@ namespace FireSafety
         private string StateText()
         {
             var mgr = FireDrillManager.Instance;
-            if (mgr != null && mgr.IsCompleted) return "状态：演练完成（火焰已扑灭）";
-            if (startScreen != null && !startScreen.Started) return "状态：等待开始（点击「开始演练」或按 回车 / 空格）";
+            if (mgr != null && mgr.IsCompleted)
+            {
+                if (stagePanel != null && stagePanel.IsOpen)
+                    return "状态：阶段一完成 → 在面板中选择「立刻结算」或「继续往下」";
+            }
+            if (startScreen != null && !startScreen.Started)
+                return "状态：等待开始（点击「开始演练」或按 回车 / 空格）";
+
+            if (quizPanel != null && quizPanel.IsOpen && !quizPanel.Passed && !quizPanel.Failed)
+            {
+                int total = quizPanel.QuestionCount;
+                return "状态：问答进行中 第 " + (quizPanel.QuestionIndex + 1) + "/" + total +
+                       " 题 · 剩余 " + Mathf.CeilToInt(quizPanel.TimeLeft) + " 秒（点选项或按 1/2/3）";
+            }
+            if (quizPanel != null && quizPanel.Failed)
+                return "状态：问答未通过（答对 " + quizPanel.CorrectCount + "/" + quizPanel.QuestionCount +
+                       "）→ 右键单击灭火器重新答题";
 
             var ext = Current;
             if (ext == null) return "状态：场景中没有找到灭火器";
-            if (!Held) return "状态：寻找并拿起灭火器（右键单击）";
-            if (quizPanel != null && quizPanel.IsOpen) return "状态：请先完成常识问答（点击选项或按 1~4）";
+            if (!Held) return "状态：寻找灭火器 → 右键单击它开始答题";
             if (!ext.PinPulled) return "状态：已手持 → 左键单击拔出保险销";
             if (ext.handleLever != null && !ext.handleLever.PressedOnce)
                 return "状态：已拔销 → 左键双击按下压把";

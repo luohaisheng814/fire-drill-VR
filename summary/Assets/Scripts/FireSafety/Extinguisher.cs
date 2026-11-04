@@ -116,7 +116,20 @@ namespace FireSafety
                 sprayLoopSource.loop = true;
                 sprayLoopSource.playOnAwake = false;
             }
+
+            // 无论从手柄抓取还是桌面右键进入问答，答完都要把结果记到灭火器上
+            if (quizPanel != null)
+            {
+                quizPanel.onPassed.RemoveListener(OnQuizPassed);
+                quizPanel.onPassed.AddListener(OnQuizPassed);
+            }
         }
+
+        /// <summary>外部（桌面输入）确认问答已通过。</summary>
+        public void MarkQuizPassed() => QuizPassed = true;
+
+        /// <summary>问答未通过，保持不能拔销/喷射。</summary>
+        public void MarkQuizFailed() => QuizPassed = false;
 
         private void Update()
         {

@@ -24,6 +24,9 @@ namespace FireSafety.EditorTools
             TestSprayParticles();
             TestDesktopMouseFlow();
             TestDesktopHud();
+            TestQuizLogic();
+            TestQuizFailThenRetry();
+            TestStageOnePanel();
             TestStepChain();
             TestSceneWiring();
 
@@ -236,6 +239,141 @@ namespace FireSafety.EditorTools
         }
 
         // ------------------------------------------------------------
+        // 3.6 常识问答：5 题 / 3 选项 / 10 秒限时 / 超时判错 / 60% 通过
+        // ------------------------------------------------------------
+        static void TestQuizLogic()
+        {
+            var go = new GameObject("TEST_Quiz");
+            var quiz = go.AddComponent<ExtinguisherQuizPanel>();
+            InvokeAwake(quiz);                       // BuildUI + BuildDefaultQuestions
+            quiz.advanceDelay = 0.01f;
+
+            Check("问答：默认 5 题", quiz.QuestionCount == 5);
+            Check("问答：每题 A/B/C 三选项", quiz.OptionCount == 3);
+            Check("问答：每题限时 10 秒", Mathf.Approximately(quiz.timePerQuestion, 10f));
+            Check("问答：60% 通过 → 至少答对 3 题", quiz.PassCorrectCount == 3);
+
+            foreach (var q in quiz.questions)
+            {
+                bool ok = q != null && q.options != null && q.options.Length == 3
+                          && q.correctIndex >= 0 && q.correctIndex < 3
+                          && !string.IsNullOrEmpty(q.question);
+                Check("问答：题目与选项完整（" + (q != null ? q.question : "null") + "）", ok);
+            }
+
+            int passed = 0;
+            quiz.onPassed.AddListener(() => passed++);
+
+            quiz.Open();
+            Check("问答：面板打开且从第 1 题开始", quiz.IsOpen && quiz.QuestionIndex == 0);
+            Check("问答：开局剩余约 10 秒", quiz.TimeLeft > 9.9f);
+
+            // 第 1 题故意超时 → 判错，并自动进入第 2 题
+            quiz.AdvanceTime(10.2f);
+            Check("问答：超时判错（答对数仍为 0）", quiz.CorrectCount == 0);
+            quiz.AdvanceTime(0.02f);
+            Check("问答：超时后进入第 2 题", quiz.QuestionIndex == 1);
+
+            // 第 2~4 题答对
+            quiz.AnswerOption(quiz.questions[1].correctIndex);
+            quiz.AdvanceTime(0.02f);
+            quiz.AnswerOption(quiz.questions[2].correctIndex);
+            quiz.AdvanceTime(0.02f);
+            quiz.AnswerOption(quiz.questions[3].correctIndex);
+            quiz.AdvanceTime(0.02f);
+            Check("问答：已答对 3 题", quiz.CorrectCount == 3);
+
+            // 第 5 题答错 → 最终 3/5 = 60%，应判通过
+            int wrong = (quiz.questions[4].correctIndex + 1) % 3;
+            quiz.AnswerOption(wrong);
+            quiz.AdvanceTime(0.02f);
+
+            Check("问答：3/5 达到 60% → 判通过", quiz.Passed && !quiz.Failed);
+            Check("问答：通过回调触发一次", passed == 1);
+
+            // 结果停留后自动收起
+            quiz.AdvanceTime(1.3f);
+            Check("问答：结果展示后自动收起面板", !quiz.IsOpen);
+
+            UnityEngine.Object.DestroyImmediate(go);
+        }
+
+        // ------------------------------------------------------------
+        // 3.7 问答全错 → 未通过；可重置后重新答题
+        // ------------------------------------------------------------
+        static void TestQuizFailThenRetry()
+        {
+            var go = new GameObject("TEST_QuizFail");
+            var quiz = go.AddComponent<ExtinguisherQuizPanel>();
+            InvokeAwake(quiz);
+            quiz.advanceDelay = 0.01f;
+
+            int failed = 0;
+            quiz.onFailed.AddListener(() => failed++);
+
+            quiz.Open();
+            for (int i = 0; i < quiz.QuestionCount; i++)
+            {
+                int wrong = (quiz.questions[quiz.QuestionIndex].correctIndex + 1) % 3;
+                quiz.AnswerOption(wrong);
+                quiz.AdvanceTime(0.02f);
+            }
+
+            Check("问答：全错判未通过", quiz.Failed && !quiz.Passed);
+            Check("问答：未通过回调触发一次", failed == 1);
+
+            quiz.Close();
+            quiz.ResetQuiz();
+            Check("问答：重置后状态干净（可重新答题）",
+                !quiz.Passed && !quiz.Failed && !quiz.IsOpen && quiz.CorrectCount == 0);
+
+            quiz.Open();
+            Check("问答：重开从第 1 题开始", quiz.IsOpen && quiz.QuestionIndex == 0);
+            Check("问答：重开计时重置为 10 秒", quiz.TimeLeft > 9.9f);
+
+            quiz.Close();
+            UnityEngine.Object.DestroyImmediate(go);
+        }
+
+        // ------------------------------------------------------------
+        // 3.8 阶段一完成面板：暂停倒计时 / 继续往下 / 立刻结算
+        // ------------------------------------------------------------
+        static void TestStageOnePanel()
+        {
+            var cdGo = new GameObject("TEST_Countdown");
+            var cd = cdGo.AddComponent<DrillCountdown>();
+            InvokeAwake(cd);
+            cd.Begin();
+            Check("倒计时：开始后运行且未暂停", cd.IsRunning && !cd.IsPaused);
+            Check("倒计时：初始剩余上限 180 秒", cd.Remaining <= 180f + 0.01f && cd.Remaining > 179f);
+
+            var panelGo = new GameObject("TEST_StagePanel");
+            var panel = panelGo.AddComponent<StageOneCompletePanel>();
+            InvokeAwake(panel);
+            panel.countdown = cd;
+            panel.startScreen = null;              // 结算界面单独验证，这里只查事件与倒计时
+
+            int cont = 0, settle = 0;
+            panel.onContinue.AddListener(() => cont++);
+            panel.onSettlement.AddListener(() => settle++);
+
+            panel.Show();
+            Check("阶段面板：弹出且倒计时暂停", panel.IsOpen && cd.IsPaused);
+
+            panel.Continue();
+            Check("继续往下：面板关闭 + 倒计时恢复",
+                !panel.IsOpen && !cd.IsPaused && cd.IsRunning && cont == 1);
+
+            panel.Show();
+            panel.Settlement();
+            Check("立刻结算：面板关闭 + 倒计时复位",
+                !panel.IsOpen && !cd.IsRunning && cd.Remaining > 179f && settle == 1);
+
+            UnityEngine.Object.DestroyImmediate(panelGo);
+            UnityEngine.Object.DestroyImmediate(cdGo);
+        }
+
+        // ------------------------------------------------------------
         // 4. 步骤链：⑤拿起 → ⑥拔销 → ⑦压把 → ⑧喷射 → ⑨扑灭
         // ------------------------------------------------------------
         static void TestStepChain()
@@ -308,6 +446,25 @@ namespace FireSafety.EditorTools
             var exts = UnityEngine.Object.FindObjectsByType<Extinguisher>(FindObjectsSortMode.None);
             Check("场景：找到 2 台灭火器（实际 " + exts.Length + "）", exts.Length == 2);
 
+            // 场景里不允许残留「Missing (Mono Script)」组件
+            int missing = 0;
+            var scene = UnityEditor.SceneManagement.EditorSceneManager.GetActiveScene();
+            foreach (var root in scene.GetRootGameObjects())
+            {
+                foreach (var t in root.GetComponentsInChildren<Transform>(true))
+                {
+                    foreach (var c in t.GetComponents<Component>())
+                    {
+                        if (c == null)
+                        {
+                            missing++;
+                            Debug.LogError("[TEST] 发现缺失脚本组件 @ " + t.name);
+                        }
+                    }
+                }
+            }
+            Check("场景：没有 Missing (Mono Script) 组件（实际 " + missing + "）", missing == 0);
+
             foreach (var e in exts)
             {
                 string n = e.gameObject.name;
@@ -316,6 +473,23 @@ namespace FireSafety.EditorTools
                 Check("场景 " + n + "：handleLever 已引用", e.handleLever != null);
                 Check("场景 " + n + "：sprayParticles 已引用", e.sprayParticles != null);
                 Check("场景 " + n + "：quizPanel 已引用", e.quizPanel != null);
+
+                if (e.quizPanel != null)
+                {
+                    Check("场景 " + n + "：问答 5 题", e.quizPanel.QuestionCount == 5);
+                    Check("场景 " + n + "：问答每题 3 选项", e.quizPanel.OptionCount == 3);
+                    Check("场景 " + n + "：问答每题 10 秒", Mathf.Approximately(e.quizPanel.timePerQuestion, 10f));
+                    Check("场景 " + n + "：问答 60% 通过", Mathf.Approximately(e.quizPanel.passRatio, 0.6f));
+                    Check("场景 " + n + "：问答面板距相机 1.2 米", Mathf.Approximately(e.quizPanel.distanceFromCamera, 1.2f));
+                }
+            }
+
+            var stagePanel = UnityEngine.Object.FindObjectOfType<StageOneCompletePanel>();
+            Check("场景：阶段一完成面板存在", stagePanel != null);
+            if (stagePanel != null)
+            {
+                Check("场景：阶段面板已引用倒计时", stagePanel.countdown != null);
+                Check("场景：阶段面板已引用开始界面", stagePanel.startScreen != null);
             }
 
             var input = UnityEngine.Object.FindObjectOfType<DesktopDrillInput>();
@@ -323,9 +497,13 @@ namespace FireSafety.EditorTools
             if (input != null)
             {
                 Check("场景：桌面输入 extinguisher 已引用", input.extinguisher != null);
-                Check("场景：桌面输入 startScreen 已引用", input.startScreen != null);
+                Check("场景：桌面输入开始界面已引用", input.startScreen != null);
+                Check("场景：桌面输入阶段面板已引用", input.stagePanel != null);
                 Check("场景：桌面输入 handAnchor 已引用", input.handAnchor != null);
                 Check("场景：桌面输入 cameraTransform 已引用", input.cameraTransform != null);
+                Check("场景：手持距离改为 0.7 米（不再贴脸）", input.handOffset.z > 0.6f && input.handOffset.z < 0.8f);
+                Check("场景：桌面输入覆盖 2 台灭火器",
+                    input.extinguishers != null && input.extinguishers.Length == 2);
             }
 
             // ---- 在真实场景对象上跑一遍鼠标链路（只改内存，不保存场景）----
@@ -335,12 +513,20 @@ namespace FireSafety.EditorTools
 
             if (e1 != null)
             {
-                e1.quizRequired = false;      // 编辑模式无法跑问答协程，这里跳过门控
                 if (e1.pin != null) e1.pin.hideDelay = 0f;   // 编辑模式不能延迟 Destroy
                 InvokeMethod(e1, "OnEnable"); // 订阅 onPickedUp（编辑模式不自动调用）
                 InvokeAwake(e1.grab);         // 场景里的 Awake 也不会自动跑，缓存刚体等状态
                 if (e1.pin != null) InvokeAwake(e1.pin);
                 if (e1.handleLever != null) InvokeAwake(e1.handleLever);
+
+                // 门槛：未通过常识问答时不能拔销/喷射
+                e1.quizRequired = true;
+                e1.MarkQuizFailed();
+                Check("门槛：问答未通过时 CanPullPin 为假", !e1.CanPullPin);
+                e1.PullPin();                       // 直接调用拔销，应被问答门控拒绝
+                Check("门槛：问答未通过时拔销被拒绝", !e1.PinPulled);
+                e1.MarkQuizPassed();
+                Check("门槛：问答通过后 CanPullPin 为真", e1.CanPullPin);
 
                 var mgrGo = new GameObject("TEST_SceneManager");
                 var mgr = mgrGo.AddComponent<FireDrillManager>();
