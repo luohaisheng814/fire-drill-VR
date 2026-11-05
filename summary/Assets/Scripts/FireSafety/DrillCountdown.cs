@@ -20,7 +20,11 @@ namespace FireSafety
         public float warningSeconds = 30f;
         public float dangerSeconds = 10f;
 
-        [Header("HUD 位置（相对头显的局部偏移）")]
+        [Header("HUD 位置（锚点优先：绑定手柄时在手柄正上方；否则回退相对头显偏移）")]
+        [Tooltip("绑定到右手控制器；非空时倒计时牌跟随到其正上方")]
+        public Transform anchorHand;
+        [Tooltip("手柄正上方抬升距离（米）")]
+        public float handAboveDistance = 0.38f;
         public Vector3 hudOffset = new Vector3(0f, 0.35f, 0.6f);
         public float canvasScale = 0.0035f;
 
@@ -143,12 +147,23 @@ namespace FireSafety
         {
             if (_cam == null) _cam = Camera.main;
 
-            // HUD 跟随头显并缓慢朝向玩家
-            if (_canvas != null && _cam != null)
+            // HUD 跟随：绑定手柄时位于手柄正上方并朝向玩家；否则跟随头显偏移
+            if (_canvas != null)
             {
-                _canvas.transform.position = _cam.transform.position + _cam.transform.rotation * hudOffset;
-                Quaternion target = Quaternion.LookRotation(_canvas.transform.position - _cam.transform.position);
-                _canvas.transform.rotation = Quaternion.Slerp(_canvas.transform.rotation, target, Time.deltaTime * 6f);
+                if (anchorHand != null)
+                {
+                    _canvas.transform.position = anchorHand.position + Vector3.up * handAboveDistance;
+                    Transform look = _cam != null ? _cam.transform : anchorHand;
+                    Quaternion target = Quaternion.LookRotation(_canvas.transform.position - look.position);
+                    _canvas.transform.rotation = Quaternion.Slerp(_canvas.transform.rotation, target,
+                        Time.deltaTime * 6f);
+                }
+                else if (_cam != null)
+                {
+                    _canvas.transform.position = _cam.transform.position + _cam.transform.rotation * hudOffset;
+                    Quaternion target = Quaternion.LookRotation(_canvas.transform.position - _cam.transform.position);
+                    _canvas.transform.rotation = Quaternion.Slerp(_canvas.transform.rotation, target, Time.deltaTime * 6f);
+                }
             }
 
             if (!IsRunning || IsPaused) return;

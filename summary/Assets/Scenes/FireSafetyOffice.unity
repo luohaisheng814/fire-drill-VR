@@ -3974,8 +3974,10 @@ MonoBehaviour:
   durationSeconds: 180
   warningSeconds: 30
   dangerSeconds: 10
+  anchorHand: {fileID: 913019883}
+  handAboveDistance: 0.38
   hudOffset: {x: 0, y: 0.35, z: 0.6}
-  canvasScale: 0.0035
+  canvasScale: 0.0028
   onTimeExpired:
     m_PersistentCalls:
       m_Calls: []
@@ -5278,7 +5280,7 @@ MonoBehaviour:
   sirenVolume: 0.8
   startDelay: 0
   alarmLights:
-  - {fileID: 1917992072}
+  - {fileID: 1855041172}
   alarmColor: {r: 1, g: 0, b: 0, a: 1}
   blinkHz: 2
   maxIntensity: 2
@@ -5397,7 +5399,7 @@ Transform:
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
-  - {fileID: 1917992073}
+  - {fileID: 1855041173}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &502758207
@@ -17276,10 +17278,13 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::FireSafety.StartScreen
   title: "\u529E\u516C\u5BA4\u6D88\u9632\u77E5\u8BC6\u6F14\u7EC3"
-  instructions: "\u73A9\u6CD5\u8BF4\u660E\uFF1A\n\u2460 \u70B9\u51FB\u300C\u5F00\u59CB\u6F14\u7EC3\u300D\u2192 \u8B66\u62A5\u54CD\u8D77\uFF0C\u5012\u8BA1\u65F6\u5F00\u59CB\uFF08\u4E0A\u9650 3 \u5206\u949F\uFF09\uFF1B\n\u2461 \u627E\u5230\u7EA2\u8272\u706D\u706B\u5668\uFF1A\u8FDB\u5165\u89C6\u7EBF\u4F1A\u9AD8\u4EAE\u63D0\u793A\uFF0C\u5730\u9762\u7BAD\u5934\u6307\u5411\u5B83\u7684\u4F4D\u7F6E\uFF1B\n\u2462 \u9F20\u6807\u53F3\u952E\u5355\u51FB\u706D\u706B\u5668 \u2192 \u5F39\u51FA 5 \u9053\u5E38\u8BC6\u9898\uFF0C\u6BCF\u9898 10 \u79D2\uFF0C\u7B54\u5BF9 60%\uFF083 \u9898\uFF09\u624D\u80FD\u62FF\u8D77\uFF1B\n\u2463 \u62FF\u8D77\u540E\uFF1A\u5DE6\u952E\u5355\u51FB\u62D4\u9500 \u2192 \u5DE6\u952E\u53CC\u51FB\u538B\u628A \u2192 \u53F3\u952E\u53CC\u51FB\u55B7\u5C04\uFF0C\u706B\u7130 2~3 \u79D2\u7184\u706D\u5373\u5B8C\u6210\u9636\u6BB5\u4E00\uFF1B\n\u2464 \u9636\u6BB5\u4E00\u5B8C\u6210\u540E\u5012\u8BA1\u65F6\u6682\u505C\uFF0C\u53EF\u9009\u62E9\u300C\u7ACB\u523B\u7ED3\u7B97\u300D\u6216\u300C\u7EE7\u7EED\u5F80\u4E0B\u300D\u3002\n\u952E\u76D8\uFF1AP \u653E\u4E0B\u706D\u706B\u5668\uFF1B\u56DE\u8F66 / \u7A7A\u683C \u5F00\u59CB\u6F14\u7EC3\uFF1B\u95EE\u7B54\u65F6\u6309 1 / 2 / 3 \u4F5C\u7B54\u3002"
+  instructions: "\u73A9\u6CD5\u8BF4\u660E\uFF1A\n\u2460 \u624B\u67C4\u5C04\u7EBF\u6307\u5411\u5F00\u59CB\u9762\u677F\uFF0C\u70B9\u300C\u5F00\u59CB\u6F14\u7EC3\u300D\u2192 \u8B66\u62A5\u54CD\u8D77\uFF0C\u5012\u8BA1\u65F6\u5F00\u59CB\uFF08\u4E0A\u9650 3 \u5206\u949F\uFF09\uFF1B\n\u2461 \u627E\u5230\u7EA2\u8272\u706D\u706B\u5668\uFF1A\u8FDB\u5165\u89C6\u7EBF\u4F1A\u9AD8\u4EAE\u63D0\u793A\uFF0C\u5730\u9762\u7BAD\u5934\u6307\u5411\u5B83\u7684\u4F4D\u7F6E\uFF1B\n\u2462 \u9F20\u6807\u53F3\u952E\u5355\u51FB\u706D\u706B\u5668 \u2192 \u5F39\u51FA 5 \u9053\u5E38\u8BC6\u9898\uFF0C\u6BCF\u9898 10 \u79D2\uFF0C\u7B54\u5BF9 60%\uFF083 \u9898\uFF09\u624D\u80FD\u62FF\u8D77\uFF1B\n\u2463 \u62FF\u8D77\u540E\uFF1A\u5DE6\u952E\u5355\u51FB\u62D4\u9500 \u2192 \u5DE6\u952E\u53CC\u51FB\u538B\u628A \u2192 \u53F3\u952E\u53CC\u51FB\u55B7\u5C04\uFF0C\u706B\u7130 2~3 \u79D2\u7184\u706D\u5373\u5B8C\u6210\u9636\u6BB5\u4E00\uFF1B\n\u2464 \u9636\u6BB5\u4E00\u5B8C\u6210\u540E\u5012\u8BA1\u65F6\u6682\u505C\uFF0C\u53EF\u9009\u62E9\u300C\u7ACB\u523B\u7ED3\u7B97\u300D\u6216\u300C\u7EE7\u7EED\u5F80\u4E0B\u300D\u3002\n\u952E\u76D8\uFF1AP \u653E\u4E0B\u706D\u706B\u5668\uFF1B\u56DE\u8F66 / \u7A7A\u683C \u5F00\u59CB\u6F14\u7EC3\uFF1B\u95EE\u7B54\u65F6\u6309 1 / 2 / 3 \u4F5C\u7B54\u3002"
   buttonLabel: "\u5F00\u59CB\u6F14\u7EC3"
   worldPosition: {x: 0, y: 1.3, z: 1.8}
   canvasScale: 0.001
+  anchorHand: {fileID: 913019883}
+  handForwardDistance: 0.7
+  handUpOffset: 0.05
   startAlarmOnBegin: 1
   switchBgmToAlarm: 1
   igniteFiresOnBegin: 1
@@ -25873,6 +25878,103 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 3736548858733519426, guid: 1c425a0791afbfb4795e35c5c317b3f5, type: 3}
   m_PrefabInstance: {fileID: 1841239285}
   m_PrefabAsset: {fileID: 0}
+--- !u!1 &1855041171
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1855041173}
+  - component: {fileID: 1855041172}
+  m_Layer: 0
+  m_Name: AlarmLight
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!108 &1855041172
+Light:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1855041171}
+  m_Enabled: 1
+  serializedVersion: 13
+  m_Type: 2
+  m_Color: {r: 1, g: 0, b: 0, a: 1}
+  m_Intensity: 0
+  m_Range: 12
+  m_SpotAngle: 30
+  m_InnerSpotAngle: 21.80208
+  m_CookieSize2D: {x: 0.5, y: 0.5}
+  m_Shadows:
+    m_Type: 0
+    m_Resolution: -1
+    m_CustomResolution: -1
+    m_Strength: 1
+    m_Bias: 0.05
+    m_NormalBias: 0.4
+    m_NearPlane: 0.2
+    m_CullingMatrixOverride:
+      e00: 1
+      e01: 0
+      e02: 0
+      e03: 0
+      e10: 0
+      e11: 1
+      e12: 0
+      e13: 0
+      e20: 0
+      e21: 0
+      e22: 1
+      e23: 0
+      e30: 0
+      e31: 0
+      e32: 0
+      e33: 1
+    m_UseCullingMatrixOverride: 0
+  m_Cookie: {fileID: 0}
+  m_DrawHalo: 0
+  m_Flare: {fileID: 0}
+  m_RenderMode: 0
+  m_CullingMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  m_RenderingLayerMask: 1
+  m_Lightmapping: 4
+  m_LightShadowCasterMode: 0
+  m_AreaSize: {x: 1, y: 1}
+  m_BounceIntensity: 1
+  m_ColorTemperature: 6570
+  m_UseColorTemperature: 0
+  m_BoundingSphereOverride: {x: 0, y: 0, z: 0, w: 0}
+  m_UseBoundingSphereOverride: 0
+  m_UseViewFrustumForShadowCasterCull: 1
+  m_ForceVisible: 0
+  m_ShapeRadius: 0.025
+  m_ShadowAngle: 0
+  m_LightUnit: 1
+  m_LuxAtDistance: 1
+  m_EnableSpotReflector: 1
+--- !u!4 &1855041173
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1855041171}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 2.2, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 489972191}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1863045656
 GameObject:
   m_ObjectHideFlags: 0
@@ -26324,103 +26426,6 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 1156887796722948874, guid: f984636a8914ae543bcf09ca3510c481, type: 3}
   m_PrefabInstance: {fileID: 1914338601}
   m_PrefabAsset: {fileID: 0}
---- !u!1 &1917992071
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1917992073}
-  - component: {fileID: 1917992072}
-  m_Layer: 0
-  m_Name: AlarmLight
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!108 &1917992072
-Light:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1917992071}
-  m_Enabled: 1
-  serializedVersion: 13
-  m_Type: 2
-  m_Color: {r: 1, g: 0, b: 0, a: 1}
-  m_Intensity: 0
-  m_Range: 12
-  m_SpotAngle: 30
-  m_InnerSpotAngle: 21.80208
-  m_CookieSize2D: {x: 0.5, y: 0.5}
-  m_Shadows:
-    m_Type: 0
-    m_Resolution: -1
-    m_CustomResolution: -1
-    m_Strength: 1
-    m_Bias: 0.05
-    m_NormalBias: 0.4
-    m_NearPlane: 0.2
-    m_CullingMatrixOverride:
-      e00: 1
-      e01: 0
-      e02: 0
-      e03: 0
-      e10: 0
-      e11: 1
-      e12: 0
-      e13: 0
-      e20: 0
-      e21: 0
-      e22: 1
-      e23: 0
-      e30: 0
-      e31: 0
-      e32: 0
-      e33: 1
-    m_UseCullingMatrixOverride: 0
-  m_Cookie: {fileID: 0}
-  m_DrawHalo: 0
-  m_Flare: {fileID: 0}
-  m_RenderMode: 0
-  m_CullingMask:
-    serializedVersion: 2
-    m_Bits: 4294967295
-  m_RenderingLayerMask: 1
-  m_Lightmapping: 4
-  m_LightShadowCasterMode: 0
-  m_AreaSize: {x: 1, y: 1}
-  m_BounceIntensity: 1
-  m_ColorTemperature: 6570
-  m_UseColorTemperature: 0
-  m_BoundingSphereOverride: {x: 0, y: 0, z: 0, w: 0}
-  m_UseBoundingSphereOverride: 0
-  m_UseViewFrustumForShadowCasterCull: 1
-  m_ForceVisible: 0
-  m_ShapeRadius: 0.025
-  m_ShadowAngle: 0
-  m_LightUnit: 1
-  m_LuxAtDistance: 1
-  m_EnableSpotReflector: 1
---- !u!4 &1917992073
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1917992071}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 2.2, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 489972191}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &1920064563
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -29628,8 +29633,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::FireSafety.DesktopDrillInput
   extinguisher: {fileID: 2133534250}
   extinguishers:
-  - {fileID: 2133534250}
   - {fileID: 2076228657}
+  - {fileID: 2133534250}
   quizPanel: {fileID: 2133534251}
   startScreen: {fileID: 1266593490}
   stagePanel: {fileID: 1235155103}

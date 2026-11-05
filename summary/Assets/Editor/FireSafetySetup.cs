@@ -81,7 +81,7 @@ namespace FireSafety.EditorTools
             SetupLocomotion(rig, cam);
 
             // 3. 开始界面
-            SetupStartScreen();
+            SetupStartScreen(rightHand);
 
             // 4. 警报
             SetupFireAlarm();
@@ -90,7 +90,7 @@ namespace FireSafety.EditorTools
             SetupBackgroundMusic();
 
             // 5.5 演练倒计时（3 分钟上限）+ 地面引导箭头
-            SetupDrillCountdown();
+            SetupDrillCountdown(rightHand);
             SetupGuidanceArrows();
 
             // 5.6 阶段一完成面板（暂停倒计时 + 立刻结算 / 继续往下）
@@ -233,24 +233,27 @@ namespace FireSafety.EditorTools
         // 3. 开始界面
         // ================================================================
 
-        static void SetupStartScreen()
+        static void SetupStartScreen(Transform anchorHand)
         {
             var go = GameObject.Find("StartScreen") ?? new GameObject("StartScreen");
             var start = go.GetComponent<StartScreen>() ?? go.AddComponent<StartScreen>();
             start.worldPosition = new Vector3(0f, 1.3f, 1.8f);
             start.canvasScale = 0.001f;              // 约 1 米宽，避免整块面板糊住视野
+            start.anchorHand = anchorHand;           // 开始界面跟随到右手手柄正前方
+            start.handForwardDistance = 0.7f;
+            start.handUpOffset = 0.05f;
             start.startAlarmOnBegin = true;
             start.switchBgmToAlarm = true;
             start.igniteFiresOnBegin = true;
             start.instructions =
                 "玩法说明：\n" +
-                "① 点击「开始演练」→ 警报响起，倒计时开始（上限 3 分钟）；\n" +
+                "① 手柄射线指向开始面板，点「开始演练」→ 警报响起，倒计时开始（上限 3 分钟）；\n" +
                 "② 找到红色灭火器：进入视线会高亮提示，地面箭头指向它的位置；\n" +
                 "③ 鼠标右键单击灭火器 → 弹出 5 道常识题，每题 10 秒，答对 60%（3 题）才能拿起；\n" +
                 "④ 拿起后：左键单击拔销 → 左键双击压把 → 右键双击喷射，火焰 2~3 秒熄灭即完成阶段一；\n" +
                 "⑤ 阶段一完成后倒计时暂停，可选择「立刻结算」或「继续往下」。\n" +
                 "键盘：P 放下灭火器；回车 / 空格 开始演练；问答时按 1 / 2 / 3 作答。";
-            Debug.Log("[Setup] ✔ 开始界面：StartScreen（玩法说明文字可在 Inspector 修改）");
+            Debug.Log("[Setup] ✔ 开始界面：StartScreen（锚定右手手柄正前方；玩法说明可在 Inspector 修改）");
         }
 
         // ================================================================
@@ -311,7 +314,7 @@ namespace FireSafety.EditorTools
         // 5.5 演练倒计时 + 地面引导箭头
         // ================================================================
 
-        static void SetupDrillCountdown()
+        static void SetupDrillCountdown(Transform anchorHand)
         {
             var go = GameObject.Find("DrillCountdown") ?? new GameObject("DrillCountdown");
             var cd = go.GetComponent<DrillCountdown>() ?? go.AddComponent<DrillCountdown>();
@@ -319,8 +322,10 @@ namespace FireSafety.EditorTools
             cd.warningSeconds = 30f;
             cd.dangerSeconds = 10f;
             cd.hudOffset = new Vector3(0f, 0.35f, 0.6f);
-            cd.canvasScale = 0.0035f;
-            Debug.Log("[Setup] ✔ 演练倒计时：DrillCountdown（点击开始后启动，上限 180 秒）");
+            cd.anchorHand = anchorHand;       // 倒计时牌跟随到右手手柄正上方
+            cd.handAboveDistance = 0.38f;
+            cd.canvasScale = 0.0028f;
+            Debug.Log("[Setup] ✔ 演练倒计时：DrillCountdown（绑定右手手柄正上方；点击开始后启动，上限 180 秒）");
         }
 
         static void SetupGuidanceArrows()

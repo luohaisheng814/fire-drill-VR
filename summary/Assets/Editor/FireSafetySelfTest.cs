@@ -523,6 +523,22 @@ namespace FireSafety.EditorTools
                 Check("场景：阶段面板已引用开始界面", stagePanel.startScreen != null);
             }
 
+            var start = UnityEngine.Object.FindObjectOfType<StartScreen>();
+            Check("场景：开始界面存在", start != null);
+            if (start != null)
+            {
+                Check("场景：开始界面已绑定手柄锚点（正前方）", start.anchorHand != null);
+                Check("场景：开始界面前伸 0.7 米", Mathf.Approximately(start.handForwardDistance, 0.7f));
+            }
+
+            var cdHud = UnityEngine.Object.FindObjectOfType<DrillCountdown>();
+            Check("场景：倒计时面板存在", cdHud != null);
+            if (cdHud != null)
+            {
+                Check("场景：倒计时面板已绑定手柄锚点（正上方）", cdHud.anchorHand != null);
+                Check("场景：倒计时面板抬升 0.38 米", Mathf.Approximately(cdHud.handAboveDistance, 0.38f));
+            }
+
             var arrows = UnityEngine.Object.FindObjectOfType<GuidanceArrows>();
             Check("场景：引导箭头存在", arrows != null);
             if (arrows != null)

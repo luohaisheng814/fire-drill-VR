@@ -30,7 +30,15 @@ namespace FireSafety
 
         [Header("位置与比例")]
         public Vector3 worldPosition = new Vector3(0f, 1.3f, 1.8f);
-        public float canvasScale = 0.004f;
+        public float canvasScale = 0.001f;
+
+        [Header("手柄锚点：开始界面显示在手柄正前方（留空则回退到相机前方）")]
+        [Tooltip("绑定到右手控制器；非空时面板每帧跟随到其正前方")]
+        public Transform anchorHand;
+        [Tooltip("沿手柄前向伸出的距离（米）")]
+        public float handForwardDistance = 0.7f;
+        [Tooltip("相对手柄再向上抬的偏移（米）")]
+        public float handUpOffset = 0.05f;
 
         [Header("开始流程")]
         [Tooltip("点击开始后拉响火灾警报")]
@@ -76,12 +84,24 @@ namespace FireSafety
         void Update()
         {
             if (_cam == null) _cam = Camera.main ? Camera.main.transform : null;
-            if (_cam != null && _canvas != null)
+            if (_canvas == null) return;
+
+            // 优先跟随手柄锚点：面板显示在手柄正前方；锚点缺失时保持 worldPosition（桌面兜底）
+            if (anchorHand != null)
             {
-                // 让开始面板始终缓慢朝向玩家（仅在启动画面显示期间）
-                if (!Started)
+                Vector3 pos = anchorHand.position
+                              + anchorHand.forward * handForwardDistance
+                              + anchorHand.up * handUpOffset;
+                _canvas.transform.position = pos;
+            }
+
+            // 让开始面板始终缓慢朝向玩家（仅在启动画面显示期间）
+            if (!Started)
+            {
+                Transform look = _cam != null ? _cam : anchorHand;
+                if (look != null)
                 {
-                    Quaternion target = Quaternion.LookRotation(_canvas.transform.position - _cam.position);
+                    Quaternion target = Quaternion.LookRotation(_canvas.transform.position - look.position);
                     _canvas.transform.rotation = Quaternion.Slerp(_canvas.transform.rotation, target,
                         Time.deltaTime * 3f);
                 }
