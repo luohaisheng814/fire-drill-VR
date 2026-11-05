@@ -35,10 +35,10 @@ namespace FireSafety
         [Header("手柄锚点：开始界面显示在手柄正前方（留空则回退到相机前方）")]
         [Tooltip("绑定到右手控制器；非空时面板每帧跟随到其正前方")]
         public Transform anchorHand;
-        [Tooltip("沿手柄前向伸出的距离（米）")]
-        public float handForwardDistance = 0.7f;
-        [Tooltip("相对手柄再向上抬的偏移（米）")]
-        public float handUpOffset = 0.05f;
+        [Tooltip("沿手柄前向伸出的距离（米），约一臂外的可读距离")]
+        public float handForwardDistance = 1.0f;
+        [Tooltip("相对手柄再向上抬的偏移（米），便于在视野下方居中阅读")]
+        public float handUpOffset = 0.15f;
 
         [Header("开始流程")]
         [Tooltip("点击开始后拉响火灾警报")]

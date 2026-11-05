@@ -528,7 +528,8 @@ namespace FireSafety.EditorTools
             if (start != null)
             {
                 Check("场景：开始界面已绑定手柄锚点（正前方）", start.anchorHand != null);
-                Check("场景：开始界面前伸 0.7 米", Mathf.Approximately(start.handForwardDistance, 0.7f));
+                Check("场景：开始界面前伸 1.0 米", Mathf.Approximately(start.handForwardDistance, 1.0f));
+                Check("场景：开始界面上抬 0.15 米", Mathf.Approximately(start.handUpOffset, 0.15f));
             }
 
             var cdHud = UnityEngine.Object.FindObjectOfType<DrillCountdown>();
@@ -536,7 +537,15 @@ namespace FireSafety.EditorTools
             if (cdHud != null)
             {
                 Check("场景：倒计时面板已绑定手柄锚点（正上方）", cdHud.anchorHand != null);
-                Check("场景：倒计时面板抬升 0.38 米", Mathf.Approximately(cdHud.handAboveDistance, 0.38f));
+                Check("场景：倒计时面板抬升 0.42 米", Mathf.Approximately(cdHud.handAboveDistance, 0.42f));
+                Check("场景：倒计时面板前探 0.12 米", Mathf.Approximately(cdHud.handForwardOffset, 0.12f));
+            }
+
+            var fires = UnityEngine.Object.FindObjectsByType<FireSource>(FindObjectsSortMode.None);
+            Check("场景：存在至少 1 个火源（灭火对象）", fires.Length >= 1);
+            foreach (var f in fires)
+            {
+                Check("场景火源 " + f.name + "：有灭火阈值配置", f.extinguishThreshold > 0f);
             }
 
             var arrows = UnityEngine.Object.FindObjectOfType<GuidanceArrows>();

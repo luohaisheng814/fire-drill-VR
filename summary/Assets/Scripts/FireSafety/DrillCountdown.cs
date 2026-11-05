@@ -24,9 +24,11 @@ namespace FireSafety
         [Tooltip("绑定到右手控制器；非空时倒计时牌跟随到其正上方")]
         public Transform anchorHand;
         [Tooltip("手柄正上方抬升距离（米）")]
-        public float handAboveDistance = 0.38f;
+        public float handAboveDistance = 0.42f;
+        [Tooltip("相对手柄再向前探出（米），避免被手臂/身体遮挡")]
+        public float handForwardOffset = 0.12f;
         public Vector3 hudOffset = new Vector3(0f, 0.35f, 0.6f);
-        public float canvasScale = 0.0035f;
+        public float canvasScale = 0.0028f;
 
         [Header("事件")]
         public UnityEvent onTimeExpired;
@@ -152,7 +154,9 @@ namespace FireSafety
             {
                 if (anchorHand != null)
                 {
-                    _canvas.transform.position = anchorHand.position + Vector3.up * handAboveDistance;
+                    _canvas.transform.position = anchorHand.position
+                        + Vector3.up * handAboveDistance
+                        + anchorHand.forward * handForwardOffset;
                     Transform look = _cam != null ? _cam.transform : anchorHand;
                     Quaternion target = Quaternion.LookRotation(_canvas.transform.position - look.position);
                     _canvas.transform.rotation = Quaternion.Slerp(_canvas.transform.rotation, target,

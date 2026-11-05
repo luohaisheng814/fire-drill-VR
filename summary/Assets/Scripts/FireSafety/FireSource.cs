@@ -70,7 +70,7 @@ namespace FireSafety
 
             if (particles != null)
                 foreach (var p in particles)
-                    if (p) p.Stop(true, ParticleSystemStopBehavior.StopEmitting);
+                    if (p) p.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
 
             if (fireLight) fireLight.intensity = 0f;
             if (fireAudio) fireAudio.Stop();

@@ -47,23 +47,33 @@ namespace FireSafety
             if (startScreen == null) startScreen = FindObjectOfType<StartScreen>();
             _src = GetComponent<AudioSource>();
             BuildUI();
+            SubscribeManager();
         }
 
         private void Start()
         {
+            SubscribeManager();
             var mgr = FireDrillManager.Instance;
-            if (mgr != null)
-            {
-                mgr.onDrillCompleted.RemoveListener(OnDrillCompleted);
-                mgr.onDrillCompleted.AddListener(OnDrillCompleted);
-                if (mgr.IsCompleted) Show();
-            }
+            if (mgr != null && mgr.IsCompleted) Show();
+        }
+
+        private void SubscribeManager()
+        {
+            var mgr = FireDrillManager.Instance ?? FindObjectOfType<FireDrillManager>();
+            if (mgr == null) return;
+            mgr.onDrillCompleted.RemoveListener(OnDrillCompleted);
+            mgr.onDrillCompleted.AddListener(OnDrillCompleted);
+        }
+
+        private void UnsubscribeManager()
+        {
+            var mgr = FireDrillManager.Instance ?? FindObjectOfType<FireDrillManager>();
+            if (mgr != null) mgr.onDrillCompleted.RemoveListener(OnDrillCompleted);
         }
 
         private void OnDestroy()
         {
-            var mgr = FireDrillManager.Instance;
-            if (mgr != null) mgr.onDrillCompleted.RemoveListener(OnDrillCompleted);
+            UnsubscribeManager();
             if (Instance == this) Instance = null;
         }
 

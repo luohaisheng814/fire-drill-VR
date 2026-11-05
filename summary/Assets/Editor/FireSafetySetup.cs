@@ -238,10 +238,10 @@ namespace FireSafety.EditorTools
             var go = GameObject.Find("StartScreen") ?? new GameObject("StartScreen");
             var start = go.GetComponent<StartScreen>() ?? go.AddComponent<StartScreen>();
             start.worldPosition = new Vector3(0f, 1.3f, 1.8f);
-            start.canvasScale = 0.001f;              // 约 1 米宽，避免整块面板糊住视野
+            start.canvasScale = 0.0009f;              // 约 0.9 米宽，一臂外可读且不糊视野
             start.anchorHand = anchorHand;           // 开始界面跟随到右手手柄正前方
-            start.handForwardDistance = 0.7f;
-            start.handUpOffset = 0.05f;
+            start.handForwardDistance = 1.0f;        // 手柄前向约 1 米（适当阅读距离）
+            start.handUpOffset = 0.15f;               // 略向上抬，居中可读
             start.startAlarmOnBegin = true;
             start.switchBgmToAlarm = true;
             start.igniteFiresOnBegin = true;
@@ -323,7 +323,8 @@ namespace FireSafety.EditorTools
             cd.dangerSeconds = 10f;
             cd.hudOffset = new Vector3(0f, 0.35f, 0.6f);
             cd.anchorHand = anchorHand;       // 倒计时牌跟随到右手手柄正上方
-            cd.handAboveDistance = 0.38f;
+            cd.handAboveDistance = 0.42f;    // 正上方约 0.42 米，余光可读
+            cd.handForwardOffset = 0.12f;    // 向前探出，避免被手臂遮挡
             cd.canvasScale = 0.0028f;
             Debug.Log("[Setup] ✔ 演练倒计时：DrillCountdown（绑定右手手柄正上方；点击开始后启动，上限 180 秒）");
         }
