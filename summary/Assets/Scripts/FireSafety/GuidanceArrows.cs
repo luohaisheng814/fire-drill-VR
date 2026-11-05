@@ -16,6 +16,11 @@ namespace FireSafety
         [Header("引导目标（留空自动收集场景内所有 Extinguisher）")]
         public List<Transform> targets = new List<Transform>();
 
+        [Header("第 2 阶段：大厅撤离目标")]
+        public Transform lobbyTarget;
+        public float lobbyArriveDistance = 0.6f;
+        public UnityEvent onArrivedAtLobby = new UnityEvent();
+
         [Header("箭头参数")]
         public int arrowCount = 6;
         public float spacing = 1.2f;
@@ -29,6 +34,8 @@ namespace FireSafety
         public UnityEvent onGuidanceStopped;
 
         public bool Active { get; private set; }
+        /// <summary>当前是否处于「引导去大厅」模式（true 时箭头指向 lobbyTarget，不再指灭火器）。</summary>
+        public bool LobbyMode { get; private set; }
 
         Camera _cam;
         Transform _player;
@@ -80,6 +87,21 @@ namespace FireSafety
             Debug.Log("[Arrows] 地面引导箭头已启动，指向最近灭火器。");
         }
 
+        /// <summary>第 2 阶段：切换为「引导去大厅」并显示箭头。</summary>
+        public void BeginLobbyGuidance()
+        {
+            if (lobbyTarget == null)
+            {
+                Debug.LogWarning("[Arrows] 未配置 lobbyTarget，大厅引导未启动。");
+                return;
+            }
+            LobbyMode = true;
+            Active = true;
+            SetArrowsVisible(true);
+            onGuidanceStarted?.Invoke();
+            Debug.Log("[Arrows] 第 2 阶段引导箭头已启动，指向大厅。");
+        }
+
         /// <summary>停止并隐藏引导箭头。</summary>
         public void StopGuidance()
         {
@@ -100,7 +122,7 @@ namespace FireSafety
                 if (p) _player = p.transform;
             }
 
-            Transform target = PickNearestActiveTarget();
+            Transform target = LobbyMode ? lobbyTarget : PickNearestActiveTarget();
             if (target == null)
             {
                 StopGuidance();
@@ -115,9 +137,11 @@ namespace FireSafety
             dir.y = 0f;
             float dist = dir.magnitude;
 
-            if (dist < 0.4f)
+            float arriveThreshold = LobbyMode ? lobbyArriveDistance : 0.4f;
+            if (dist < arriveThreshold)
             {
                 StopGuidance();
+                if (LobbyMode) onArrivedAtLobby?.Invoke();
                 return;
             }
             dir.Normalize();

@@ -109,8 +109,10 @@ namespace FireSafety
             Hide();
             if (countdown == null) countdown = FindObjectOfType<DrillCountdown>();
             if (countdown != null) countdown.Resume();
+            // 第 2 阶段：灭火完成后引导玩家沿地面箭头走到大厅
+            if (GuidanceArrows.Instance != null) GuidanceArrows.Instance.BeginLobbyGuidance();
             onContinue?.Invoke();
-            Debug.Log("[StageOne] 选择继续往下，倒计时继续。");
+            Debug.Log("[StageOne] 选择继续往下，倒计时继续，引导箭头指向大厅。");
         }
 
         private void Hide()

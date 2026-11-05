@@ -27,6 +27,7 @@ namespace FireSafety.EditorTools
             TestQuizLogic();
             TestQuizFailThenRetry();
             TestStageOnePanel();
+            TestLobbyGuidance();
             TestStepChain();
             TestSceneWiring();
 
@@ -374,6 +375,36 @@ namespace FireSafety.EditorTools
         }
 
         // ------------------------------------------------------------
+        // 3.9 第 2 阶段引导箭头：指向大厅
+        // ------------------------------------------------------------
+        static void TestLobbyGuidance()
+        {
+            var arrGo = new GameObject("TEST_Arrows");
+            var arr = arrGo.AddComponent<GuidanceArrows>();
+            InvokeAwake(arr);
+
+            var lobby = new GameObject("TEST_Lobby");
+            lobby.transform.position = new Vector3(3f, 0.02f, 0f);
+            arr.lobbyTarget = lobby.transform;
+            arr.lobbyArriveDistance = 0.6f;
+
+            int arrived = 0;
+            arr.onArrivedAtLobby.AddListener(() => arrived++);
+
+            Check("大厅引导：初始未激活", !arr.Active);
+            arr.BeginLobbyGuidance();
+            Check("大厅引导：Begin 后进入大厅模式", arr.Active && arr.LobbyMode);
+            Check("大厅引导：lobbyTarget 已赋值", arr.lobbyTarget != null);
+
+            // 距大厅 3 米，不应触发到达
+            arr.StopGuidance();
+            Check("大厅引导：StopGuidance 后关闭", !arr.Active);
+
+            UnityEngine.Object.DestroyImmediate(lobby);
+            UnityEngine.Object.DestroyImmediate(arrGo);
+        }
+
+        // ------------------------------------------------------------
         // 4. 步骤链：⑤拿起 → ⑥拔销 → ⑦压把 → ⑧喷射 → ⑨扑灭
         // ------------------------------------------------------------
         static void TestStepChain()
@@ -491,6 +522,16 @@ namespace FireSafety.EditorTools
                 Check("场景：阶段面板已引用倒计时", stagePanel.countdown != null);
                 Check("场景：阶段面板已引用开始界面", stagePanel.startScreen != null);
             }
+
+            var arrows = UnityEngine.Object.FindObjectOfType<GuidanceArrows>();
+            Check("场景：引导箭头存在", arrows != null);
+            if (arrows != null)
+            {
+                Check("场景：引导箭头已配置大厅目标（lobbyTarget）", arrows.lobbyTarget != null);
+                Check("场景：大厅到达距离为 0.6 米", Mathf.Approximately(arrows.lobbyArriveDistance, 0.6f));
+            }
+            var lobbyObj = GameObject.Find("Lobby");
+            Check("场景：大厅标记物体 Lobby 存在", lobbyObj != null);
 
             var input = UnityEngine.Object.FindObjectOfType<DesktopDrillInput>();
             Check("场景：DesktopDrillInput 存在", input != null);

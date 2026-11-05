@@ -331,7 +331,28 @@ namespace FireSafety.EditorTools
             arrows.spacing = 1.2f;
             arrows.floorY = 0.02f;
             arrows.autoStartOnAlarm = true;
-            Debug.Log("[Setup] ✔ 地面引导箭头：GuidanceArrows（警报响起后指向最近灭火器）");
+
+            // 第 2 阶段：大厅撤离目标（地面标记 + 绿色圆柱视觉，可在场景里平移）
+            var lobby = GameObject.Find("Lobby") ?? new GameObject("Lobby");
+            lobby.transform.localPosition = new Vector3(0f, 0.02f, -4.5f);
+            if (lobby.transform.childCount == 0)
+            {
+                var pad = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+                pad.name = "LobbyPad";
+                pad.transform.SetParent(lobby.transform, false);
+                pad.transform.localPosition = Vector3.zero;
+                pad.transform.localScale = new Vector3(0.6f, 0.02f, 0.6f);
+                var rend = pad.GetComponent<Renderer>();
+                var mat = new Material(Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard"));
+                mat.color = new Color(0.2f, 0.85f, 0.45f, 0.85f);
+                if (mat.HasProperty("_EmissionColor")) mat.SetColor("_EmissionColor", new Color(0.1f, 0.6f, 0.25f, 1f));
+                rend.sharedMaterial = mat;
+                var col = pad.GetComponent<Collider>();
+                if (col != null) UnityEngine.Object.DestroyImmediate(col);
+            }
+            arrows.lobbyTarget = lobby.transform;
+            arrows.lobbyArriveDistance = 0.6f;
+            Debug.Log("[Setup] ✔ 地面引导箭头：GuidanceArrows（警报后指向灭火器；继续往下后指向大厅 Lobby）");
         }
 
         // ================================================================
