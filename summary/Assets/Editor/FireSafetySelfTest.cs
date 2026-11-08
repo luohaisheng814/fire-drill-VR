@@ -952,10 +952,19 @@ namespace FireSafety.EditorTools
                     Mathf.Abs(exitDoor.transform.position.x - 2.25f) < 0.15f
                     && Mathf.Abs(exitDoor.transform.position.z) < 0.15f);
                 if (realDoor != null)
-                    Check("场景：出口门与真实门门板中心相距 < 0.35 米",
-                        Vector3.Distance(
-                            new Vector3(exitDoor.transform.position.x, 0f, exitDoor.transform.position.z),
-                            new Vector3(realDoor.transform.position.x, 0f, realDoor.transform.position.z)) < 0.35f + 0.5f);
+                {
+                    var leaf = realDoor.GetComponentInChildren<MeshRenderer>();
+                    Check("场景：出口门锚点落在真实门门板中心（≤0.2 米）", leaf != null);
+                    if (leaf != null)
+                    {
+                        Vector3 c = leaf.bounds.center;
+                        Check("场景：出口门与门板中心重合（差 "
+                            + Vector3.Distance(new Vector3(exitDoor.transform.position.x, 0f, exitDoor.transform.position.z),
+                                               new Vector3(c.x, 0f, c.z)).ToString("F2") + " 米）",
+                            Vector3.Distance(new Vector3(exitDoor.transform.position.x, 0f, exitDoor.transform.position.z),
+                                             new Vector3(c.x, 0f, c.z)) < 0.2f);
+                    }
+                }
                 if (lobbyObj != null)
                 {
                     Check("场景：大厅检查点在门前方 +Z 侧 1.9 米（玩家从房间侧走来）",
