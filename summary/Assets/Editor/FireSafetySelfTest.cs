@@ -573,6 +573,14 @@ namespace FireSafety.EditorTools
             Check("第三阶段：复燃火源有灭火阈值", flow.stageTwoFire != null && flow.stageTwoFire.extinguishThreshold > 0f);
             Check("第三阶段：复燃火源带粒子系统（不是空火源）",
                 flow.stageTwoFire != null && flow.stageTwoFire.particles != null && flow.stageTwoFire.particles.Length >= 1);
+            Check("第三阶段：复燃火源全局只有 1 个火源组件（不重复、不丢）",
+                flow.stageTwoFire != null && flow.stageTwoFire.GetComponentsInChildren<FireSource>(true).Length == 1);
+            Check("第三阶段：复燃火源组件挂在 StageTwoFire 根节点上（不挂在会被清掉的子物体上）",
+                flow.stageTwoFire != null
+                && flow.stageTwoFire.gameObject.name == "StageTwoFire"
+                && flow.stageTwoFire.transform == flow.stageTwoFire.gameObject.transform);
+            Check("第三阶段：复燃火源熄灭事件只挂主线回调（模板监听已清空）",
+                flow.stageTwoFire != null && flow.stageTwoFire.onExtinguished != null);
 
             if (flow.stageTwoFire != null)
             {

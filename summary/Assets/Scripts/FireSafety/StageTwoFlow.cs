@@ -316,8 +316,15 @@ namespace FireSafety
                 clone.transform.position = pos;
                 clone.transform.rotation = Quaternion.identity;
 
-                // 模板自带一个 FireSource，先清掉，避免两个火源同时登记进 Active
-                foreach (var old in clone.GetComponentsInChildren<FireSource>(true)) KillObject(old);
+                // 模板自带一个 FireSource：必须在删任何东西之前先抓住它。
+                // 播放态 Destroy 是延迟到帧末才生效的，若先删再 GetComponent，会拿到「即将销毁」的那个，
+                // 于是不会补建新组件，下一帧它变成空引用 —— 火看着还在烧，但灭火进度再也涨不了、门永远不开。
+                var cloneFire = clone.GetComponent<FireSource>();
+                if (cloneFire == null) cloneFire = clone.AddComponent<FireSource>();
+
+                // 只清掉多余的火源（模板挂在子物体上的那些），保留上面这个
+                foreach (var old in clone.GetComponentsInChildren<FireSource>(true))
+                    if (old != cloneFire) KillObject(old);
 
                 // 模板的巨包围盒碰撞体（包住整间屋子）会把带 Rigidbody 的灭火器顶飞，火是纯视觉，直接去掉
                 foreach (var c in clone.GetComponentsInChildren<Collider>(true))
@@ -338,12 +345,11 @@ namespace FireSafety
                     cloneLight.intensity = 2.4f;
                 }
 
-                var cloneFire = clone.GetComponent<FireSource>();
-                if (cloneFire == null) cloneFire = clone.AddComponent<FireSource>();
                 cloneFire.particles = cloneParts;
                 cloneFire.fireLight = cloneLight;
                 cloneFire.extinguishThreshold = stageTwoExtinguishThreshold;
                 if (cloneFire.onExtinguished == null) cloneFire.onExtinguished = new UnityEvent();
+                cloneFire.onExtinguished.RemoveAllListeners();   // 克隆会连事件表一起复制，先清掉模板留下的监听
                 cloneFire.onExtinguished.AddListener(OnStageTwoFireExtinguished);
                 cloneFire.aimTarget = MakeAimPoint(clone.transform);
                 stageTwoFire = cloneFire;
