@@ -31,6 +31,7 @@ namespace FireSafety.EditorTools
             TestLobbyGuidance();
             TestOnboardingAndEnding();
             TestStageTwoFlow();
+            TestFlameClearAll();
             TestStepChain();
             TestSceneWiring();
 
@@ -584,6 +585,33 @@ namespace FireSafety.EditorTools
             UnityEngine.Object.DestroyImmediate(doorGo);
             UnityEngine.Object.DestroyImmediate(smokeGo);
             UnityEngine.Object.DestroyImmediate(lobbyGo);
+        }
+
+        // ------------------------------------------------------------
+        // 3.12 弹面板 / 结束时火焰必须消失：ClearAllFlames 连未激活火源一起清
+        // ------------------------------------------------------------
+        static void TestFlameClearAll()
+        {
+            var fireGo = new GameObject("TEST_FireActive");
+            var light1 = fireGo.AddComponent<Light>();
+            light1.intensity = 2.5f;
+            var f1 = fireGo.AddComponent<FireSource>();
+            f1.fireLight = light1;
+
+            var hiddenGo = new GameObject("TEST_FireInactive");
+            hiddenGo.SetActive(false);
+            var light2 = hiddenGo.AddComponent<Light>();
+            light2.intensity = 3f;
+            var f2 = hiddenGo.AddComponent<FireSource>();
+            f2.fireLight = light2;
+
+            FireSource.ClearAllFlames();
+
+            Check("清火：激活火源被立刻熄灯（弹面板火焰消失）", light1.intensity <= 0.001f);
+            Check("清火：未激活火源也被熄灯（Resources 兜底路径生效）", light2.intensity <= 0.001f);
+
+            UnityEngine.Object.DestroyImmediate(fireGo);
+            UnityEngine.Object.DestroyImmediate(hiddenGo);
         }
 
         // ------------------------------------------------------------
