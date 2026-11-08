@@ -62,6 +62,9 @@ namespace FireSafety
         public int QuestionCount => questions != null ? questions.Count : 0;
         public int OptionCount => 3;
         public float TimeLeft => Mathf.Max(0f, _timeLeft);
+        /// <summary>选项条宽度（自检用：确认中文选项有足够宽度显示，不会只剩一个「A.」）。</summary>
+        public float OptionRowWidth => (_optionButtons != null && _optionButtons.Count > 0)
+            ? _optionButtons[0].GetComponent<RectTransform>().rect.width : 0f;
         public bool IsAnsweredThisQuestion => _answered;
         public int PassCorrectCount
         {
@@ -424,6 +427,8 @@ namespace FireSafety
             var ol = optionsHost.GetComponent<VerticalLayoutGroup>();
             ol.spacing = 8f;
             ol.padding = new RectOffset(10, 10, 2, 2);
+            ol.childControlWidth = true;
+            ol.childForceExpandWidth = true;
             var ort = optionsHost.GetComponent<RectTransform>();
             ort.sizeDelta = new Vector2(880, 232);
             _optionButtons.Clear();
@@ -431,7 +436,8 @@ namespace FireSafety
             for (int i = 0; i < 3; i++)
             {
                 int idx = i;
-                var b = AddButton(optionsHost.transform, "", 30, new Color(0.16f, 0.38f, 0.62f, 1f), 64f);
+                // 按钮必须占满选项条宽度：只给 100 单位宽时中文选项会被裁成只剩「A.」
+                var b = AddButton(optionsHost.transform, "", 30, new Color(0.16f, 0.38f, 0.62f, 1f), 64f, 860f);
                 _optionButtons.Add(b);
                 _optionLabels.Add(b.GetComponentInChildren<Text>());
                 b.onClick.AddListener(() => OnOptionClicked(idx));
@@ -474,7 +480,7 @@ namespace FireSafety
             return text;
         }
 
-        Button AddButton(Transform parent, string label, int size, Color bg, float height)
+        Button AddButton(Transform parent, string label, int size, Color bg, float height, float width = 0f)
         {
             var b = new GameObject("Btn", typeof(RectTransform), typeof(Image), typeof(Button));
             b.transform.SetParent(parent, false);
@@ -486,7 +492,12 @@ namespace FireSafety
             var le = b.AddComponent<LayoutElement>();
             le.preferredHeight = height;
             var brt = b.GetComponent<RectTransform>();
-            brt.sizeDelta = new Vector2(brt.sizeDelta.x, height);
+            brt.sizeDelta = new Vector2(width > 0f ? width : brt.sizeDelta.x, height);
+            if (width > 0f)
+            {
+                le.preferredWidth = width;
+                le.flexibleWidth = 1f;
+            }
 
             var labelGo = new GameObject("Label", typeof(RectTransform), typeof(Text));
             labelGo.transform.SetParent(b.transform, false);

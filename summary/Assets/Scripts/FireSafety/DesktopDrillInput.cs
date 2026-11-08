@@ -389,6 +389,7 @@ namespace FireSafety
             ext.StopSprayExternal();
             if (ext.handleLever != null) ext.handleLever.ReleaseExternal();
             ext.grab.ReleaseExternal();
+            ext.PlaceDownUpright();          // 竖着放回脚下地面，不撒手让刚体滚倒
             _lastLeftClick = _lastRightClick = -99f;
             Hint("已放下灭火器");
         }

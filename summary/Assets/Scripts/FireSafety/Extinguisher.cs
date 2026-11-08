@@ -1,3 +1,4 @@
+using System.Collections;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.InputSystem;
@@ -173,6 +174,61 @@ namespace FireSafety
             }
 
             if (guard > 0) Debug.Log("[Extinguisher] 已把 " + name + " 纠正为竖放（转 " + guard + " 次）");
+        }
+
+        /// <summary>
+        /// 桌面「P 放下」：把灭火器竖着放到脚下地面，而不是撒手让刚体自己滚倒。
+        /// 放下之后玩家还要走到门口，横躺的瓶子既不好看也挡动线；
+        /// 直落 + 竖放能让「待原地 → 拿起 → 灭火 → 放下 → 出门」这条链子收得干净。
+        /// </summary>
+        public void PlaceDownUpright(float dropDuration = 0.3f)
+        {
+            if (grab != null && grab.IsHeld) return;
+
+            var rb = GetComponent<Rigidbody>();
+            if (rb != null)
+            {
+                rb.linearVelocity = Vector3.zero;
+                rb.angularVelocity = Vector3.zero;
+                rb.isKinematic = true;
+                rb.useGravity = false;
+            }
+
+            // 直立姿态 = 世界坐标下只保留水平朝向（prefab 静态摆放时就是竖着的）
+            // 手持时瓶身跟着手掌俯仰，撒手会斜着摔在地上，这里按「瓶底朝下」重置再贴地
+            transform.rotation = Quaternion.Euler(0f, transform.eulerAngles.y, 0f);
+
+            Vector3 target = transform.position + new Vector3(0f, -BodyBounds().min.y, 0f);
+            if (!Application.isPlaying) { transform.position = target; return; }
+            StartCoroutine(PlaceDownRoutine(target, dropDuration));
+        }
+
+        private IEnumerator PlaceDownRoutine(Vector3 target, float duration)
+        {
+            Vector3 start = transform.position;
+            float t = 0f;
+            while (t < duration)
+            {
+                t += Time.deltaTime;
+                transform.position = Vector3.Lerp(start, target, Mathf.Clamp01(t / duration));
+                yield return null;
+            }
+            transform.position = target;
+        }
+
+        /// <summary>瓶身渲染包围盒（剔除喷嘴粒子与喷雾渲染，避免把喷射体积算进来）。</summary>
+        private Bounds BodyBounds()
+        {
+            bool has = false;
+            Bounds b = new Bounds(transform.position, Vector3.zero);
+            foreach (var r in GetComponentsInChildren<Renderer>(true))
+            {
+                if (r is ParticleSystemRenderer) continue;
+                if (r.name.ToLower().Contains("spray")) continue;
+                if (!has) { b = r.bounds; has = true; }
+                else b.Encapsulate(r.bounds);
+            }
+            return b;
         }
 
         private void Update()

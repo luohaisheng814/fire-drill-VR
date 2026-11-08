@@ -215,6 +215,8 @@ namespace FireSafety
             _rb.useGravity = _usedGravity;
             _rb.linearVelocity = Vector3.zero;
             _rb.angularVelocity = Vector3.zero;
+            // 放下的瓶子必须当场落回去：刚体若还停在休眠态，会留在半空「悬着」
+            if (!_rb.isKinematic) _rb.WakeUp();
 
             IsHeld = false; _holding = null; CurrentHandSide = HandSide.None;
             if (lockAfterRelease) _locked = true;

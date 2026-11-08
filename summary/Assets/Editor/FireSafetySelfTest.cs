@@ -584,6 +584,8 @@ namespace FireSafety.EditorTools
                     Mathf.Abs(firePos.z - (doorZ + 0.75f)) < 0.06f);
                 Check("第三阶段：火源立在门前的走廊上（不是悬空）",
                     firePos.y >= 0f && firePos.y < 1f);
+                Check("第三阶段：火源瞄准点在火焰根部高度（喷射锥才压得住）",
+                    flow.stageTwoFire.AimPoint.y >= 0.2f && flow.stageTwoFire.AimPoint.y <= 0.6f);
             }
             Check("第三阶段：安全出口仍然关闭（未解锁时不能通关）",
                 !door.IsUnlocked && door.TryEnter() == false);
@@ -624,6 +626,8 @@ namespace FireSafety.EditorTools
                 ext.ResetQuizForStageTwo();
                 Check("第三阶段：B 组灭火器重置后是另一套 5 题（压力表那组）",
                     q2.QuestionCount == 5 && q2.questions[0].question.Contains("压力表"));
+                Check("问答面板：选项按钮占满一行（选项文字不会被裁成「A.」）",
+                    q2.OptionRowWidth >= 400f);
 
                 UnityEngine.Object.DestroyImmediate(extGo);
             }
@@ -1139,8 +1143,31 @@ namespace FireSafety.EditorTools
                 e1.StopSprayExternal();
                 e1.handleLever.ReleaseExternal();
                 e1.grab.ReleaseExternal();
+                e1.PlaceDownUpright();
                 Check("场景链路：P 放下后复位",
                     !e1.grab.IsHeld && !e1.IsSpraying && !e1.handleLever.IsSqueezed);
+
+                // 放下后必须是竖着贴地，而不是撒手让刚体滚成横躺
+                {
+                    var rb1 = e1.GetComponent<Rigidbody>();
+                    float tiltX = Mathf.DeltaAngle(0f, e1.transform.eulerAngles.x);
+                    float tiltZ = Mathf.DeltaAngle(0f, e1.transform.eulerAngles.z);
+                    Bounds b1 = new Bounds();
+                    bool has = false;
+                    foreach (var r in e1.GetComponentsInChildren<Renderer>(true))
+                    {
+                        if (r is ParticleSystemRenderer) continue;
+                        if (r.name.ToLower().Contains("spray")) continue;
+                        if (!has) { b1 = r.bounds; has = true; } else b1.Encapsulate(r.bounds);
+                    }
+                    Check("P 放下：瓶身竖直（没有翻成横躺）",
+                        has && Mathf.Abs(tiltX) < 3f && Mathf.Abs(tiltZ) < 3f
+                        && b1.size.y >= b1.size.x && b1.size.y >= b1.size.z);
+                    Check("P 放下：瓶底贴地（不悬空、不陷进地板）",
+                        has && Mathf.Abs(b1.min.y) < 0.05f);
+                    Check("P 放下：刚体已冻结在原地（不会再自己滚走）",
+                        rb1 != null && rb1.isKinematic);
+                }
 
                 UnityEngine.Object.DestroyImmediate(anchor.gameObject);
                 ResetManagerInstance();

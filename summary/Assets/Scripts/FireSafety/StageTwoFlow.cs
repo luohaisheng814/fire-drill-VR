@@ -345,6 +345,7 @@ namespace FireSafety
                 cloneFire.extinguishThreshold = stageTwoExtinguishThreshold;
                 if (cloneFire.onExtinguished == null) cloneFire.onExtinguished = new UnityEvent();
                 cloneFire.onExtinguished.AddListener(OnStageTwoFireExtinguished);
+                cloneFire.aimTarget = MakeAimPoint(clone.transform);
                 stageTwoFire = cloneFire;
                 Debug.Log("[Stage2] 复燃火源复用场景火焰模板 " + template.name + "（" + cloneParts.Length + " 个粒子系统）");
                 return;
@@ -414,8 +415,26 @@ namespace FireSafety
             fire.extinguishThreshold = stageTwoExtinguishThreshold;
             if (fire.onExtinguished == null) fire.onExtinguished = new UnityEvent();
             fire.onExtinguished.AddListener(OnStageTwoFireExtinguished);
+            fire.aimTarget = MakeAimPoint(go.transform);
 
             stageTwoFire = fire;
+        }
+
+        /// <summary>
+        /// 复燃火的瞄准点：火焰根部（离地约 0.32 米），不是火源物体的地面原点。
+        /// 玩家是「对着看得见的火焰」喷的，瞄准点若压在 y=0，喷向火焰中上部就会擦着 20° 锥边丢判定。
+        /// </summary>
+        private static Transform MakeAimPoint(Transform fireRoot)
+        {
+            Transform t = fireRoot.Find("AimPoint");
+            if (t == null)
+            {
+                var go = new GameObject("AimPoint");
+                go.transform.SetParent(fireRoot, false);
+                go.transform.localPosition = new Vector3(0f, 0.32f, 0f);
+                t = go.transform;
+            }
+            return t;
         }
 
         /// <summary>在场景里找一簇现成的火焰当模板（BaseFire000 是 Office Set 导入后自带的火）。</summary>
