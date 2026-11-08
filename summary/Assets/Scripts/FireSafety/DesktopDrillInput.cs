@@ -138,12 +138,13 @@ namespace FireSafety
 
             RefreshHudText(false);
 
-            // 阶段一完成 / 结束页 / 引导页打开时隐藏底部 HUD 黑条，避免压住面板按钮
+            // 阶段一完成 / 结束页 / 引导页 / 答题面板打开时隐藏底部 HUD 黑条，避免压住面板按钮
             if (_hudCanvas != null)
             {
                 bool hideHud = (stagePanel != null && stagePanel.IsOpen)
                             || (endingScreen != null && endingScreen.IsOpen)
-                            || (onboarding != null && onboarding.IsOpen);
+                            || (onboarding != null && onboarding.IsOpen)
+                            || QuizIsOpen();
                 _hudCanvas.enabled = !hideHud;
             }
 
@@ -435,6 +436,20 @@ namespace FireSafety
                 }
             }
             return PickNearestInView();
+        }
+
+        /// <summary>任一台灭火器的答题面板当前是否打开（用于临时隐藏 HUD）。</summary>
+        private bool QuizIsOpen()
+        {
+            if (quizPanel != null && quizPanel.IsOpen) return true;
+            if (extinguishers != null)
+            {
+                foreach (var e in extinguishers)
+                {
+                    if (e != null && e.quizPanel != null && e.quizPanel.IsOpen) return true;
+                }
+            }
+            return false;
         }
 
         private Extinguisher PickNearestInView()

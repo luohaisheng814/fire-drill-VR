@@ -131,6 +131,21 @@ namespace FireSafety
         /// <summary>问答未通过，保持不能拔销/喷射。</summary>
         public void MarkQuizFailed() => QuizPassed = false;
 
+        /// <summary>
+        /// 第二 / 第三阶段重复灭火流程：清空问答状态并刷成最新 5 题，
+        /// 玩家重新右键拿起这台灭火器时会再答一遍题。
+        /// </summary>
+        public void ResetQuizForStageTwo()
+        {
+            QuizPassed = false;
+            if (quizPanel != null)
+            {
+                quizPanel.ResetQuiz();
+                quizPanel.ResetToDefaultQuestions();
+            }
+            Debug.Log("[Extinguisher] 第二阶段问答已重置（5 题），重新拾取需再次作答。");
+        }
+
         private void Update()
         {
             CheckReach();   // ④

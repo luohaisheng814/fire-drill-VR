@@ -439,9 +439,12 @@ namespace FireSafety.EditorTools
             var smokeGo = GameObject.Find("SmokeZone") ?? new GameObject("SmokeZone");
             var smoke = smokeGo.GetComponent<SmokeZone>() ?? smokeGo.AddComponent<SmokeZone>();
             smoke.emitterCount = 6;
-            smoke.start = new Vector3(0f, 0.30f, 1.8f);
-            smoke.end = new Vector3(0f, 0.30f, -4.0f);
-            smoke.particleSize = 2.2f;
+            // 雾层抬高到 1.6 米：浓雾罩住视线高度，但雾底离地 1.15 米，
+            // 地面上的「安全出口」箭头不会被粒子糊住
+            smoke.start = new Vector3(0f, 1.60f, 1.8f);
+            smoke.end = new Vector3(0f, 1.60f, -4.0f);
+            smoke.floorClearance = 1.15f;
+            smoke.particleSize = 2.0f;
             smoke.ratePerSecond = 12f;
 
             // 安全出口门：大厅正后方
@@ -462,7 +465,8 @@ namespace FireSafety.EditorTools
             flow.crouchHeight = 1.15f;
             flow.lobbyEnterDistance = 1.2f;
             flow.exitEnterDistance = 0.9f;
-            flow.stageTwoFireOffset = new Vector3(0f, 0.35f, 1.1f);
+            // 复燃火源放在安全出口门正前方 0.75 米（不是大厅中心）
+            flow.stageTwoFireOffset = new Vector3(0f, 0.25f, 0.75f);
 
             // 箭头能指到出口
             var arrows = UnityEngine.Object.FindObjectOfType<GuidanceArrows>();
@@ -470,6 +474,10 @@ namespace FireSafety.EditorTools
             {
                 arrows.exitTarget = doorGo.transform;
                 arrows.exitArriveDistance = 0.9f;
+                arrows.stage2ArrowScale = 1.6f;         // 浓烟里箭头放大
+                arrows.floorSignText = "安全出口 →";    // 悬浮标识，烟挡不住
+                arrows.floorSignHeight = 1.05f;
+                arrows.floorSignBackOffset = 1.1f;
             }
 
             var panel = UnityEngine.Object.FindObjectOfType<StageOneCompletePanel>();
@@ -595,10 +603,12 @@ namespace FireSafety.EditorTools
 
             // 常识问答面板（挂在灭火器根上）
             var quiz = root.GetComponent<ExtinguisherQuizPanel>() ?? root.AddComponent<ExtinguisherQuizPanel>();
-            quiz.ResetToDefaultQuestions();                 // 5 题，A/B/C 三选项
+            quiz.ResetToDefaultQuestions();                 // 5 道新题（第 13 轮重设），A/B/C 三选项
             quiz.timePerQuestion = 10f;                     // 每题 10 秒
             quiz.passRatio = 0.6f;                          // 答对 60%（3/5）才可通过
-            quiz.distanceFromCamera = 1.2f;                 // 面板固定出现在相机前方，不再随灭火器放大
+            quiz.distanceFromCamera = 1.15f;                // 一臂外阅读距离：字够大、按钮不挡手
+            quiz.verticalOffset = -0.05f;                   // 略低于视线，不用仰头
+            quiz.followCamera = true;                       // 玩家站起走动后自动回到正前方
             ext.quizPanel = quiz;
 
             // 手部姿态匹配（抓握时手指贴合瓶身）

@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Events;
+using UnityEngine.UI;
 
 namespace FireSafety
 {
@@ -33,6 +34,16 @@ namespace FireSafety
         public float pulseHz = 2.5f;
         public bool autoStartOnAlarm = true;
 
+        [Header("第二阶段：浓烟中的地面安全出口标识")]
+        [Tooltip("第二阶段箭头整体放大倍数：烟雾里更醒目")]
+        public float stage2ArrowScale = 1.6f;
+        [Tooltip("悬浮标识文案（始终朝向玩家，烟雾挡不住）")]
+        public string floorSignText = "安全出口 →";
+        [Tooltip("标识离地高度（米）")]
+        public float floorSignHeight = 1.05f;
+        [Tooltip("标识放在目标前方多少米（朝玩家一侧）")]
+        public float floorSignBackOffset = 1.1f;
+
         [Header("事件")]
         public UnityEvent onGuidanceStarted;
         public UnityEvent onGuidanceStopped;
@@ -42,10 +53,16 @@ namespace FireSafety
         public bool LobbyMode { get; private set; }
         /// <summary>当前是否处于「引导去安全出口」模式（第三阶段灭火完成后开启）。</summary>
         public bool ExitMode { get; private set; }
+        /// <summary>是否已生成「安全出口 →」悬浮标识（自检用）。</summary>
+        public bool HasExitSign => _signRoot != null;
+        /// <summary>悬浮标识当前是否可见（自检用）。</summary>
+        public bool ExitSignVisible => _signRoot != null && _signRoot.activeSelf;
 
         Camera _cam;
         Transform _player;
         GameObject[] _arrows;
+        GameObject _signRoot;
+        Text _signText;
         Material _arrowMat;
         bool _collected;
 
@@ -67,7 +84,9 @@ namespace FireSafety
             var p = GameObject.FindGameObjectWithTag("Player");
             if (p) _player = p.transform;
             BuildArrows();
+            BuildExitSign();
             SetArrowsVisible(false);
+            SetArrowScale(1f);
 
             var mgr = FireDrillManager.Instance;
             if (mgr != null) mgr.onStepChanged.AddListener(OnStepChanged);
@@ -89,6 +108,8 @@ namespace FireSafety
             }
             Active = true;
             SetArrowsVisible(true);
+            SetArrowScale(1f);
+            SetSignVisible(false);
             onGuidanceStarted?.Invoke();
             Debug.Log("[Arrows] 地面引导箭头已启动，指向最近灭火器。");
         }
@@ -105,6 +126,7 @@ namespace FireSafety
             ExitMode = false;
             Active = true;
             SetArrowsVisible(true);
+            SetArrowScale(stage2ArrowScale);
             onGuidanceStarted?.Invoke();
             Debug.Log("[Arrows] 第 2 阶段引导箭头已启动，指向大厅。");
         }
@@ -121,6 +143,7 @@ namespace FireSafety
             LobbyMode = false;
             Active = true;
             SetArrowsVisible(true);
+            SetArrowScale(stage2ArrowScale);
             onGuidanceStarted?.Invoke();
             Debug.Log("[Arrows] 第 3 阶段引导箭头已启动，指向安全出口。");
         }
@@ -131,6 +154,8 @@ namespace FireSafety
             if (!Active) return;
             Active = false;
             SetArrowsVisible(false);
+            SetSignVisible(false);
+            SetArrowScale(1f);
             onGuidanceStopped?.Invoke();
             Debug.Log("[Arrows] 引导箭头已隐藏。");
         }
@@ -171,6 +196,12 @@ namespace FireSafety
                 return;
             }
             dir.Normalize();
+
+            // 浓烟中：目标前方立一块始终朝玩家的大号「安全出口 →」标识
+            if (LobbyMode || ExitMode)
+                PlaceSign(target, playerPos);
+            else
+                SetSignVisible(false);
             Quaternion look = Quaternion.LookRotation(dir, Vector3.up);
 
             for (int i = 0; i < _arrows.Length; i++)
@@ -290,6 +321,83 @@ namespace FireSafety
             if (_arrows == null) return;
             foreach (var a in _arrows)
                 if (a != null) a.SetActive(visible);
+        }
+
+        /// <summary>整体缩放箭头：第二阶段烟雾里放大到 1.6 倍，更容易看见。</summary>
+        private void SetArrowScale(float scale)
+        {
+            if (_arrows == null) return;
+            foreach (var a in _arrows)
+                if (a != null) a.transform.localScale = Vector3.one * scale;
+        }
+
+        /// <summary>
+        /// 世界空间「安全出口 →」标识：竖直悬挂、始终朝向玩家，
+        /// 不受地面烟雾粒子遮挡，浓雾中也能看清撤离方向。
+        /// </summary>
+        private void BuildExitSign()
+        {
+            _signRoot = new GameObject("FloorExitSign");
+            _signRoot.transform.SetParent(transform, false);
+
+            var canvas = _signRoot.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.WorldSpace;
+            canvas.sortingOrder = 320;
+            var rt = _signRoot.GetComponent<RectTransform>();
+            rt.sizeDelta = new Vector2(760, 200);
+            rt.localScale = Vector3.one * 0.0012f;   // ≈0.91 米宽
+            _signRoot.AddComponent<CanvasScaler>();
+
+            var bg = new GameObject("Bg", typeof(RectTransform), typeof(Image));
+            bg.transform.SetParent(_signRoot.transform, false);
+            var img = bg.GetComponent<Image>();
+            img.color = new Color(0.04f, 0.28f, 0.16f, 0.92f);
+            img.raycastTarget = false;
+            var bgRt = bg.GetComponent<RectTransform>();
+            bgRt.anchorMin = Vector2.zero;
+            bgRt.anchorMax = Vector2.one;
+            bgRt.offsetMin = Vector2.zero;
+            bgRt.offsetMax = Vector2.zero;
+
+            var txtGo = new GameObject("Text", typeof(RectTransform), typeof(Text));
+            txtGo.transform.SetParent(_signRoot.transform, false);
+            _signText = txtGo.GetComponent<Text>();
+            _signText.font = UIFont.Resolve();
+            if (_signText.font != null) _signText.material = _signText.font.material;
+            _signText.text = floorSignText;
+            _signText.fontSize = 72;
+            _signText.fontStyle = FontStyle.Bold;
+            _signText.color = new Color(0.72f, 1f, 0.82f);
+            _signText.alignment = TextAnchor.MiddleCenter;
+            _signText.horizontalOverflow = HorizontalWrapMode.Overflow;
+            _signText.verticalOverflow = VerticalWrapMode.Overflow;
+            _signText.raycastTarget = false;
+            var tRt = txtGo.GetComponent<RectTransform>();
+            tRt.anchorMin = Vector2.zero;
+            tRt.anchorMax = Vector2.one;
+            tRt.offsetMin = Vector2.zero;
+            tRt.offsetMax = Vector2.zero;
+
+            _signRoot.SetActive(false);
+        }
+
+        private void PlaceSign(Transform target, Vector3 playerPos)
+        {
+            if (_signRoot == null) return;
+            Vector3 toPlayer = new Vector3(playerPos.x - target.position.x, 0f, playerPos.z - target.position.z);
+            if (toPlayer.sqrMagnitude < 0.0001f) toPlayer = Vector3.back;
+            toPlayer.Normalize();
+            _signRoot.transform.position = new Vector3(target.position.x, floorSignHeight, target.position.z)
+                                           + toPlayer * floorSignBackOffset;
+            if (_cam != null)
+                _signRoot.transform.rotation =
+                    Quaternion.LookRotation(_signRoot.transform.position - _cam.transform.position, Vector3.up);
+            SetSignVisible(true);
+        }
+
+        private void SetSignVisible(bool visible)
+        {
+            if (_signRoot != null && _signRoot.activeSelf != visible) _signRoot.SetActive(visible);
         }
     }
 }

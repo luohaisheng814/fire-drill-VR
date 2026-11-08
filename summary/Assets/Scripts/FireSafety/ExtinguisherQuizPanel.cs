@@ -36,10 +36,12 @@ namespace FireSafety
         [Range(0.3f, 1f)] public float passRatio = 0.6f;
 
         [Header("面板位置（米制，跟随相机的固定距离）")]
-        [Tooltip("面板出现在相机前方多少米")]
-        public float distanceFromCamera = 1.2f;
-        [Tooltip("面板相对视线高度的上下偏移（米）")]
-        public float verticalOffset = 0f;
+        [Tooltip("面板出现在相机前方多少米（1.15 米是一臂外最佳阅读距离，按钮也不挡手）")]
+        public float distanceFromCamera = 1.15f;
+        [Tooltip("面板相对视线高度的上下偏移（米）：略低于视线，读题不用仰头")]
+        public float verticalOffset = -0.05f;
+        [Tooltip("面板打开时若玩家走开，自动重新放到正前方（避免走到墙角还在看远处的题）")]
+        public bool followCamera = true;
 
         [Header("行为")]
         [Tooltip("答错时显示正确答案与讲解，随后进入下一题")]
@@ -88,48 +90,53 @@ namespace FireSafety
         bool _finished;
         float _closeTimer;
         AudioSource _src;
+        Vector3 _placeCamPos;
+        Vector3 _placeCamFwd = Vector3.forward;
 
         // ---------------- 题库 ----------------
 
-        /// <summary>默认 5 题：站上风、对根部、看压力、提拔握压、金属火灾不适用。</summary>
+        /// <summary>
+        /// 默认 5 题（第 13 轮重设）：有效射程、上风站位、持续压把、浓烟低姿撤离、带电先断电。
+        /// 正确答案分别落在 B / C / C / C / C，避免固定选项位置。
+        /// </summary>
         public static List<QuizQuestion> BuildDefaultQuestions()
         {
             return new List<QuizQuestion>
             {
                 new QuizQuestion
                 {
-                    question = "使用干粉灭火器灭火时，人应该站在火焰的哪个方向？",
-                    options = new[] { "下风方向", "上风（或侧上风）方向", "正对火焰，站哪都一样" },
+                    question = "手提式干粉灭火器的有效喷射距离大约是多少？",
+                    options = new[] { "0.5 米以内", "2~3 米", "10 米以上" },
                     correctIndex = 1,
-                    explanation = "应站在上风或侧上风方向，避免火焰和高温烟气扑向自己。"
+                    explanation = "干粉灭火器有效射程约 2~3 米，太远打不到火焰根部，太近容易被高温灼伤。"
                 },
                 new QuizQuestion
                 {
-                    question = "喷射灭火剂时，喷管应该对准火焰的哪个部位？",
-                    options = new[] { "火焰顶端", "火焰中部", "火焰根部" },
+                    question = "使用灭火器灭火时，正确的站位是？",
+                    options = new[] { "下风方向", "紧贴火焰正前方", "上风或侧上风方向" },
                     correctIndex = 2,
-                    explanation = "火焰根部才是燃烧反应发生的核心，对准根部扫射才能有效扑灭。"
+                    explanation = "站在上风或侧上风方向，火焰与高温烟气才不会扑向自己。"
                 },
                 new QuizQuestion
                 {
-                    question = "手提式干粉灭火器的压力表指针，指在哪个区域表示压力正常可用？",
-                    options = new[] { "红色区域", "绿色区域", "黄色区域" },
-                    correctIndex = 1,
-                    explanation = "绿区压力正常；红区压力不足；黄区压力偏高。"
-                },
-                new QuizQuestion
-                {
-                    question = "灭火器的标准操作口诀是「提、拔、握、压」，其中「拔」指的是？",
-                    options = new[] { "拔出保险销", "拔下喷管", "拔开压力表" },
+                    question = "拔出保险销后，压把应该怎么操作？",
+                    options = new[] { "持续压住压把", "快速反复点按", "按一下就立刻松开" },
                     correctIndex = 0,
-                    explanation = "提起灭火器摇匀 → 拔出保险销 → 握住喷管对准火焰根部 → 压下压把。"
+                    explanation = "压把要持续压住，灭火剂才会连续喷出；断续点按会导致喷射时有时无。"
                 },
                 new QuizQuestion
                 {
-                    question = "干粉灭火器通常不适用于扑救下列哪类火灾？",
-                    options = new[] { "木材、纸张等固体火灾", "汽油、柴油等液体火灾", "钾、钠等活泼金属火灾" },
+                    question = "火场浓烟中撤离，正确的做法是？",
+                    options = new[] { "直立快跑冲出烟雾", "乘电梯快速下楼", "湿毛巾捂口鼻、弯腰低姿沿墙撤离" },
                     correctIndex = 2,
-                    explanation = "钾、钠等金属火灾属 D 类火灾，必须使用专用金属火灾灭火剂，普通干粉不适用。"
+                    explanation = "烟气向上聚集，低姿撤离能避开最浓的烟层；火场严禁乘电梯。"
+                },
+                new QuizQuestion
+                {
+                    question = "扑救带电设备火灾前，首先应该做什么？",
+                    options = new[] { "直接对着设备喷射", "先切断电源", "打开全部门窗通风" },
+                    correctIndex = 1,
+                    explanation = "带电灭火有触电风险，必须先切断电源，再使用干粉灭火器扑救。"
                 }
             };
         }
@@ -150,7 +157,21 @@ namespace FireSafety
         void Update()
         {
             if (!IsOpen) return;
+            KeepInFrontOfCamera();
             AdvanceTime(Time.deltaTime);
+        }
+
+        /// <summary>玩家走出原位 / 转头过多时，把面板重新放回正前方（否则题目跑到视野外）。</summary>
+        void KeepInFrontOfCamera()
+        {
+            if (!followCamera || _canvas == null) return;
+            Camera cam = Camera.main;
+            if (cam == null) return;
+            if (Vector3.Distance(cam.transform.position, _placeCamPos) > 0.5f
+                || Vector3.Dot(cam.transform.forward, _placeCamFwd) < 0.8f)
+            {
+                PlaceInFrontOfCamera();
+            }
         }
 
         /// <summary>推进问答计时（Update 调用；自检里可用固定步长直接驱动）。</summary>
@@ -438,6 +459,8 @@ namespace FireSafety
             Vector3 pos = c.position + c.forward * distanceFromCamera + c.up * verticalOffset;
             _canvas.transform.position = pos;
             _canvas.transform.rotation = Quaternion.LookRotation(pos - c.position, Vector3.up);
+            _placeCamPos = c.position;
+            _placeCamFwd = c.forward;
         }
 
         // ---------------- 答题流程 ----------------

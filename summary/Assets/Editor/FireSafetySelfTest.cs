@@ -1,5 +1,6 @@
 #if UNITY_EDITOR
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using UnityEditor;
 using UnityEngine;
@@ -255,6 +256,12 @@ namespace FireSafety.EditorTools
             Check("问答：每题 A/B/C 三选项", quiz.OptionCount == 3);
             Check("问答：每题限时 10 秒", Mathf.Approximately(quiz.timePerQuestion, 10f));
             Check("问答：60% 通过 → 至少答对 3 题", quiz.PassCorrectCount == 3);
+            Check("问答：题库已重设为第 13 轮新题（第 1 题为有效射程）",
+                quiz.questions.Count == 5 && quiz.questions[0].question.Contains("有效喷射距离"));
+            Check("问答：新题 5 道互不重复",
+                new HashSet<string>(quiz.questions.ConvertAll(q => q.question)).Count == quiz.questions.Count);
+            Check("问答：正确答案不集中在同一个选项",
+                new HashSet<int>(quiz.questions.ConvertAll(q => q.correctIndex)).Count >= 3);
 
             foreach (var q in quiz.questions)
             {
@@ -505,6 +512,12 @@ namespace FireSafety.EditorTools
             Check("撤离阶段：烟雾已开启", smoke.Active && smoke.EmitterCount == 3);
             Check("撤离阶段：箭头切到大厅模式", arrows.Active && arrows.LobbyMode && !arrows.ExitMode);
 
+            // 编辑模式补跑 Start/Update：箭头与「安全出口 →」标识才会真正生成并摆位
+            InvokeMethod(arrows, "Start");
+            InvokeMethod(arrows, "Update");
+            Check("撤离：浓雾中已生成地面「安全出口 →」标识", arrows.HasExitSign);
+            Check("撤离：标识在烟雾中保持可见（指向大厅）", arrows.ExitSignVisible);
+
             Check("站立到达大厅不推进（必须先蹲下）",
                 flow.TryArriveLobby(false) == false && flow.CurrentStage == StageTwoFlow.Stage.Evacuating);
 
@@ -515,6 +528,18 @@ namespace FireSafety.EditorTools
                 flow.stageTwoFire != null && !flow.stageTwoFire.IsExtinguished);
             Check("第三阶段：烟雾停止", !smoke.Active);
             Check("第三阶段：复燃火源有灭火阈值", flow.stageTwoFire != null && flow.stageTwoFire.extinguishThreshold > 0f);
+
+            if (flow.stageTwoFire != null)
+            {
+                Vector3 firePos = flow.stageTwoFire.transform.position;
+                float doorZ = doorGo.transform.position.z;
+                Check("第三阶段：火源在安全出口门正前方（门内侧不点火）",
+                    firePos.z > doorZ + 0.4f && firePos.z < doorZ + 1.1f);
+                Check("第三阶段：火源距门约 0.75 米",
+                    Mathf.Abs(firePos.z - (doorZ + 0.75f)) < 0.06f);
+                Check("第三阶段：火源立在门前的走廊上（不是悬空）",
+                    firePos.y >= 0f && firePos.y < 1f);
+            }
             Check("第三阶段：安全出口仍然关闭（未解锁时不能通关）",
                 !door.IsUnlocked && door.TryEnter() == false);
 
@@ -528,6 +553,28 @@ namespace FireSafety.EditorTools
             Check("走进安全出口：通关成功", flow.TryEnterExit() && flow.CurrentStage == StageTwoFlow.Stage.Done);
             Check("通关：出口记录玩家已进入", door.PlayerEntered);
             Check("通关：结束页弹出且为成功态", ending.IsOpen && ending.IsSuccess);
+
+            // ---- 第二阶段重复灭火：备用灭火器的问答必须重置成新 5 题 ----
+            {
+                var extGo = new GameObject("TEST_Ext2");
+                var ext = extGo.AddComponent<Extinguisher>();
+                var qGo = new GameObject("TEST_ExtQuiz2");
+                qGo.transform.SetParent(extGo.transform, false);
+                var q2 = qGo.AddComponent<ExtinguisherQuizPanel>();
+                ext.quizPanel = q2;
+                InvokeAwake(q2);                       // BuildUI + 默认 5 题
+
+                ext.MarkQuizPassed();
+                Check("第三阶段：备用灭火器初始状态为问答已通过", ext.QuizPassed);
+
+                ext.ResetQuizForStageTwo();
+                Check("第三阶段：备用灭火器问答已重置为未通过", !ext.QuizPassed && !q2.Passed);
+                Check("第三阶段：重置后仍是 5 道新题", q2.QuestionCount == 5
+                    && q2.questions[0].question.Contains("有效喷射距离"));
+                Check("第三阶段：重置后不能直接拔销（必须重新答题）", !ext.CanPullPin);
+
+                UnityEngine.Object.DestroyImmediate(extGo);
+            }
 
             flow.SetCrouchOverrideForTest(false);
             ending.Hide();
@@ -649,7 +696,13 @@ namespace FireSafety.EditorTools
                     Check("场景 " + n + "：问答每题 3 选项", e.quizPanel.OptionCount == 3);
                     Check("场景 " + n + "：问答每题 10 秒", Mathf.Approximately(e.quizPanel.timePerQuestion, 10f));
                     Check("场景 " + n + "：问答 60% 通过", Mathf.Approximately(e.quizPanel.passRatio, 0.6f));
-                    Check("场景 " + n + "：问答面板距相机 1.2 米", Mathf.Approximately(e.quizPanel.distanceFromCamera, 1.2f));
+                    Check("场景 " + n + "：问答面板距相机 1.15 米（一臂外阅读距离）",
+                        Mathf.Approximately(e.quizPanel.distanceFromCamera, 1.15f));
+                    Check("场景 " + n + "：问答面板略低于视线 -0.05 米",
+                        Mathf.Approximately(e.quizPanel.verticalOffset, -0.05f));
+                    Check("场景 " + n + "：问答面板会跟随玩家回到正前方", e.quizPanel.followCamera);
+                    Check("场景 " + n + "：题库已换成本轮新 5 题",
+                        e.quizPanel.questions.Count == 5 && e.quizPanel.questions[0].question.Contains("有效喷射距离"));
                 }
             }
 
@@ -726,6 +779,10 @@ namespace FireSafety.EditorTools
                 Check("场景：大厅到达距离为 0.6 米", Mathf.Approximately(arrows.lobbyArriveDistance, 0.6f));
                 Check("场景：引导箭头已配置安全出口目标（exitTarget）", arrows.exitTarget != null);
                 Check("场景：出口到达距离 0.9 米", Mathf.Approximately(arrows.exitArriveDistance, 0.9f));
+                Check("场景：浓烟里箭头放大到 1.6 倍", Mathf.Approximately(arrows.stage2ArrowScale, 1.6f));
+                Check("场景：地面安全出口标识文案为「安全出口 →」", arrows.floorSignText == "安全出口 →");
+                Check("场景：标识离地 1.05 米（高于雾底 1.15 米视线带）",
+                    Mathf.Approximately(arrows.floorSignHeight, 1.05f));
             }
 
             var onboarding = UnityEngine.Object.FindObjectOfType<OnboardingScreen>();
@@ -762,12 +819,20 @@ namespace FireSafety.EditorTools
                 Check("场景：流程已引用出口门", flow.exitDoor != null);
                 Check("场景：流程已引用引导箭头", flow.arrows != null);
                 Check("场景：流程蹲姿阈值 1.15 米", Mathf.Approximately(flow.crouchHeight, 1.15f));
+                Check("场景：复燃火源配置在出口门前方 0.75 米",
+                    Mathf.Approximately(flow.stageTwoFireOffset.z, 0.75f)
+                    && flow.stageTwoFireOffset.z > 0f);
             }
 
             var smokeZone = UnityEngine.Object.FindObjectOfType<SmokeZone>(true);
             Check("场景：烟雾区 SmokeZone 存在", smokeZone != null);
             if (smokeZone != null)
+            {
                 Check("场景：烟雾区至少 4 个发射点（实际 " + smokeZone.emitterCount + "）", smokeZone.emitterCount >= 4);
+                Check("场景：雾底抬高到 1.15 米（不糊住地面箭头）",
+                    smokeZone.floorClearance >= 1.0f);
+                Check("场景：烟雾仅在视线高度（起始 y ≥ 1.2 米）", smokeZone.start.y >= 1.2f);
+            }
 
             var exitDoor = UnityEngine.Object.FindObjectOfType<ExitDoor>(true);
             Check("场景：安全出口门 ExitDoor 存在", exitDoor != null);

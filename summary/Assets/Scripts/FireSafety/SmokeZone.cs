@@ -13,13 +13,15 @@ namespace FireSafety
         public static SmokeZone Instance { get; private set; }
 
         [Header("布点（世界坐标，两点之间等距排布）")]
-        public Vector3 start = new Vector3(0f, 0.30f, 1.8f);
-        public Vector3 end = new Vector3(0f, 0.30f, -4.0f);
+        public Vector3 start = new Vector3(0f, 1.60f, 1.8f);
+        public Vector3 end = new Vector3(0f, 1.60f, -4.0f);
         public int emitterCount = 6;
+        [Tooltip("雾底离地高度（米）：地板上的安全出口箭头必须露在雾下面")]
+        public float floorClearance = 1.15f;
 
         [Header("烟雾表现")]
         public Color smokeColor = new Color(0.64f, 0.66f, 0.68f, 0.55f);
-        public float particleSize = 2.2f;
+        public float particleSize = 2.0f;
         public float lifetime = 5f;
         [Tooltip("每秒冒出多少团烟雾")]
         public float ratePerSecond = 12f;
@@ -102,6 +104,7 @@ namespace FireSafety
             {
                 float k = emitterCount <= 1 ? 0f : (float)i / (emitterCount - 1);
                 Vector3 pos = Vector3.Lerp(start, end, k);
+                pos.y = Mathf.Max(pos.y, floorClearance);
                 list.Add(BuildEmitter("Smoke_" + (i + 1), pos));
             }
             _systems = list.ToArray();        }

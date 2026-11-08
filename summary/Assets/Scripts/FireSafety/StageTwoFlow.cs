@@ -48,7 +48,7 @@ namespace FireSafety
         public float smokeWarningInterval = 4f;
 
         [Header("复燃火源参数")]
-        public Vector3 stageTwoFireOffset = new Vector3(0f, 0.35f, 1.1f);
+        public Vector3 stageTwoFireOffset = new Vector3(0f, 0.25f, 0.75f);
         public float stageTwoExtinguishThreshold = 2.2f;
         public bool autoCreateFire = true;
         [Tooltip("第三阶段开始时，把最近的一台空闲灭火器挪到大厅备用")]
@@ -206,7 +206,7 @@ namespace FireSafety
 
             MoveSpareExtinguisherToLobby();
 
-            Hint("大厅复燃！再次执行：拿起 → 拔销 → 压把 → 喷射，扑灭后安全出口开启", true);
+            Hint("大厅复燃！放下手上灭火器，拿起大厅备用灭火器（需再答 5 题）→ 拔销 → 压把 → 对准门前火焰喷射", true);
             onStageThreeBegin?.Invoke();
             Debug.Log("[Stage2] 进入第三阶段：大厅复燃，重复灭火流程。");
         }
@@ -385,17 +385,26 @@ namespace FireSafety
             stageTwoFire = fire;
         }
 
+        /// <summary>复燃火源位置：安全出口门正前方（朝玩家一侧），而不是大厅中心。</summary>
         private Vector3 FirePosition()
         {
-            Transform lobby = arrows != null ? arrows.lobbyTarget : null;
-            Vector3 basePos = lobby != null ? lobby.position : transform.position;
+            Transform anchor = null;
+            if (exitDoor != null) anchor = exitDoor.transform;
+            else if (arrows != null && arrows.exitTarget != null) anchor = arrows.exitTarget;
+            else if (arrows != null) anchor = arrows.lobbyTarget;
+
+            Vector3 basePos = anchor != null ? anchor.position : transform.position;
             return new Vector3(basePos.x, 0f, basePos.z) + stageTwoFireOffset;
         }
 
         private void MoveSpareExtinguisherToLobby()
         {
             if (!autoMoveSpareExtinguisher) return;
-            Vector3 lobbyPos = FirePosition() + new Vector3(0.7f, -0.05f, -0.6f);
+
+            Transform lobby = arrows != null ? arrows.lobbyTarget : null;
+            Vector3 lobbyPos = (lobby != null ? lobby.position : FirePosition())
+                               + new Vector3(0.55f, -0.05f, 0.35f);
+
             if (spareExtinguisher != null && spareExtinguisher.grab != null && spareExtinguisher.grab.IsHeld)
                 return;
 
@@ -414,7 +423,8 @@ namespace FireSafety
             {
                 best.transform.position = lobbyPos;
                 best.transform.rotation = Quaternion.Euler(0f, 180f, 0f);
-                Debug.Log("[Stage2] 备用灭火器已挪到大厅：" + best.name);
+                best.ResetQuizForStageTwo();   // 重新拾取要再答 5 道（新题）
+                Debug.Log("[Stage2] 备用灭火器已挪到大厅，问答已重置：" + best.name);
             }
         }
 
