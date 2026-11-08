@@ -26,6 +26,8 @@ namespace FireSafety
         public ExtinguisherQuizPanel quizPanel;
         public StartScreen startScreen;
         public StageOneCompletePanel stagePanel;
+        public OnboardingScreen onboarding;
+        public EndingScreen endingScreen;
         public Transform cameraTransform;
 
         [Header("桌面手部锚点（留空自动创建在相机下）")]
@@ -109,6 +111,8 @@ namespace FireSafety
             if (quizPanel == null && _active != null) quizPanel = _active.quizPanel;
             if (startScreen == null) startScreen = FindObjectOfType<StartScreen>();
             if (stagePanel == null) stagePanel = FindObjectOfType<StageOneCompletePanel>();
+            if (onboarding == null) onboarding = FindObjectOfType<OnboardingScreen>();
+            if (endingScreen == null) endingScreen = FindObjectOfType<EndingScreen>();
 
             RefreshHudText(true);
         }
@@ -212,6 +216,9 @@ namespace FireSafety
 
         private bool IsModalOpen()
         {
+            // 引导页 / 结束页打开时拦截演练操作（页面自己的按钮仍可点）
+            if (onboarding != null && onboarding.IsOpen) return true;
+            if (endingScreen != null && endingScreen.IsOpen) return true;
             // 问答结果展示阶段（已判过对错）不再拦截操作
             if (quizPanel != null && quizPanel.IsOpen && !quizPanel.Passed && !quizPanel.Failed) return true;
             if (stagePanel != null && stagePanel.IsOpen) return true;
@@ -222,6 +229,13 @@ namespace FireSafety
 
         private void TryStartDrill()
         {
+            // 引导页打开时，回车/空格 = 翻到下一页（最后一页即开始）
+            if (onboarding != null && onboarding.IsOpen)
+            {
+                onboarding.NextPage();
+                return;
+            }
+            if (endingScreen != null && endingScreen.IsOpen) return;
             if (startScreen != null && !startScreen.Started)
             {
                 startScreen.StartGame();

@@ -20,9 +20,22 @@ namespace FireSafety
         [Tooltip("拔出后延迟多少秒隐藏销子（0 = 不隐藏）")]
         public float hideDelay = 0f;
 
+        [Header("可拔提示")]
+        [Tooltip("问答通过且已手持时，销子轻微来回缩放提示「可以拔了」")]
+        public bool pulseWhenReady = true;
+        [Tooltip("提示缩放幅度（1.0 为原大小）")]
+        public float pulseAmplitude = 0.12f;
+        [Tooltip("提示频率（次/秒）")]
+        public float pulseFrequency = 2.2f;
+
         public bool IsPulled { get; private set; }
 
+        /// <summary>当前是否满足拔出条件（已手持 + 问答通过 + 尚未拔出）。</summary>
+        public bool ReadyToPull =>
+            !IsPulled && owner != null && grab != null && grab.IsHeld && owner.CanPullPin;
+
         private Vector3 _homeLocalPos;
+        private Vector3 _baseScale;
         private Rigidbody _rb;
 
         private void Awake()
@@ -32,11 +45,21 @@ namespace FireSafety
             _rb = GetComponent<Rigidbody>();
             _homeLocalPos = owner ? owner.transform.InverseTransformPoint(transform.position)
                                   : transform.localPosition;
+            _baseScale = transform.localScale;
         }
 
         private void Update()
         {
             if (IsPulled || !owner || !grab) return;
+
+            // 可拔提示：手持且问答通过后，销子来回轻微缩放，明确告诉玩家「现在可以拔」
+            if (pulseWhenReady)
+            {
+                var s = ReadyToPull ? 1f + Mathf.Sin(Time.time * pulseFrequency * Mathf.PI * 2f) * pulseAmplitude
+                                    : 1f;
+                transform.localScale = _baseScale * s;
+            }
+
             if (!grab.IsHeld) return;
             if (owner != null && !owner.CanPullPin) return;   // 常识问答未通过时不能拔销
 
@@ -48,6 +71,7 @@ namespace FireSafety
         private void Pull()
         {
             IsPulled = true;
+            transform.localScale = _baseScale;
             grab.ForceRelease();
 
             if (dropAfterPull && _rb)

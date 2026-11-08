@@ -82,6 +82,7 @@ namespace FireSafety.EditorTools
 
             // 3. 开始界面
             SetupStartScreen(rightHand);
+            SetupOnboarding(rightHand);
 
             // 4. 警报
             SetupFireAlarm();
@@ -95,6 +96,7 @@ namespace FireSafety.EditorTools
 
             // 5.6 阶段一完成面板（暂停倒计时 + 立刻结算 / 继续往下）
             SetupStageOnePanel();
+            SetupEndingScreen();
 
             // 6. 灭火器
             SetupExtinguisher("Extinguisher01", rig, leftHand, rightHand);
@@ -251,8 +253,10 @@ namespace FireSafety.EditorTools
                 "② 找到红色灭火器：进入视线会高亮提示，地面箭头指向它的位置；\n" +
                 "③ 鼠标右键单击灭火器 → 弹出 5 道常识题，每题 10 秒，答对 60%（3 题）才能拿起；\n" +
                 "④ 拿起后：左键单击拔销 → 左键双击压把 → 右键双击喷射，火焰 2~3 秒熄灭即完成阶段一；\n" +
-                "⑤ 阶段一完成后倒计时暂停，可选择「立刻结算」或「继续往下」。\n" +
-                "键盘：P 放下灭火器；回车 / 空格 开始演练；问答时按 1 / 2 / 3 作答。";
+                "⑤ 阶段一完成→继续往下，沿箭头撤离到大厅集合点，弹出结束页。\n" +
+                "键盘：P 放下灭火器；回车 / 空格 开始演练；问答时按 1 / 2 / 3 作答。\n" +
+                "不确定怎么操作？点下方「操作教学」，分页看完整步骤。";
+            start.onboardingLabel = "操作教学";
             Debug.Log("[Setup] ✔ 开始界面：StartScreen（锚定右手手柄正前方；玩法说明可在 Inspector 修改）");
         }
 
@@ -377,6 +381,44 @@ namespace FireSafety.EditorTools
             panel.buttonContinue = "继续往下";
             if (go.GetComponent<AudioSource>() == null) go.AddComponent<AudioSource>();
             Debug.Log("[Setup] ✔ 阶段一完成面板：StageOneCompletePanel（暂停倒计时 + 立刻结算/继续往下）");
+        }
+
+        /// <summary>引导页（온보딩）：分页操作教学，锚定右手手柄正前方。</summary>
+        static void SetupOnboarding(Transform rightHand)
+        {
+            var go = GameObject.Find("OnboardingScreen") ?? new GameObject("OnboardingScreen");
+            var ob = go.GetComponent<OnboardingScreen>() ?? go.AddComponent<OnboardingScreen>();
+            ob.startScreen = UnityEngine.Object.FindObjectOfType<StartScreen>();
+            ob.anchorHand = rightHand;
+            ob.handForwardDistance = 1.0f;
+            ob.handUpOffset = 0.14f;
+            ob.canvasScale = 0.0009f;
+            ob.fallbackDistance = 1.2f;
+            ob.title = "操作教学 · 开始前必读";
+            ob.prevLabel = "上一步";
+            ob.nextLabel = "下一步";
+            ob.lastLabel = "开始演练";
+            ob.skipLabel = "跳过教学";
+            if (go.GetComponent<AudioSource>() == null) go.AddComponent<AudioSource>();
+            Debug.Log("[Setup] ✔ 引导页：OnboardingScreen（4 页教学，锚定右手手柄前方 1.0 米 / 上抬 0.14 米）");
+        }
+
+        /// <summary>结束页（엔딩）：撤离到大厅成功 / 倒计时耗尽失败。</summary>
+        static void SetupEndingScreen()
+        {
+            var go = GameObject.Find("EndingScreen") ?? new GameObject("EndingScreen");
+            var ending = go.GetComponent<EndingScreen>() ?? go.AddComponent<EndingScreen>();
+            ending.countdown = UnityEngine.Object.FindObjectOfType<DrillCountdown>();
+            var ext = GameObject.Find("Extinguisher01");
+            if (ext != null) ending.quiz = ext.GetComponentInChildren<ExtinguisherQuizPanel>(true);
+            ending.distanceFromCamera = 1.2f;
+            ending.verticalOffset = 0f;
+            ending.titleSuccess = "演练完成 · 成功撤离";
+            ending.titleFailure = "演练结束 · 时间到";
+            ending.buttonRestart = "重新演练";
+            ending.buttonClose = "关闭";
+            if (go.GetComponent<AudioSource>() == null) go.AddComponent<AudioSource>();
+            Debug.Log("[Setup] ✔ 结束页：EndingScreen（到大厅=成功 / 倒计时耗尽=失败，含成绩汇总）");
         }
 
         /// <summary>清理场景中脚本丢失（Missing Mono Script）的组件。</summary>

@@ -28,6 +28,7 @@ namespace FireSafety.EditorTools
             TestQuizFailThenRetry();
             TestStageOnePanel();
             TestLobbyGuidance();
+            TestOnboardingAndEnding();
             TestStepChain();
             TestSceneWiring();
 
@@ -405,6 +406,59 @@ namespace FireSafety.EditorTools
         }
 
         // ------------------------------------------------------------
+        // 3.10 引导页（온보딩）与结束页（엔딩）
+        // ------------------------------------------------------------
+        static void TestOnboardingAndEnding()
+        {
+            // —— 引导页：分页翻页、关闭 ——
+            var obGo = new GameObject("TEST_Onboarding");
+            var ob = obGo.AddComponent<OnboardingScreen>();
+            InvokeAwake(ob);
+
+            Check("引导页：默认 4 页（实际 " + ob.PageCount + "）", ob.PageCount == 4);
+            Check("引导页：初始在第 1 页", ob.PageIndex == 0);
+
+            ob.Show();
+            Check("引导页：可打开", ob.IsOpen);
+
+            ob.NextPage();
+            Check("引导页：下一步翻页到第 2 页", ob.PageIndex == 1);
+            ob.PrevPage();
+            Check("引导页：上一步回到第 1 页", ob.PageIndex == 0);
+
+            for (int i = 0; i < 5 && ob.PageIndex < ob.PageCount - 1; i++) ob.NextPage();
+            Check("引导页：可翻到最后一页", ob.PageIndex == ob.PageCount - 1);
+
+            ob.Skip();
+            Check("引导页：跳过即关闭", !ob.IsOpen);
+
+            UnityEngine.Object.DestroyImmediate(obGo);
+
+            // —— 结束页：成功/失败两种结果与关闭 ——
+            var endGo = new GameObject("TEST_Ending");
+            var ending = endGo.AddComponent<EndingScreen>();
+            InvokeAwake(ending);
+
+            int shown = 0;
+            ending.onShown.AddListener(() => shown++);
+
+            Check("结束页：初始关闭", !ending.IsOpen);
+            ending.Show(true);
+            Check("结束页：成功路径可弹出", ending.IsOpen && ending.IsSuccess && shown == 1);
+            Check("结束页：成功文案为「演练完成」", ending.titleSuccess.Contains("演练完成"));
+
+            ending.Hide();
+            Check("结束页：关闭后隐藏", !ending.IsOpen);
+
+            ending.Show(false);
+            Check("结束页：失败路径可弹出", ending.IsOpen && !ending.IsSuccess);
+            Check("结束页：失败文案为「时间到」", ending.titleFailure.Contains("时间到"));
+
+            ending.Hide();
+            UnityEngine.Object.DestroyImmediate(endGo);
+        }
+
+        // ------------------------------------------------------------
         // 4. 步骤链：⑤拿起 → ⑥拔销 → ⑦压把 → ⑧喷射 → ⑨扑灭
         // ------------------------------------------------------------
         static void TestStepChain()
@@ -501,6 +555,9 @@ namespace FireSafety.EditorTools
                 string n = e.gameObject.name;
                 Check("场景 " + n + "：grab 已引用", e.grab != null);
                 Check("场景 " + n + "：pin 已引用（鼠标拔销依赖）", e.pin != null);
+                if (e.pin != null)
+                    Check("场景 " + n + "：保险销拉出阈值 0.12 米",
+                        Mathf.Approximately(e.pin.pullDistance, 0.12f));
                 Check("场景 " + n + "：handleLever 已引用", e.handleLever != null);
                 Check("场景 " + n + "：sprayParticles 已引用", e.sprayParticles != null);
                 Check("场景 " + n + "：quizPanel 已引用", e.quizPanel != null);
@@ -554,6 +611,23 @@ namespace FireSafety.EditorTools
             {
                 Check("场景：引导箭头已配置大厅目标（lobbyTarget）", arrows.lobbyTarget != null);
                 Check("场景：大厅到达距离为 0.6 米", Mathf.Approximately(arrows.lobbyArriveDistance, 0.6f));
+            }
+
+            var onboarding = UnityEngine.Object.FindObjectOfType<OnboardingScreen>();
+            Check("场景：引导页（온보딩）存在", onboarding != null);
+            if (onboarding != null)
+            {
+                Check("场景：引导页已绑定手柄锚点（正前方）", onboarding.anchorHand != null);
+                Check("场景：引导页前伸 1.0 米", Mathf.Approximately(onboarding.handForwardDistance, 1.0f));
+                Check("场景：引导页至少 4 页（实际 " + onboarding.PageCount + "）", onboarding.PageCount >= 4);
+            }
+
+            var ending = UnityEngine.Object.FindObjectOfType<EndingScreen>();
+            Check("场景：结束页（엔딩）存在", ending != null);
+            if (ending != null)
+            {
+                Check("场景：结束页已引用倒计时（用时统计）", ending.countdown != null);
+                Check("场景：结束页距相机 1.2 米", Mathf.Approximately(ending.distanceFromCamera, 1.2f));
             }
             var lobbyObj = GameObject.Find("Lobby");
             Check("场景：大厅标记物体 Lobby 存在", lobbyObj != null);

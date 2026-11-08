@@ -41,6 +41,8 @@ namespace FireSafety
         public float handUpOffset = 0.15f;
 
         [Header("开始流程")]
+        [Tooltip("开始面板上的第二个按钮：打开分页操作教学")]
+        public string onboardingLabel = "操作教学";
         [Tooltip("点击开始后拉响火灾警报")]
         public bool startAlarmOnBegin = true;
         [Tooltip("把背景音乐切换为警报音（BackgroundMusic.SwitchToAlarm）")]
@@ -118,7 +120,7 @@ namespace FireSafety
             _canvas.renderMode = RenderMode.WorldSpace;
             _canvas.sortingOrder = 300;
             var rt = go.GetComponent<RectTransform>();
-            rt.sizeDelta = new Vector2(1000, 700);
+            rt.sizeDelta = new Vector2(1000, 760);
             rt.localScale = Vector3.one * canvasScale;
             go.transform.position = worldPosition;
             go.AddComponent<CanvasScaler>();
@@ -142,7 +144,7 @@ namespace FireSafety
             layout.childForceExpandHeight = false;
 
             _panelRect = panel.GetComponent<RectTransform>();
-            _panelRect.sizeDelta = new Vector2(940, 660);
+            _panelRect.sizeDelta = new Vector2(940, 700);
             _panelRect.anchorMin = _panelRect.anchorMax = new Vector2(0.5f, 0.5f);
             _panelRect.pivot = new Vector2(0.5f, 0.5f);
             _panelRect.anchoredPosition = Vector2.zero;
@@ -153,7 +155,7 @@ namespace FireSafety
             UIFX.Pulse(this, _titleText.transform, 1f, titlePulseAmplitude, titlePulseFrequency);
 
             // 玩法说明文本框（可在 Inspector 的 Instructions 里修改）
-            _instText = MakeText(panel.transform, instructions, 30, Color.white, 320f);
+            _instText = MakeText(panel.transform, instructions, 30, Color.white, 296f);
             _instText.horizontalOverflow = HorizontalWrapMode.Wrap;
             _instText.verticalOverflow = VerticalWrapMode.Overflow;
             _instText.alignment = TextAnchor.UpperLeft;
@@ -164,6 +166,11 @@ namespace FireSafety
             _startLabel = _startButton.GetComponentInChildren<Text>();
             UIFX.Pulse(this, _startButton.transform, 1f, buttonPulseAmplitude, buttonPulseFrequency);
             _startButton.onClick.AddListener(StartGame);
+
+            // 引导页入口（온보딩）：分页教学
+            var onboardBtn = MakeButton(panel.transform, onboardingLabel, 30,
+                new Color(0.2f, 0.34f, 0.62f, 1f), 62f);
+            onboardBtn.onClick.AddListener(OpenOnboarding);
         }
 
         Text MakeText(Transform parent, string content, int size, Color color, float height)
@@ -227,6 +234,28 @@ namespace FireSafety
         }
 
         // ---------------- 开始 ----------------
+
+        /// <summary>显示 / 隐藏开始画布（打开引导页时临时隐藏，避免按钮重叠误点）。</summary>
+        public void SetVisible(bool visible)
+        {
+            if (_canvas == null) BuildUI();
+            _canvas.gameObject.SetActive(visible);
+        }
+
+        /// <summary>「操作教学」按钮：打开分页引导页（온보딩 화면）。</summary>
+        public void OpenOnboarding()
+        {
+            PlayClick();
+            var onboarding = OnboardingScreen.Instance;
+            if (onboarding == null) onboarding = FindObjectOfType<OnboardingScreen>();
+            if (onboarding == null)
+            {
+                Debug.LogWarning("[StartScreen] 场景中没有 OnboardingScreen，操作教学不可用。");
+                return;
+            }
+            onboarding.startScreen = this;
+            onboarding.Show();
+        }
 
         /// <summary>「开始演练」按钮回调。</summary>
         public void StartGame()
