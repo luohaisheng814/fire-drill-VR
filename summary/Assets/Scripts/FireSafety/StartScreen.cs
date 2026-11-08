@@ -35,10 +35,16 @@ namespace FireSafety
         [Header("手柄锚点：开始界面显示在手柄正前方（留空则回退到相机前方）")]
         [Tooltip("绑定到右手控制器；非空时面板每帧跟随到其正前方")]
         public Transform anchorHand;
-        [Tooltip("沿手柄前向伸出的距离（米），约一臂外的可读距离")]
-        public float handForwardDistance = 1.0f;
+        [Tooltip("沿手柄前向伸出的距离（米），约一臂内的可读距离")]
+        public float handForwardDistance = 0.75f;
         [Tooltip("相对手柄再向上抬的偏移（米），便于在视野下方居中阅读")]
         public float handUpOffset = 0.15f;
+
+        [Header("距离保护：面板离相机过远时改为相机正前方兜底")]
+        [Tooltip("手柄锚点算出的面板超过该距离（米）时，改用相机正前方兜底，避免面板跑到房间另一头")]
+        public float maxCameraDistance = 1.4f;
+        [Tooltip("兜底时面板放在相机正前方多少米")]
+        public float cameraFallbackDistance = 1.1f;
 
         [Header("开始流程")]
         [Tooltip("开始面板上的第二个按钮：打开分页操作教学")]
@@ -88,14 +94,24 @@ namespace FireSafety
             if (_cam == null) _cam = Camera.main ? Camera.main.transform : null;
             if (_canvas == null) return;
 
-            // 优先跟随手柄锚点：面板显示在手柄正前方；锚点缺失时保持 worldPosition（桌面兜底）
+            // 优先跟随手柄锚点：面板显示在手柄正前方；锚点缺失/过远时回退到相机正前方
+            Vector3 desired;
             if (anchorHand != null)
             {
-                Vector3 pos = anchorHand.position
-                              + anchorHand.forward * handForwardDistance
-                              + anchorHand.up * handUpOffset;
-                _canvas.transform.position = pos;
+                desired = anchorHand.position
+                          + anchorHand.forward * handForwardDistance
+                          + anchorHand.up * handUpOffset;
             }
+            else
+            {
+                desired = CameraFrontPosition();
+            }
+
+            if (_cam != null)
+                desired = ClampToCamera(desired, _cam.position, _cam.forward,
+                                        cameraFallbackDistance, maxCameraDistance);
+
+            _canvas.transform.position = desired;
 
             // 让开始面板始终缓慢朝向玩家（仅在启动画面显示期间）
             if (!Started)
@@ -108,6 +124,25 @@ namespace FireSafety
                         Time.deltaTime * 3f);
                 }
             }
+        }
+
+        /// <summary>相机正前方的兜底位置（相机缺失时退回 worldPosition）。</summary>
+        Vector3 CameraFrontPosition()
+        {
+            Transform c = _cam != null ? _cam : (Camera.main != null ? Camera.main.transform : null);
+            if (c == null) return worldPosition;
+            return c.position + c.forward * cameraFallbackDistance + c.up * -0.05f;
+        }
+
+        /// <summary>
+        /// 距离保护：目标位置离相机超过 maxDistance 时，改为相机正前方 fallbackDistance 处。
+        /// 纯函数，便于自检直接验证（不依赖场景中的相机）。
+        /// </summary>
+        public static Vector3 ClampToCamera(Vector3 desired, Vector3 camPos, Vector3 camForward,
+                                            float fallbackDistance, float maxDistance)
+        {
+            if (Vector3.Distance(camPos, desired) <= maxDistance) return desired;
+            return camPos + camForward.normalized * fallbackDistance;
         }
 
         // ---------------- UI ----------------

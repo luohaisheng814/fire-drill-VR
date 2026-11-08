@@ -585,8 +585,37 @@ namespace FireSafety.EditorTools
             if (start != null)
             {
                 Check("场景：开始界面已绑定手柄锚点（正前方）", start.anchorHand != null);
-                Check("场景：开始界面前伸 1.0 米", Mathf.Approximately(start.handForwardDistance, 1.0f));
+                Check("场景：开始界面前伸 0.75 米（比上轮更近）", Mathf.Approximately(start.handForwardDistance, 0.75f));
                 Check("场景：开始界面上抬 0.15 米", Mathf.Approximately(start.handUpOffset, 0.15f));
+                Check("场景：开始界面距离上限 1.4 米", Mathf.Approximately(start.maxCameraDistance, 1.4f));
+                Check("场景：开始界面相机兜底 1.1 米", Mathf.Approximately(start.cameraFallbackDistance, 1.1f));
+            }
+
+            // 距离保护行为：离得远的目标被拉回相机前方，近的不受影响
+            {
+                Vector3 camPos = new Vector3(0f, 1.5f, 0f);
+                Vector3 camFwd = new Vector3(0f, 0f, 1f);
+                float maxD = 1.4f, fallback = 1.1f;
+
+                Vector3 farDesired = camPos + camFwd * 10f + new Vector3(2f, 0f, 0f);
+                Vector3 farClamped = StartScreen.ClampToCamera(farDesired, camPos, camFwd, fallback, maxD);
+                Check("开始界面：10 米外的目标被拉回相机正前方 1.1 米",
+                    Mathf.Approximately(Vector3.Distance(camPos, farClamped), fallback));
+
+                Vector3 nearDesired = camPos + camFwd * 1.05f;
+                Vector3 nearKept = StartScreen.ClampToCamera(nearDesired, camPos, camFwd, fallback, maxD);
+                Check("开始界面：1.05 米的目标保持原位（不被改远）",
+                    Mathf.Approximately(Vector3.Distance(camPos, nearKept), 1.05f));
+
+                Vector3 exactly = camPos + camFwd * maxD;
+                Vector3 exactlyKept = StartScreen.ClampToCamera(exactly, camPos, camFwd, fallback, maxD);
+                Check("开始界面：恰好在 1.4 米上限时保持不动",
+                    Mathf.Approximately(Vector3.Distance(camPos, exactlyKept), maxD));
+
+                Vector3 behind = camPos + camFwd * 3f + camFwd * 0f;
+                Vector3 behindClamped = StartScreen.ClampToCamera(behind, camPos, camFwd, fallback, maxD);
+                Check("开始界面：过远时兜底位置始终在相机前方",
+                    Vector3.Dot(behindClamped - camPos, camFwd) > 0f);
             }
 
             var cdHud = UnityEngine.Object.FindObjectOfType<DrillCountdown>();

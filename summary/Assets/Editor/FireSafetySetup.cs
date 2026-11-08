@@ -242,8 +242,10 @@ namespace FireSafety.EditorTools
             start.worldPosition = new Vector3(0f, 1.3f, 1.8f);
             start.canvasScale = 0.0009f;              // 约 0.9 米宽，一臂外可读且不糊视野
             start.anchorHand = anchorHand;           // 开始界面跟随到右手手柄正前方
-            start.handForwardDistance = 1.0f;        // 手柄前向约 1 米（适当阅读距离）
+            start.handForwardDistance = 0.75f;        // 手柄前向约 0.75 米（凑近一点，视野内正好读完）
             start.handUpOffset = 0.15f;               // 略向上抬，居中可读
+            start.maxCameraDistance = 1.4f;           // 离相机超过 1.4 米就改用相机兜底，避免面板跑到房间另一头
+            start.cameraFallbackDistance = 1.1f;      // 兜底：相机正前方 1.1 米（0.9 米宽面板约占屏高一半）
             start.startAlarmOnBegin = true;
             start.switchBgmToAlarm = true;
             start.igniteFiresOnBegin = true;
