@@ -27,6 +27,14 @@ namespace FireSafety
         public Transform player;
         public bool detectByDistance = true;
 
+        [Header("复用场景里的真实门（图 3 那扇 door_b）")]
+        [Tooltip("填了就用这扇真实门当出口：不再另建门框门板，解锁时门扇绕门轴转开")]
+        public Transform existingDoorRoot;
+        [Tooltip("解锁后门扇绕 Y 轴转开的角度（度）")]
+        public float existingOpenAngle = -95f;
+        [Tooltip("指示牌中心高度（米）")]
+        public float signHeight = 2.42f;
+
         [Header("文案")]
         public string signText = "安全出口 EXIT";
         public Color signLockedColor = new Color(0.72f, 0.22f, 0.18f);
@@ -42,12 +50,16 @@ namespace FireSafety
         Canvas _signCanvas;
         Text _signText;
         Transform _panel;
+        Quaternion _existingBaseRot = Quaternion.identity;
+        bool _existingRotSaved;
+        float _openT = -1f;
 
         private void Awake()
         {
             if (Instance != null && Instance != this) { Destroy(this); return; }
             Instance = this;
             Build();
+            CaptureExistingDoor();
         }
 
         private void OnDestroy()
@@ -55,7 +67,15 @@ namespace FireSafety
             if (Instance == this) Instance = null;
         }
 
-        /// <summary>解锁出口：指示牌变绿、门板滑开。</summary>
+        /// <summary>记录真实门的初始旋转，用于解锁时绕门轴转开。</summary>
+        public void CaptureExistingDoor()
+        {
+            if (existingDoorRoot == null || _existingRotSaved) return;
+            _existingBaseRot = existingDoorRoot.localRotation;
+            _existingRotSaved = true;
+        }
+
+        /// <summary>解锁出口：指示牌变绿、门扇打开。</summary>
         public void Unlock()
         {
             if (IsUnlocked) return;
@@ -65,6 +85,11 @@ namespace FireSafety
             {
                 var lp = _panel.localPosition;
                 _panel.localPosition = new Vector3(lp.x, lp.y + doorHeight * 0.92f, lp.z);
+            }
+            else if (existingDoorRoot != null)
+            {
+                CaptureExistingDoor();
+                if (_openT < 0f) _openT = 0f;
             }
             onUnlocked?.Invoke();
             Debug.Log("[ExitDoor] 安全出口已解锁，门已打开。");
@@ -80,9 +105,46 @@ namespace FireSafety
                 float baseY = doorHeight * 0.5f + frameThickness;
                 _panel.localPosition = new Vector3(lp.x, baseY, lp.z);
             }
+            if (existingDoorRoot != null && _existingRotSaved)
+            {
+                existingDoorRoot.localRotation = _existingBaseRot;
+                _openT = -1f;
+            }
         }
 
         private void Update()
+        {
+            BillboardSign();
+            AnimateExistingDoor();
+            DetectPlayerEnter();
+        }
+
+        /// <summary>指示牌始终正对相机，避免只从一个角度看得到。</summary>
+        private void BillboardSign()
+        {
+            if (_signCanvas == null) return;
+            Camera cam = Camera.main;
+            if (cam == null) return;
+            var t = _signCanvas.transform;
+            Vector3 toCam = t.position - cam.transform.position;
+            if (toCam.sqrMagnitude < 0.0001f) return;
+            t.rotation = Quaternion.LookRotation(toCam, Vector3.up);
+        }
+
+        /// <summary>复用真实门时，解锁后让门扇绕门轴缓缓转开。</summary>
+        private void AnimateExistingDoor()
+        {
+            if (_openT < 0f) return;
+            if (existingDoorRoot == null) return;
+            _openT += Time.deltaTime;
+            float k = Mathf.Clamp01(_openT / 0.85f);
+            k = k * k * (3f - 2f * k);
+            existingDoorRoot.localRotation =
+                _existingBaseRot * Quaternion.Euler(0f, existingOpenAngle * k, 0f);
+            if (k >= 1f) _openT = -1f;
+        }
+
+        private void DetectPlayerEnter()
         {
             if (!detectByDistance || PlayerEntered || !IsUnlocked) return;
             Transform p = player != null ? player : (Camera.main != null ? Camera.main.transform : null);
@@ -111,39 +173,53 @@ namespace FireSafety
 
         private void Build()
         {
-            if (_panel != null) return;
-            var matFrame = MakeMaterial(new Color(0.22f, 0.24f, 0.27f));
-            var matDoor = MakeMaterial(new Color(0.34f, 0.38f, 0.42f));
+            if (_panel != null || (_signCanvas != null && existingDoorRoot != null)) return;
 
-            float w = doorWidth, h = doorHeight, t = doorThickness, ft = frameThickness;
+            bool reuse = existingDoorRoot != null;
 
-            // 门框：左右立柱 + 上横梁
-            MakeBox("FrameLeft", new Vector3(-(w * 0.5f + ft * 0.5f), h * 0.5f + ft, 0f),
-                new Vector3(ft, h + ft, ft), matFrame);
-            MakeBox("FrameRight", new Vector3(w * 0.5f + ft * 0.5f, h * 0.5f + ft, 0f),
-                new Vector3(ft, h + ft, ft), matFrame);
-            MakeBox("FrameTop", new Vector3(0f, h + ft * 1.5f, 0f),
-                new Vector3(w + ft * 3f, ft, ft), matFrame);
+            if (!reuse)
+            {
+                var matFrame = MakeMaterial(new Color(0.22f, 0.24f, 0.27f));
+                var matDoor = MakeMaterial(new Color(0.34f, 0.38f, 0.42f));
 
-            // 门板
-            var panelGo = MakeBox("DoorPanel", new Vector3(0f, h * 0.5f + ft, 0f),
-                new Vector3(w, h, t), matDoor);
-            _panel = panelGo.transform;
+                float w = doorWidth, h = doorHeight, t = doorThickness, ft = frameThickness;
 
-            // 门把手
-            MakeBox("DoorHandle", new Vector3(w * 0.32f, h * 0.45f + ft, -t * 0.6f),
-                new Vector3(0.08f, 0.08f, 0.16f), matFrame, _panel);
+                // 门框：左右立柱 + 上横梁
+                MakeBox("FrameLeft", new Vector3(-(w * 0.5f + ft * 0.5f), h * 0.5f + ft, 0f),
+                    new Vector3(ft, h + ft, ft), matFrame);
+                MakeBox("FrameRight", new Vector3(w * 0.5f + ft * 0.5f, h * 0.5f + ft, 0f),
+                    new Vector3(ft, h + ft, ft), matFrame);
+                MakeBox("FrameTop", new Vector3(0f, h + ft * 1.5f, 0f),
+                    new Vector3(w + ft * 3f, ft, ft), matFrame);
 
-            // 指示牌（世界空间画布）
+                // 门板
+                var panelGo = MakeBox("DoorPanel", new Vector3(0f, h * 0.5f + ft, 0f),
+                    new Vector3(w, h, t), matDoor);
+                _panel = panelGo.transform;
+
+                // 门把手
+                MakeBox("DoorHandle", new Vector3(w * 0.32f, h * 0.45f + ft, -t * 0.6f),
+                    new Vector3(0.08f, 0.08f, 0.16f), matFrame, _panel);
+            }
+
+            // 指示牌（世界空间画布）：复用真实门时挂在门框上方，尺寸放大到一眼可读
             var sign = new GameObject("ExitSign");
             sign.transform.SetParent(transform, false);
-            sign.transform.localPosition = new Vector3(0f, h + ft * 3.4f, -t * 2f);
+            if (reuse)
+            {
+                // 真实门在 z≈0 的墙面上，牌子朝玩家一侧（+Z）偏出 0.12 米，避免与墙面重叠
+                sign.transform.localPosition = new Vector3(0f, signHeight, 0.12f);
+            }
+            else
+            {
+                sign.transform.localPosition = new Vector3(0f, doorHeight + frameThickness * 3.4f, -doorThickness * 2f);
+            }
             var canvas = sign.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.WorldSpace;
             canvas.sortingOrder = 310;
             var rt = sign.GetComponent<RectTransform>();
-            rt.sizeDelta = new Vector2(420f, 110f);
-            rt.localScale = Vector3.one * 0.0016f;
+            rt.sizeDelta = new Vector2(560f, 150f);
+            rt.localScale = Vector3.one * 0.0016f;   // ≈0.90 米宽 × 0.24 米高
             sign.AddComponent<CanvasScaler>();
             sign.AddComponent<GraphicRaycaster>();
 
@@ -167,9 +243,11 @@ namespace FireSafety
             _signText.text = signText;
             _signText.font = UIFont.Resolve();
             if (_signText.font != null) _signText.material = _signText.font.material;
-            _signText.fontSize = 46;
+            _signText.fontSize = 62;
+            _signText.fontStyle = FontStyle.Bold;
             _signText.alignment = TextAnchor.MiddleCenter;
             _signText.color = signLockedColor;
+            _signText.horizontalOverflow = HorizontalWrapMode.Overflow;
             _signText.raycastTarget = false;
 
             _signCanvas = canvas;

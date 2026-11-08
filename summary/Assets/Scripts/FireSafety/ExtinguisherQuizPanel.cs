@@ -95,14 +95,19 @@ namespace FireSafety
 
         // ---------------- 题库 ----------------
 
+        [Header("题库组（共 10 题，两台灭火器各 5 题，互不重复）")]
+        [Tooltip("0 = A 组（Extinguisher01），1 = B 组（Extinguisher02）")]
+        [Range(0, 1)] public int questionSetIndex = 0;
+
         /// <summary>
-        /// 默认 5 题（第 13 轮重设）：有效射程、上风站位、持续压把、浓烟低姿撤离、带电先断电。
-        /// 正确答案分别落在 B / C / C / C / C，避免固定选项位置。
+        /// 题库池，共 10 道：0~4 为 A 组（干粉灭火器基础），5~9 为 B 组（火灾处置进阶）。
+        /// 两台的题面完全不重复，正确答案也分散在 A/B/C 三个位置。
         /// </summary>
-        public static List<QuizQuestion> BuildDefaultQuestions()
+        public static List<QuizQuestion> BuildAllQuestions()
         {
             return new List<QuizQuestion>
             {
+                // ---------- A 组（Extinguisher01） ----------
                 new QuizQuestion
                 {
                     question = "手提式干粉灭火器的有效喷射距离大约是多少？",
@@ -137,19 +142,69 @@ namespace FireSafety
                     options = new[] { "直接对着设备喷射", "先切断电源", "打开全部门窗通风" },
                     correctIndex = 1,
                     explanation = "带电灭火有触电风险，必须先切断电源，再使用干粉灭火器扑救。"
+                },
+
+                // ---------- B 组（Extinguisher02） ----------
+                new QuizQuestion
+                {
+                    question = "灭火器压力表的指针指在哪个区域说明压力正常？",
+                    options = new[] { "绿色区域", "红色区域", "黄色区域" },
+                    correctIndex = 0,
+                    explanation = "指针在绿区表示压力正常；红区压力不足，黄区压力偏高，都需要报修或更换。"
+                },
+                new QuizQuestion
+                {
+                    question = "使用灭火器喷射时，喷嘴应该对准哪里？",
+                    options = new[] { "火焰的最上方", "火焰的中部", "火焰的根部" },
+                    correctIndex = 2,
+                    explanation = "对准火焰根部左右扫射才能切断燃烧，对着火苗顶部喷几乎没有效果。"
+                },
+                new QuizQuestion
+                {
+                    question = "办公场所的灭火器至少应该多久检查一次？",
+                    options = new[] { "每年一次", "每季度一次", "每月一次" },
+                    correctIndex = 2,
+                    explanation = "灭火器应每月检查压力表、瓶身和喷管，发现问题立即报修。"
+                },
+                new QuizQuestion
+                {
+                    question = "发现初起火灾时，第一件该做的事是什么？",
+                    options = new[] { "先拍照记录现场", "立即拨打 119 报警并组织人员疏散", "先把电脑关机再撤离" },
+                    correctIndex = 1,
+                    explanation = "先报警、先疏散，再考虑扑救；初期处置的每几十秒都影响逃生结果。"
+                },
+                new QuizQuestion
+                {
+                    question = "灭火器使用口诀「提、拔、握、压」中的「握」指的是？",
+                    options = new[] { "握住压把准备按下", "握住喷管、对准火焰根部", "双手握住瓶身" },
+                    correctIndex = 1,
+                    explanation = "「握」是握住喷管并瞄准火焰根部，「压」才是压下压把喷射。"
                 }
             };
         }
 
-        /// <summary>让装配脚本把题库刷成默认 5 题。</summary>
+        /// <summary>按组取 5 题：0 = A 组，1 = B 组。</summary>
+        public static List<QuizQuestion> BuildQuestionSet(int setIndex)
+        {
+            var all = BuildAllQuestions();
+            int start = Mathf.Clamp(setIndex, 0, 1) * 5;
+            var set = new List<QuizQuestion>();
+            for (int i = 0; i < 5; i++) set.Add(all[start + i]);
+            return set;
+        }
+
+        /// <summary>兼容旧调用：返回 A 组 5 题。</summary>
+        public static List<QuizQuestion> BuildDefaultQuestions() => BuildQuestionSet(0);
+
+        /// <summary>让装配脚本把题库刷成当前组（A 组或 B 组）的 5 题。</summary>
         public void ResetToDefaultQuestions()
         {
-            questions = BuildDefaultQuestions();
+            questions = BuildQuestionSet(questionSetIndex);
         }
 
         void Awake()
         {
-            if (questions == null || questions.Count == 0) questions = BuildDefaultQuestions();
+            if (questions == null || questions.Count == 0) questions = BuildQuestionSet(questionSetIndex);
             BuildUI();
             _src = GetComponent<AudioSource>();
         }

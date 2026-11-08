@@ -36,13 +36,13 @@ namespace FireSafety
 
         [Header("第二阶段：浓烟中的地面安全出口标识")]
         [Tooltip("第二阶段箭头整体放大倍数：烟雾里更醒目")]
-        public float stage2ArrowScale = 1.6f;
+        public float stage2ArrowScale = 2.2f;
         [Tooltip("悬浮标识文案（始终朝向玩家，烟雾挡不住）")]
         public string floorSignText = "安全出口 →";
-        [Tooltip("标识离地高度（米）")]
-        public float floorSignHeight = 1.05f;
+        [Tooltip("标识离地高度（米）：贴近地面，浓烟下部留空处一眼可见")]
+        public float floorSignHeight = 0.62f;
         [Tooltip("标识放在目标前方多少米（朝玩家一侧）")]
-        public float floorSignBackOffset = 1.1f;
+        public float floorSignBackOffset = 0.9f;
 
         [Header("事件")]
         public UnityEvent onGuidanceStarted;
@@ -344,8 +344,8 @@ namespace FireSafety
             canvas.renderMode = RenderMode.WorldSpace;
             canvas.sortingOrder = 320;
             var rt = _signRoot.GetComponent<RectTransform>();
-            rt.sizeDelta = new Vector2(760, 200);
-            rt.localScale = Vector3.one * 0.0012f;   // ≈0.91 米宽
+            rt.sizeDelta = new Vector2(1000, 260);
+            rt.localScale = Vector3.one * 0.0022f;   // ≈2.2 米宽 × 0.57 米高，浓烟 4 米外也能读清
             _signRoot.AddComponent<CanvasScaler>();
 
             var bg = new GameObject("Bg", typeof(RectTransform), typeof(Image));
@@ -365,7 +365,7 @@ namespace FireSafety
             _signText.font = UIFont.Resolve();
             if (_signText.font != null) _signText.material = _signText.font.material;
             _signText.text = floorSignText;
-            _signText.fontSize = 72;
+            _signText.fontSize = 108;
             _signText.fontStyle = FontStyle.Bold;
             _signText.color = new Color(0.72f, 1f, 0.82f);
             _signText.alignment = TextAnchor.MiddleCenter;

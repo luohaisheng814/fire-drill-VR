@@ -397,13 +397,12 @@ namespace FireSafety
             return new Vector3(basePos.x, 0f, basePos.z) + stageTwoFireOffset;
         }
 
+        // 第三阶段：备用灭火器摆到图 3 的门口位置（瓶身中心目标世界坐标，y 自动贴地）
+        public Vector3 spareExtinguisherSpot = new Vector3(3.15f, 0f, 1.05f);
+
         private void MoveSpareExtinguisherToLobby()
         {
             if (!autoMoveSpareExtinguisher) return;
-
-            Transform lobby = arrows != null ? arrows.lobbyTarget : null;
-            Vector3 lobbyPos = (lobby != null ? lobby.position : FirePosition())
-                               + new Vector3(0.55f, -0.05f, 0.35f);
 
             if (spareExtinguisher != null && spareExtinguisher.grab != null && spareExtinguisher.grab.IsHeld)
                 return;
@@ -415,16 +414,29 @@ namespace FireSafety
                 foreach (var ext in FindObjectsOfType<Extinguisher>(true))
                 {
                     if (ext == null || (ext.grab != null && ext.grab.IsHeld)) continue;
-                    float d = Vector3.Distance(ext.transform.position, lobbyPos);
+                    float d = Vector3.Distance(ext.transform.position, spareExtinguisherSpot);
                     if (d < bestDist) { bestDist = d; best = ext; }
                 }
             }
             if (best != null && best.grab != null && !best.grab.IsHeld)
             {
-                best.transform.position = lobbyPos;
-                best.transform.rotation = Quaternion.Euler(0f, 180f, 0f);
-                best.ResetQuizForStageTwo();   // 重新拾取要再答 5 道（新题）
-                Debug.Log("[Stage2] 备用灭火器已挪到大厅，问答已重置：" + best.name);
+                // 按「渲染包围盒」而不是物体原点来落位：瓶身立在目标点、底部贴地，
+                // 既不会因为子物体偏移插进墙里，也不会横躺在通道正中挡路
+                Vector3 target = new Vector3(spareExtinguisherSpot.x, 0f, spareExtinguisherSpot.z);
+                var rend = best.GetComponentInChildren<Renderer>();
+                if (rend != null)
+                {
+                    Bounds b = rend.bounds;
+                    Vector3 delta = target - new Vector3(b.center.x, b.min.y, b.center.z);
+                    best.transform.position += delta;
+                }
+                else
+                {
+                    best.transform.position = target;
+                }
+                // 保持原有站立姿态（图 3 里瓶身是直立靠在门边的），不强行转头
+                best.ResetQuizForStageTwo();   // 重新拾取要再答 B 组 5 题
+                Debug.Log("[Stage2] 备用灭火器已摆到安全出口门边（图 3 位置），问答已换成 B 组 5 题：" + best.name);
             }
         }
 

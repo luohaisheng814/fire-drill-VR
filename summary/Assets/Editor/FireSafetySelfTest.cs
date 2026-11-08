@@ -505,6 +505,17 @@ namespace FireSafety.EditorTools
             flow.autoMoveSpareExtinguisher = false;
             InvokeAwake(flow);                       // 编辑模式补跑 Awake（单例 + 引用解析）
 
+            // 备用灭火器：模拟一台还没被拿起的备用瓶，验证「按包围盒直立贴地摆到图 3 门口」
+            var spareGo = new GameObject("TEST_Spare");
+            spareGo.transform.position = new Vector3(10f, 1.2f, 10f);
+            var spareBody = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            spareBody.name = "Body";
+            spareBody.transform.SetParent(spareGo.transform, false);
+            var spareExt = spareGo.AddComponent<Extinguisher>();
+            var spareGrab = spareGo.AddComponent<ToggleGrab>();
+            spareExt.grab = spareGrab;
+            flow.spareExtinguisher = spareExt;
+
             Check("第二阶段：初始为 Idle", flow.CurrentStage == StageTwoFlow.Stage.Idle);
             Check("第二阶段：默认蹲姿阈值 1.15 米", Mathf.Approximately(flow.crouchHeight, 1.15f));
 
@@ -523,8 +534,23 @@ namespace FireSafety.EditorTools
                 flow.TryArriveLobby(false) == false && flow.CurrentStage == StageTwoFlow.Stage.Evacuating);
 
             flow.SetCrouchOverrideForTest(true);
+            flow.autoMoveSpareExtinguisher = true;    // 进入第三阶段时才搬备用灭火器
             Check("蹲姿到达大厅：进入第三阶段",
                 flow.TryArriveLobby(true) && flow.CurrentStage == StageTwoFlow.Stage.StageThree);
+            {
+                var rend = spareGo.GetComponentInChildren<Renderer>();
+                Check("第三阶段：备用灭火器已带渲染体（可按包围盒落位）", rend != null);
+                if (rend != null)
+                {
+                    Bounds b = rend.bounds;
+                    Check("第三阶段：备用灭火器摆到图 3 门口位置（x≈3.15 / z≈1.05）",
+                        Mathf.Abs(b.center.x - 3.15f) < 0.25f && Mathf.Abs(b.center.z - 1.05f) < 0.25f);
+                    Check("第三阶段：备用灭火器直立且底部贴地（不再横躺）",
+                        b.min.y < 0.08f && b.size.y >= b.size.x && b.size.y >= b.size.z);
+                }
+                Check("第三阶段：备用灭火器问答已重置（重新拾取要再答题）",
+                    spareExt != null && !spareExt.QuizPassed);
+            }
             Check("第三阶段：大厅复燃火源已生成且尚未熄灭",
                 flow.stageTwoFire != null && !flow.stageTwoFire.IsExtinguished);
             Check("第三阶段：烟雾停止", !smoke.Active);
@@ -574,11 +600,19 @@ namespace FireSafety.EditorTools
                     && q2.questions[0].question.Contains("有效喷射距离"));
                 Check("第三阶段：重置后不能直接拔销（必须重新答题）", !ext.CanPullPin);
 
+                // 换成 B 组再重置：题目必须换成另一套 5 题
+                q2.questionSetIndex = 1;
+                ext.MarkQuizPassed();
+                ext.ResetQuizForStageTwo();
+                Check("第三阶段：B 组灭火器重置后是另一套 5 题（压力表那组）",
+                    q2.QuestionCount == 5 && q2.questions[0].question.Contains("压力表"));
+
                 UnityEngine.Object.DestroyImmediate(extGo);
             }
 
             flow.SetCrouchOverrideForTest(false);
             ending.Hide();
+            UnityEngine.Object.DestroyImmediate(spareGo);
             UnityEngine.Object.DestroyImmediate(flowGo);
             UnityEngine.Object.DestroyImmediate(endGo);
             UnityEngine.Object.DestroyImmediate(arrowsGo);
@@ -729,9 +763,34 @@ namespace FireSafety.EditorTools
                     Check("场景 " + n + "：问答面板略低于视线 -0.05 米",
                         Mathf.Approximately(e.quizPanel.verticalOffset, -0.05f));
                     Check("场景 " + n + "：问答面板会跟随玩家回到正前方", e.quizPanel.followCamera);
-                    Check("场景 " + n + "：题库已换成本轮新 5 题",
-                        e.quizPanel.questions.Count == 5 && e.quizPanel.questions[0].question.Contains("有效喷射距离"));
+                    bool isBGroup = n.Contains("02");
+                    Check("场景 " + n + "：题库组下标正确（01=A 组 / 02=B 组）",
+                        e.quizPanel.questionSetIndex == (isBGroup ? 1 : 0));
+                    string q0 = e.quizPanel.questions[0].question;
+                    Check("场景 " + n + "：本组件库为该组 5 题",
+                        e.quizPanel.questions.Count == 5
+                        && (isBGroup ? q0.Contains("压力表") : q0.Contains("有效喷射距离")));
                 }
+            }
+
+            // 两台灭火器题库合计 10 题，且彼此不重复
+            {
+                var union = new HashSet<string>();
+                foreach (var e in exts)
+                    if (e.quizPanel != null)
+                        foreach (var q in e.quizPanel.questions) union.Add(q.question);
+                Check("场景：两台灭火器合计 10 道互不重复的题（实际 " + union.Count + "）", union.Count == 10);
+
+                var pool = ExtinguisherQuizPanel.BuildAllQuestions();
+                var poolUnion = new HashSet<string>();
+                foreach (var q in pool) poolUnion.Add(q.question);
+                Check("题库池共 10 题且两两不重复（实际 " + poolUnion.Count + "）",
+                    pool.Count == 10 && poolUnion.Count == 10);
+                Check("题库 A 组 / B 组各 5 题且无交集",
+                    ExtinguisherQuizPanel.BuildQuestionSet(0).Count == 5
+                    && ExtinguisherQuizPanel.BuildQuestionSet(1).Count == 5
+                    && ExtinguisherQuizPanel.BuildQuestionSet(0)[0].question
+                       != ExtinguisherQuizPanel.BuildQuestionSet(1)[0].question);
             }
 
             var stagePanel = UnityEngine.Object.FindObjectOfType<StageOneCompletePanel>();
@@ -807,10 +866,10 @@ namespace FireSafety.EditorTools
                 Check("场景：大厅到达距离为 0.6 米", Mathf.Approximately(arrows.lobbyArriveDistance, 0.6f));
                 Check("场景：引导箭头已配置安全出口目标（exitTarget）", arrows.exitTarget != null);
                 Check("场景：出口到达距离 0.9 米", Mathf.Approximately(arrows.exitArriveDistance, 0.9f));
-                Check("场景：浓烟里箭头放大到 1.6 倍", Mathf.Approximately(arrows.stage2ArrowScale, 1.6f));
+                Check("场景：浓烟里箭头放大到 2.2 倍", Mathf.Approximately(arrows.stage2ArrowScale, 2.2f));
                 Check("场景：地面安全出口标识文案为「安全出口 →」", arrows.floorSignText == "安全出口 →");
-                Check("场景：标识离地 1.05 米（高于雾底 1.15 米视线带）",
-                    Mathf.Approximately(arrows.floorSignHeight, 1.05f));
+                Check("场景：标识降到离地 0.62 米（低于雾底 1.15 米，浓烟里也读得到）",
+                    Mathf.Approximately(arrows.floorSignHeight, 0.62f));
             }
 
             var onboarding = UnityEngine.Object.FindObjectOfType<OnboardingScreen>();
@@ -850,6 +909,13 @@ namespace FireSafety.EditorTools
                 Check("场景：复燃火源配置在出口门前方 0.75 米",
                     Mathf.Approximately(flow.stageTwoFireOffset.z, 0.75f)
                     && flow.stageTwoFireOffset.z > 0f);
+                var spare = GameObject.Find("Extinguisher02");
+                Check("场景：第三阶段固定用 Extinguisher02（B 组题）",
+                    spare != null && flow.spareExtinguisher != null
+                    && flow.spareExtinguisher.gameObject == spare);
+                Check("场景：备用灭火器摆到门边（图 3 位置，x>门 0.6 米且不挡门口）",
+                    flow.spareExtinguisherSpot.x > 2.25f + 0.5f
+                    && Mathf.Abs(flow.spareExtinguisherSpot.z) > 0.8f);
             }
 
             var smokeZone = UnityEngine.Object.FindObjectOfType<SmokeZone>(true);
@@ -860,6 +926,11 @@ namespace FireSafety.EditorTools
                 Check("场景：雾底抬高到 1.15 米（不糊住地面箭头）",
                     smokeZone.floorClearance >= 1.0f);
                 Check("场景：烟雾仅在视线高度（起始 y ≥ 1.2 米）", smokeZone.start.y >= 1.2f);
+                Check("场景：浓雾布在灭火房间 → 真实门的通道上（x 从负到正）",
+                    smokeZone.start.x < 1f && smokeZone.end.x > 1.5f);
+                Check("场景：烟雾粒子细化（≤1.2 米，避免糊成大块白斑）",
+                    smokeZone.particleSize <= 1.2f && smokeZone.particleSize > 0.4f);
+                Check("场景：烟雾发射点 ≥7 个（浓雾更连贯）", smokeZone.emitterCount >= 7);
             }
 
             var exitDoor = UnityEngine.Object.FindObjectOfType<ExitDoor>(true);
@@ -869,11 +940,32 @@ namespace FireSafety.EditorTools
                 Check("场景：出口门指示牌文案为「安全出口 EXIT」", exitDoor.signText.Contains("安全出口"));
                 Check("场景：出口门进入判定 0.9 米", Mathf.Approximately(exitDoor.enterDistance, 0.9f));
                 Check("场景：出口门初始未解锁", !exitDoor.IsUnlocked);
+                var realDoor = GameObject.Find("door_b");
+                Check("场景：出口门复用了图 3 的真实门 door_b",
+                    realDoor != null && exitDoor.existingDoorRoot == realDoor.transform);
+                Check("场景：真实门解锁后绕门轴转开 -95 度",
+                    Mathf.Approximately(exitDoor.existingOpenAngle, -95f));
+                Check("场景：出口门指示牌挂在门框上方 2.42 米",
+                    Mathf.Approximately(exitDoor.signHeight, 2.42f));
+                // 位置硬校验：出口门就站在 door_b 的门口（x≈2.25 / z≈0）
+                Check("场景：出口门位于真实门 door_b 门口（x≈2.25 / z≈0）",
+                    Mathf.Abs(exitDoor.transform.position.x - 2.25f) < 0.15f
+                    && Mathf.Abs(exitDoor.transform.position.z) < 0.15f);
+                if (realDoor != null)
+                    Check("场景：出口门与真实门门板中心相距 < 0.35 米",
+                        Vector3.Distance(
+                            new Vector3(exitDoor.transform.position.x, 0f, exitDoor.transform.position.z),
+                            new Vector3(realDoor.transform.position.x, 0f, realDoor.transform.position.z)) < 0.35f + 0.5f);
                 if (lobbyObj != null)
-                    Check("场景：出口门在大厅正后方 1.1 米处",
+                {
+                    Check("场景：大厅检查点在门前方 +Z 侧 1.9 米（玩家从房间侧走来）",
+                        Mathf.Abs(lobbyObj.transform.position.x - 2.25f) < 0.2f
+                        && Mathf.Abs(lobbyObj.transform.position.z - 1.90f) < 0.2f);
+                    Check("场景：出口门在大厅正前方 1.9 米处（door_b 门口）",
                         Mathf.Abs(Vector3.Distance(
                             new Vector3(exitDoor.transform.position.x, 0f, exitDoor.transform.position.z),
-                            new Vector3(lobbyObj.transform.position.x, 0f, lobbyObj.transform.position.z)) - 1.1f) < 0.25f);
+                            new Vector3(lobbyObj.transform.position.x, 0f, lobbyObj.transform.position.z)) - 1.9f) < 0.3f);
+                }
             }
 
             var input = UnityEngine.Object.FindObjectOfType<DesktopDrillInput>();

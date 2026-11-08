@@ -347,8 +347,9 @@ namespace FireSafety.EditorTools
             arrows.autoStartOnAlarm = true;
 
             // 第 2 阶段：大厅撤离目标（地面标记 + 绿色圆柱视觉，可在场景里平移）
+            // 对齐图 3：大厅检查点放在真实门 door_b 前方 1.9 米（门在 z≈0，玩家从 +Z 侧走来）
             var lobby = GameObject.Find("Lobby") ?? new GameObject("Lobby");
-            lobby.transform.localPosition = new Vector3(0f, 0.02f, -4.5f);
+            lobby.transform.localPosition = new Vector3(2.25f, 0.02f, 1.90f);
             if (lobby.transform.childCount == 0)
             {
                 var pad = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
@@ -435,25 +436,36 @@ namespace FireSafety.EditorTools
         /// </summary>
         static void SetupStageTwoFlow()
         {
-            // 烟雾区：灭火房间 → 大厅之间的走廊
+            // 烟雾区：灭火房间 → 真实门（图 3 的 door_b）之间的通道
             var smokeGo = GameObject.Find("SmokeZone") ?? new GameObject("SmokeZone");
             var smoke = smokeGo.GetComponent<SmokeZone>() ?? smokeGo.AddComponent<SmokeZone>();
-            smoke.emitterCount = 6;
+            smoke.emitterCount = 7;
             // 雾层抬高到 1.6 米：浓雾罩住视线高度，但雾底离地 1.15 米，
             // 地面上的「安全出口」箭头不会被粒子糊住
-            smoke.start = new Vector3(0f, 1.60f, 1.8f);
-            smoke.end = new Vector3(0f, 1.60f, -4.0f);
+            smoke.start = new Vector3(-1.50f, 1.60f, 0.60f);
+            smoke.end = new Vector3(2.20f, 1.60f, 1.60f);
             smoke.floorClearance = 1.15f;
-            smoke.particleSize = 2.0f;
-            smoke.ratePerSecond = 12f;
+            smoke.particleSize = 1.05f;
+            smoke.ratePerSecond = 20f;
 
-            // 安全出口门：大厅正后方
+            // 安全出口门：直接复用图 3 那扇真实门（Floor 0/door_b，门板在 x≈2.27 / z≈0）
+            var realDoor = GameObject.Find("door_b");
             var doorGo = GameObject.Find("ExitDoor") ?? new GameObject("ExitDoor");
-            doorGo.transform.position = new Vector3(0f, 0f, -5.6f);
+            doorGo.transform.position = new Vector3(2.25f, 0f, 0f);
             doorGo.transform.rotation = Quaternion.identity;
             var door = doorGo.GetComponent<ExitDoor>() ?? doorGo.AddComponent<ExitDoor>();
+            door.existingDoorRoot = realDoor != null ? realDoor.transform : null;
+            door.existingOpenAngle = -95f;
+            door.signHeight = 2.42f;
             door.enterDistance = 0.9f;
             door.signText = "安全出口 EXIT";
+
+            // 复用的前提下，清掉以前运行时生成、又被误存进场景的自建门体/指示牌子物体
+            if (realDoor != null && doorGo.transform.childCount > 0)
+            {
+                for (int i = doorGo.transform.childCount - 1; i >= 0; i--)
+                    UnityEngine.Object.DestroyImmediate(doorGo.transform.GetChild(i).gameObject);
+            }
 
             var go = GameObject.Find("StageTwoFlow") ?? new GameObject("StageTwoFlow");
             var flow = go.GetComponent<StageTwoFlow>() ?? go.AddComponent<StageTwoFlow>();
@@ -468,16 +480,22 @@ namespace FireSafety.EditorTools
             // 复燃火源放在安全出口门正前方 0.75 米（不是大厅中心）
             flow.stageTwoFireOffset = new Vector3(0f, 0.25f, 0.75f);
 
+            // 第三阶段固定用 Extinguisher02（B 组 5 题），保证第二个灭火器考的是另一套题
+            var spare = GameObject.Find("Extinguisher02");
+            if (spare != null) flow.spareExtinguisher = spare.GetComponent<Extinguisher>();
+            // 图 3 位置：瓶身立在真实门右手边、门口不挡路
+            flow.spareExtinguisherSpot = new Vector3(3.15f, 0f, 1.05f);
+
             // 箭头能指到出口
             var arrows = UnityEngine.Object.FindObjectOfType<GuidanceArrows>();
             if (arrows != null)
             {
                 arrows.exitTarget = doorGo.transform;
                 arrows.exitArriveDistance = 0.9f;
-                arrows.stage2ArrowScale = 1.6f;         // 浓烟里箭头放大
+                arrows.stage2ArrowScale = 2.2f;         // 浓烟里箭头放大
                 arrows.floorSignText = "安全出口 →";    // 悬浮标识，烟挡不住
-                arrows.floorSignHeight = 1.05f;
-                arrows.floorSignBackOffset = 1.1f;
+                arrows.floorSignHeight = 0.62f;         // 贴在雾底（1.15 米）以下，浓烟里也读得到
+                arrows.floorSignBackOffset = 0.9f;
             }
 
             var panel = UnityEngine.Object.FindObjectOfType<StageOneCompletePanel>();
@@ -486,7 +504,7 @@ namespace FireSafety.EditorTools
             var ending = UnityEngine.Object.FindObjectOfType<EndingScreen>();
             if (ending != null) ending.exitDoor = door;
 
-            Debug.Log("[Setup] ✔ 第二阶段流程：StageTwoFlow + SmokeZone（6 个烟雾发射点）+ ExitDoor（大厅后方 1.1 米）");
+            Debug.Log("[Setup] ✔ 第二阶段流程：StageTwoFlow + SmokeZone（7 个烟雾发射点）+ ExitDoor（复用图 3 的真实门 door_b，解锁后门扇转开）");
         }
 
         /// <summary>清理场景中脚本丢失（Missing Mono Script）的组件。</summary>
@@ -603,7 +621,10 @@ namespace FireSafety.EditorTools
 
             // 常识问答面板（挂在灭火器根上）
             var quiz = root.GetComponent<ExtinguisherQuizPanel>() ?? root.AddComponent<ExtinguisherQuizPanel>();
-            quiz.ResetToDefaultQuestions();                 // 5 道新题（第 13 轮重设），A/B/C 三选项
+            // 两台灭火器各 5 题、合起来 10 道且互不重复：
+            // Extinguisher01 → A 组（0），Extinguisher02 → B 组（1）
+            quiz.questionSetIndex = (root != null && root.name.Contains("02")) ? 1 : 0;
+            quiz.ResetToDefaultQuestions();                 // 只刷本组 5 题，A/B/C 三选项
             quiz.timePerQuestion = 10f;                     // 每题 10 秒
             quiz.passRatio = 0.6f;                          // 答对 60%（3/5）才可通过
             quiz.distanceFromCamera = 1.15f;                // 一臂外阅读距离：字够大、按钮不挡手
