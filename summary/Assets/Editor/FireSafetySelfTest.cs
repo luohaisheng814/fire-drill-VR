@@ -579,7 +579,7 @@ namespace FireSafety.EditorTools
                 flow.stageTwoFire != null
                 && flow.stageTwoFire.gameObject.name == "StageTwoFire"
                 && flow.stageTwoFire.transform == flow.stageTwoFire.gameObject.transform);
-            Check("第三阶段：复燃火源熄灭事件只挂主线回调（模板监听已清空）",
+            Check("第三阶段：复燃火源带熄灭事件（onExtinguished 已初始化）",
                 flow.stageTwoFire != null && flow.stageTwoFire.onExtinguished != null);
 
             if (flow.stageTwoFire != null)
