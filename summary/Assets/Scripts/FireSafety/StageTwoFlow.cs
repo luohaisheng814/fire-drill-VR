@@ -442,7 +442,10 @@ namespace FireSafety
             else UnityEngine.Object.DestroyImmediate(o);
         }
 
-        /// <summary>复燃火源位置：安全出口门正前方（朝玩家一侧），而不是大厅中心。</summary>
+        /// <summary>
+        /// 复燃火源位置：安全出口门正前方（朝玩家一侧），而不是大厅中心。
+        /// 偏移量按「出口门的本地坐标」解释：门朝哪边开，火就落在哪边，换门后不必手改 x/z。
+        /// </summary>
         private Vector3 FirePosition()
         {
             Transform anchor = null;
@@ -451,11 +454,13 @@ namespace FireSafety
             else if (arrows != null) anchor = arrows.lobbyTarget;
 
             Vector3 basePos = anchor != null ? anchor.position : transform.position;
+            if (exitDoor != null && exitDoor.transform != null)
+                return exitDoor.transform.TransformPoint(new Vector3(stageTwoFireOffset.x, 0f, stageTwoFireOffset.z));
             return new Vector3(basePos.x, 0f, basePos.z) + stageTwoFireOffset;
         }
 
-        // 第三阶段：备用灭火器摆到图 3 的门口位置（瓶身中心目标世界坐标，y 自动贴地）
-        public Vector3 spareExtinguisherSpot = new Vector3(3.15f, 0f, 1.05f);
+        // 第三阶段：备用灭火器摆到出口门旁边（瓶身中心目标世界坐标，y 自动贴地）
+        public Vector3 spareExtinguisherSpot = new Vector3(3.90f, 0f, 1.85f);
 
         private void MoveSpareExtinguisherToLobby()
         {

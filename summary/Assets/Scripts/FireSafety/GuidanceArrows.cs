@@ -43,6 +43,8 @@ namespace FireSafety
         public float floorSignHeight = 0.62f;
         [Tooltip("标识放在目标前方多少米（朝玩家一侧）")]
         public float floorSignBackOffset = 0.9f;
+        [Tooltip("标识沿门横向再挪开多少米：避免正对火源、把门和火焰挡住（0 = 正对门口）")]
+        public float floorSignSideOffset = 0f;
 
         [Header("事件")]
         public UnityEvent onGuidanceStarted;
@@ -394,8 +396,13 @@ namespace FireSafety
             Vector3 toPlayer = new Vector3(playerPos.x - target.position.x, 0f, playerPos.z - target.position.z);
             if (toPlayer.sqrMagnitude < 0.0001f) toPlayer = Vector3.back;
             toPlayer.Normalize();
+            // 横向挪开的基准向量：与「门→玩家」垂直，保证牌子挪到门侧、不挡住火源和门口
+            Vector3 side = Vector3.Cross(Vector3.up, toPlayer);
+            if (side.sqrMagnitude < 0.0001f) side = Vector3.right;
+            side.Normalize();
             _signRoot.transform.position = new Vector3(target.position.x, floorSignHeight, target.position.z)
-                                           + toPlayer * floorSignBackOffset;
+                                           + toPlayer * floorSignBackOffset
+                                           + side * floorSignSideOffset;
             if (_cam != null)
             {
                 _signRoot.transform.rotation =

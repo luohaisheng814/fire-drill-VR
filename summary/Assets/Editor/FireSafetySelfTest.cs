@@ -558,8 +558,8 @@ namespace FireSafety.EditorTools
                 if (rend != null)
                 {
                     Bounds b = rend.bounds;
-                    Check("第三阶段：备用灭火器摆到图 3 门口位置（x≈3.15 / z≈1.05）",
-                        Mathf.Abs(b.center.x - 3.15f) < 0.25f && Mathf.Abs(b.center.z - 1.05f) < 0.25f);
+                    Check("第三阶段：备用灭火器摆在出口门附近（x≈3.90 / z≈1.85）",
+                        Mathf.Abs(b.center.x - 3.90f) < 0.3f && Mathf.Abs(b.center.z - 1.85f) < 0.3f);
                     Check("第三阶段：备用灭火器直立且底部贴地（不再横躺）",
                         b.min.y < 0.08f && b.size.y >= b.size.x && b.size.y >= b.size.z);
                 }
@@ -922,6 +922,8 @@ namespace FireSafety.EditorTools
                 Check("场景：地面安全出口标识文案为「安全出口 →」", arrows.floorSignText == "安全出口 →");
                 Check("场景：标识降到离地 0.62 米（低于雾底 1.15 米，浓烟里也读得到）",
                     Mathf.Approximately(arrows.floorSignHeight, 0.62f));
+                Check("场景：标识横向挪到门侧 1.3 米（不挡住门前火）",
+                    Mathf.Approximately(arrows.floorSignSideOffset, 1.3f));
             }
 
             var onboarding = UnityEngine.Object.FindObjectOfType<OnboardingScreen>();
@@ -958,16 +960,22 @@ namespace FireSafety.EditorTools
                 Check("场景：流程已引用出口门", flow.exitDoor != null);
                 Check("场景：流程已引用引导箭头", flow.arrows != null);
                 Check("场景：流程蹲姿阈值 1.15 米", Mathf.Approximately(flow.crouchHeight, 1.15f));
-                Check("场景：复燃火源配置在出口门前方 0.75 米",
+                Check("场景：复燃火源配置在出口门正前方（门的本地 +Z）0.75 米",
                     Mathf.Approximately(flow.stageTwoFireOffset.z, 0.75f)
-                    && flow.stageTwoFireOffset.z > 0f);
+                    && flow.stageTwoFireOffset.z > 0f
+                    && Mathf.Approximately(flow.stageTwoFireOffset.x, 0f));
                 var spare = GameObject.Find("Extinguisher02");
                 Check("场景：第三阶段固定用 Extinguisher02（B 组题）",
                     spare != null && flow.spareExtinguisher != null
                     && flow.spareExtinguisher.gameObject == spare);
-                Check("场景：备用灭火器摆到门边（图 3 位置，x>门 0.6 米且不挡门口）",
-                    flow.spareExtinguisherSpot.x > 2.25f + 0.5f
-                    && Mathf.Abs(flow.spareExtinguisherSpot.z) > 0.8f);
+                Check("场景：备用灭火器摆在出口门附近（1.0～2.4 米，且不挡门口）",
+                    Vector3.Distance(
+                        new Vector3(flow.spareExtinguisherSpot.x, 0f, flow.spareExtinguisherSpot.z),
+                        new Vector3(5.25f, 0f, 1.02f)) > 1.0f
+                    && Vector3.Distance(
+                        new Vector3(flow.spareExtinguisherSpot.x, 0f, flow.spareExtinguisherSpot.z),
+                        new Vector3(5.25f, 0f, 1.02f)) < 2.4f
+                    && flow.spareExtinguisherSpot.z > 1.02f + 0.5f);
             }
 
             var smokeZone = UnityEngine.Object.FindObjectOfType<SmokeZone>(true);
@@ -992,17 +1000,33 @@ namespace FireSafety.EditorTools
                 Check("场景：出口门指示牌文案为「安全出口 EXIT」", exitDoor.signText.Contains("安全出口"));
                 Check("场景：出口门进入判定 0.9 米", Mathf.Approximately(exitDoor.enterDistance, 0.9f));
                 Check("场景：出口门初始未解锁", !exitDoor.IsUnlocked);
-                var realDoor = GameObject.Find("door_b");
-                Check("场景：出口门复用了图 3 的真实门 door_b",
+                var realDoor = GameObject.Find("door_b_variant");
+                Check("场景：出口门复用了另一扇真实门 door_b_variant",
                     realDoor != null && exitDoor.existingDoorRoot == realDoor.transform);
                 Check("场景：真实门解锁后绕门轴转开 -95 度",
                     Mathf.Approximately(exitDoor.existingOpenAngle, -95f));
                 Check("场景：出口门指示牌挂在门框上方 2.42 米",
                     Mathf.Approximately(exitDoor.signHeight, 2.42f));
-                // 位置硬校验：出口门就站在 door_b 的门口（x≈2.25 / z≈0）
-                Check("场景：出口门位于真实门 door_b 门口（x≈2.25 / z≈0）",
-                    Mathf.Abs(exitDoor.transform.position.x - 2.25f) < 0.15f
-                    && Mathf.Abs(exitDoor.transform.position.z) < 0.15f);
+                // 位置硬校验：出口门站在 door_b_variant 的门口（x≈5.25 / z≈1.02）
+                Check("场景：出口门位于真实门 door_b_variant 门口（x≈5.25 / z≈1.02）",
+                    Mathf.Abs(exitDoor.transform.position.x - 5.25f) < 0.15f
+                    && Mathf.Abs(exitDoor.transform.position.z - 1.02f) < 0.2f);
+                // 门朝房间侧（本地 +Z 指向 -X）：牌子与门前火都落在这边
+                Check("场景：出口门朝向房间侧（本地 +Z 指向 -X）",
+                    Mathf.Abs(Mathf.DeltaAngle(exitDoor.transform.eulerAngles.y, -90f)) < 1.5f);
+                {
+                    Vector3 fireLocal = exitDoor.transform.TransformPoint(new Vector3(0f, 0f, 0.75f));
+                    Check("场景：门前复燃火落在门口的房间侧（x≈4.50 / z≈1.02）",
+                        Mathf.Abs(fireLocal.x - 4.50f) < 0.2f
+                        && Mathf.Abs(fireLocal.z - 1.02f) < 0.2f);
+                }
+                // 出口门应急照明：这面墙原本没有灯，浓雾里 / 火灭之后门前是黑的，玩家找不到门
+                {
+                    var lampT = exitDoor.transform.Find("ExitDoorLamp");
+                    var lamp = lampT != null ? lampT.GetComponent<Light>() : null;
+                    Check("场景：出口门上方有应急照明（浓雾与灭火后都能找到门）",
+                        lamp != null && lamp.intensity >= 1f && lamp.range >= 3f);
+                }
                 if (realDoor != null)
                 {
                     var leaf = realDoor.GetComponentInChildren<MeshRenderer>();
@@ -1019,10 +1043,10 @@ namespace FireSafety.EditorTools
                 }
                 if (lobbyObj != null)
                 {
-                    Check("场景：大厅检查点在门前方 +Z 侧 1.9 米（玩家从房间侧走来）",
-                        Mathf.Abs(lobbyObj.transform.position.x - 2.25f) < 0.2f
-                        && Mathf.Abs(lobbyObj.transform.position.z - 1.90f) < 0.2f);
-                    Check("场景：出口门在大厅正前方 1.9 米处（door_b 门口）",
+                    Check("场景：大厅检查点在门正前方（房间侧 -X）1.9 米",
+                        Mathf.Abs(lobbyObj.transform.position.x - 3.35f) < 0.2f
+                        && Mathf.Abs(lobbyObj.transform.position.z - 1.02f) < 0.2f);
+                    Check("场景：出口门在大厅正前方 1.9 米处（door_b_variant 门口）",
                         Mathf.Abs(Vector3.Distance(
                             new Vector3(exitDoor.transform.position.x, 0f, exitDoor.transform.position.z),
                             new Vector3(lobbyObj.transform.position.x, 0f, lobbyObj.transform.position.z)) - 1.9f) < 0.3f);
