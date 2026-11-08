@@ -29,6 +29,7 @@ namespace FireSafety.EditorTools
             TestStageOnePanel();
             TestLobbyGuidance();
             TestOnboardingAndEnding();
+            TestStageTwoFlow();
             TestStepChain();
             TestSceneWiring();
 
@@ -459,6 +460,86 @@ namespace FireSafety.EditorTools
         }
 
         // ------------------------------------------------------------
+        // 3.11 第二 / 第三阶段：烟雾潜行 → 大厅复燃 → 出口门通关
+        // ------------------------------------------------------------
+        static void TestStageTwoFlow()
+        {
+            var lobbyGo = new GameObject("TEST_Lobby");
+            lobbyGo.transform.position = new Vector3(0f, 0.02f, -4.5f);
+
+            var smokeGo = new GameObject("TEST_Smoke");
+            var smoke = smokeGo.AddComponent<SmokeZone>();
+            smoke.emitterCount = 3;
+            smoke.start = new Vector3(0f, 0.3f, 1.8f);
+            smoke.end = new Vector3(0f, 0.3f, -4f);
+
+            var doorGo = new GameObject("TEST_ExitDoor");
+            doorGo.transform.position = new Vector3(0f, 0f, -5.6f);
+            var door = doorGo.AddComponent<ExitDoor>();
+            InvokeAwake(door);                       // 编辑模式补跑 Awake：搭门体 + 指示牌
+
+            var arrowsGo = new GameObject("TEST_Arrows2");
+            var arrows = arrowsGo.AddComponent<GuidanceArrows>();
+            InvokeAwake(arrows);
+            arrows.lobbyTarget = lobbyGo.transform;
+            arrows.exitTarget = doorGo.transform;
+
+            var endGo = new GameObject("TEST_Ending2");
+            var ending = endGo.AddComponent<EndingScreen>();
+            InvokeAwake(ending);
+
+            var flowGo = new GameObject("TEST_StageTwoFlow");
+            var flow = flowGo.AddComponent<StageTwoFlow>();
+            flow.arrows = arrows;
+            flow.smoke = smoke;
+            flow.exitDoor = door;
+            flow.endingScreen = ending;
+            flow.autoMoveSpareExtinguisher = false;
+            InvokeAwake(flow);                       // 编辑模式补跑 Awake（单例 + 引用解析）
+
+            Check("第二阶段：初始为 Idle", flow.CurrentStage == StageTwoFlow.Stage.Idle);
+            Check("第二阶段：默认蹲姿阈值 1.15 米", Mathf.Approximately(flow.crouchHeight, 1.15f));
+
+            flow.Begin();
+            Check("继续往下：进入撤离阶段", flow.CurrentStage == StageTwoFlow.Stage.Evacuating);
+            Check("撤离阶段：烟雾已开启", smoke.Active && smoke.EmitterCount == 3);
+            Check("撤离阶段：箭头切到大厅模式", arrows.Active && arrows.LobbyMode && !arrows.ExitMode);
+
+            Check("站立到达大厅不推进（必须先蹲下）",
+                flow.TryArriveLobby(false) == false && flow.CurrentStage == StageTwoFlow.Stage.Evacuating);
+
+            flow.SetCrouchOverrideForTest(true);
+            Check("蹲姿到达大厅：进入第三阶段",
+                flow.TryArriveLobby(true) && flow.CurrentStage == StageTwoFlow.Stage.StageThree);
+            Check("第三阶段：大厅复燃火源已生成且尚未熄灭",
+                flow.stageTwoFire != null && !flow.stageTwoFire.IsExtinguished);
+            Check("第三阶段：烟雾停止", !smoke.Active);
+            Check("第三阶段：复燃火源有灭火阈值", flow.stageTwoFire != null && flow.stageTwoFire.extinguishThreshold > 0f);
+            Check("第三阶段：安全出口仍然关闭（未解锁时不能通关）",
+                !door.IsUnlocked && door.TryEnter() == false);
+
+            // 复燃火源熄灭 → 出口解锁（通过 FireSource 的 onExtinguished 事件链验证接线）
+            if (flow.stageTwoFire != null && flow.stageTwoFire.onExtinguished != null)
+                flow.stageTwoFire.onExtinguished.Invoke();
+            Check("复燃火源扑灭：出口解锁",
+                flow.CurrentStage == StageTwoFlow.Stage.ExitOpen && door.IsUnlocked);
+            Check("复燃火源扑灭：箭头切到安全出口", arrows.Active && arrows.ExitMode && !arrows.LobbyMode);
+
+            Check("走进安全出口：通关成功", flow.TryEnterExit() && flow.CurrentStage == StageTwoFlow.Stage.Done);
+            Check("通关：出口记录玩家已进入", door.PlayerEntered);
+            Check("通关：结束页弹出且为成功态", ending.IsOpen && ending.IsSuccess);
+
+            flow.SetCrouchOverrideForTest(false);
+            ending.Hide();
+            UnityEngine.Object.DestroyImmediate(flowGo);
+            UnityEngine.Object.DestroyImmediate(endGo);
+            UnityEngine.Object.DestroyImmediate(arrowsGo);
+            UnityEngine.Object.DestroyImmediate(doorGo);
+            UnityEngine.Object.DestroyImmediate(smokeGo);
+            UnityEngine.Object.DestroyImmediate(lobbyGo);
+        }
+
+        // ------------------------------------------------------------
         // 4. 步骤链：⑤拿起 → ⑥拔销 → ⑦压把 → ⑧喷射 → ⑨扑灭
         // ------------------------------------------------------------
         static void TestStepChain()
@@ -578,6 +659,9 @@ namespace FireSafety.EditorTools
             {
                 Check("场景：阶段面板已引用倒计时", stagePanel.countdown != null);
                 Check("场景：阶段面板已引用开始界面", stagePanel.startScreen != null);
+                Check("场景：阶段面板距相机 1.55 米（按钮不再被 HUD 压住）",
+                    Mathf.Approximately(stagePanel.distanceFromCamera, 1.55f));
+                Check("场景：阶段面板已引用第二阶段流程", stagePanel.stageTwo != null);
             }
 
             var start = UnityEngine.Object.FindObjectOfType<StartScreen>();
@@ -640,6 +724,8 @@ namespace FireSafety.EditorTools
             {
                 Check("场景：引导箭头已配置大厅目标（lobbyTarget）", arrows.lobbyTarget != null);
                 Check("场景：大厅到达距离为 0.6 米", Mathf.Approximately(arrows.lobbyArriveDistance, 0.6f));
+                Check("场景：引导箭头已配置安全出口目标（exitTarget）", arrows.exitTarget != null);
+                Check("场景：出口到达距离 0.9 米", Mathf.Approximately(arrows.exitArriveDistance, 0.9f));
             }
 
             var onboarding = UnityEngine.Object.FindObjectOfType<OnboardingScreen>();
@@ -647,7 +733,12 @@ namespace FireSafety.EditorTools
             if (onboarding != null)
             {
                 Check("场景：引导页已绑定手柄锚点（正前方）", onboarding.anchorHand != null);
-                Check("场景：引导页前伸 1.0 米", Mathf.Approximately(onboarding.handForwardDistance, 1.0f));
+                Check("场景：引导页拉近到 0.6 米（比上轮 1.0 米更近）",
+                    Mathf.Approximately(onboarding.handForwardDistance, 0.6f));
+                Check("场景：引导页距离上限 1.3 米",
+                    Mathf.Approximately(onboarding.maxCameraDistance, 1.3f));
+                Check("场景：引导页相机兜底 1.0 米",
+                    Mathf.Approximately(onboarding.cameraFallbackDistance, 1.0f));
                 Check("场景：引导页至少 4 页（实际 " + onboarding.PageCount + "）", onboarding.PageCount >= 4);
             }
 
@@ -656,10 +747,41 @@ namespace FireSafety.EditorTools
             if (ending != null)
             {
                 Check("场景：结束页已引用倒计时（用时统计）", ending.countdown != null);
-                Check("场景：结束页距相机 1.2 米", Mathf.Approximately(ending.distanceFromCamera, 1.2f));
+                Check("场景：结束页距相机 1.35 米", Mathf.Approximately(ending.distanceFromCamera, 1.35f));
+                Check("场景：结束页已引用安全出口门（通关判定）", ending.exitDoor != null);
             }
+
             var lobbyObj = GameObject.Find("Lobby");
             Check("场景：大厅标记物体 Lobby 存在", lobbyObj != null);
+
+            var flow = UnityEngine.Object.FindObjectOfType<StageTwoFlow>();
+            Check("场景：第二阶段流程 StageTwoFlow 存在", flow != null);
+            if (flow != null)
+            {
+                Check("场景：流程已引用烟雾区", flow.smoke != null);
+                Check("场景：流程已引用出口门", flow.exitDoor != null);
+                Check("场景：流程已引用引导箭头", flow.arrows != null);
+                Check("场景：流程蹲姿阈值 1.15 米", Mathf.Approximately(flow.crouchHeight, 1.15f));
+            }
+
+            var smokeZone = UnityEngine.Object.FindObjectOfType<SmokeZone>(true);
+            Check("场景：烟雾区 SmokeZone 存在", smokeZone != null);
+            if (smokeZone != null)
+                Check("场景：烟雾区至少 4 个发射点（实际 " + smokeZone.emitterCount + "）", smokeZone.emitterCount >= 4);
+
+            var exitDoor = UnityEngine.Object.FindObjectOfType<ExitDoor>(true);
+            Check("场景：安全出口门 ExitDoor 存在", exitDoor != null);
+            if (exitDoor != null)
+            {
+                Check("场景：出口门指示牌文案为「安全出口 EXIT」", exitDoor.signText.Contains("安全出口"));
+                Check("场景：出口门进入判定 0.9 米", Mathf.Approximately(exitDoor.enterDistance, 0.9f));
+                Check("场景：出口门初始未解锁", !exitDoor.IsUnlocked);
+                if (lobbyObj != null)
+                    Check("场景：出口门在大厅正后方 1.1 米处",
+                        Mathf.Abs(Vector3.Distance(
+                            new Vector3(exitDoor.transform.position.x, 0f, exitDoor.transform.position.z),
+                            new Vector3(lobbyObj.transform.position.x, 0f, lobbyObj.transform.position.z)) - 1.1f) < 0.25f);
+            }
 
             var input = UnityEngine.Object.FindObjectOfType<DesktopDrillInput>();
             Check("场景：DesktopDrillInput 存在", input != null);

@@ -21,13 +21,17 @@ namespace FireSafety
 
         [Header("位置（手柄锚点优先，缺省回退相机前方）")]
         public Transform anchorHand;
-        [Tooltip("沿手柄前向伸出的距离（米）")]
-        public float handForwardDistance = 1.0f;
+        [Tooltip("沿手柄前向伸出的距离（米）；0.6 米刚好一眼读完四页正文")]
+        public float handForwardDistance = 0.6f;
         [Tooltip("相对手柄向上抬的偏移（米）")]
-        public float handUpOffset = 0.14f;
+        public float handUpOffset = 0.12f;
         public float canvasScale = 0.0009f;
         [Tooltip("无手柄锚点时相对头显的前方距离（米）")]
-        public float fallbackDistance = 1.2f;
+        public float fallbackDistance = 1.0f;
+        [Tooltip("与相机的最远距离（米）：锚点再远也把面板拉回相机前方，防止面板跑到走廊尽头")]
+        public float maxCameraDistance = 1.3f;
+        [Tooltip("超距兜底：直接放到相机正前方该距离处")]
+        public float cameraFallbackDistance = 1.0f;
 
         [Header("文案")]
         public string title = "操作教学 · 开始前必读";
@@ -44,13 +48,15 @@ namespace FireSafety
             "① 找到红色灭火器（进入视线会高亮，地面有引导箭头）；\n" +
             "② 通过灭火器常识考核（5 题，答对 60% 才能拿起）；\n" +
             "③ 拿起 → 拔出保险销 → 按下压把 → 对准火焰根部喷射；\n" +
-            "④ 火焰扑灭后，沿地面箭头撤离到大厅集合点。",
+            "④ 火焰扑灭后点「继续往下」：烟雾扩散，按 C 蹲下潜行到大厅；\n" +
+            "⑤ 大厅复燃，再灭一次火，走进「安全出口 EXIT」门内即通关。",
 
             "【桌面操作（无头显也能完整演练）】\n" +
             "· 右键单击灭火器：弹出常识问答，答完即拿起灭火器；\n" +
             "· 左键单击：拔出保险销；\n" +
             "· 左键双击：按下压把（必须手持灭火器才生效）；\n" +
             "· 右键双击：开始 / 停止喷射；\n" +
+            "· C 键：蹲下 / 站起（第二阶段浓烟中必须蹲下潜行）；\n" +
             "· P 键：放下灭火器；回车 / 空格：开始演练；问答按 1 / 2 / 3 作答。",
 
             "【VR 手柄操作】\n" +
@@ -104,17 +110,24 @@ namespace FireSafety
             if (_canvas == null) return;
             if (_cam == null) _cam = Camera.main ? Camera.main.transform : null;
 
+            Vector3 desired = _canvas.transform.position;
             if (anchorHand != null)
             {
-                _canvas.transform.position = anchorHand.position
-                                            + anchorHand.forward * handForwardDistance
-                                            + anchorHand.up * handUpOffset;
+                desired = anchorHand.position
+                          + anchorHand.forward * handForwardDistance
+                          + anchorHand.up * handUpOffset;
             }
             else if (_cam != null)
             {
-                _canvas.transform.position = _cam.position + _cam.forward * fallbackDistance
-                                             + _cam.up * -0.05f;
+                desired = _cam.position + _cam.forward * fallbackDistance
+                          + _cam.up * -0.05f;
             }
+
+            // 距离保护：锚点手柄在桌面模式下可能离相机很远，超距拉回相机正前方
+            if (_cam != null)
+                desired = StartScreen.ClampToCamera(desired, _cam.position, _cam.forward,
+                    cameraFallbackDistance, maxCameraDistance);
+            _canvas.transform.position = desired;
 
             Transform look = _cam != null ? _cam : anchorHand;
             if (look != null)
@@ -343,21 +356,27 @@ namespace FireSafety
             if (_canvas == null) return;
             if (_cam == null) _cam = Camera.main ? Camera.main.transform : null;
 
+            Vector3 desired;
             if (anchorHand != null)
             {
-                _canvas.transform.position = anchorHand.position
-                                            + anchorHand.forward * handForwardDistance
-                                            + anchorHand.up * handUpOffset;
-                Transform look = _cam != null ? _cam : anchorHand;
-                _canvas.transform.rotation = Quaternion.LookRotation(
-                    _canvas.transform.position - look.position);
+                desired = anchorHand.position
+                          + anchorHand.forward * handForwardDistance
+                          + anchorHand.up * handUpOffset;
             }
             else if (_cam != null)
             {
-                Vector3 pos = _cam.position + _cam.forward * fallbackDistance + _cam.up * -0.05f;
-                _canvas.transform.position = pos;
-                _canvas.transform.rotation = Quaternion.LookRotation(pos - _cam.position);
+                desired = _cam.position + _cam.forward * fallbackDistance + _cam.up * -0.05f;
             }
+            else return;
+
+            if (_cam != null)
+                desired = StartScreen.ClampToCamera(desired, _cam.position, _cam.forward,
+                    cameraFallbackDistance, maxCameraDistance);
+
+            _canvas.transform.position = desired;
+            Transform look = _cam != null ? _cam : anchorHand;
+            if (look != null)
+                _canvas.transform.rotation = Quaternion.LookRotation(desired - look.position);
         }
 
         private void Play(string path, float volume)

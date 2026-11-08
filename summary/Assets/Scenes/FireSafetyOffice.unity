@@ -733,6 +733,103 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 4746534753112370497, guid: aeec122b5cfbc844894e42eb2bd55386, type: 3}
   m_PrefabInstance: {fileID: 58225549}
   m_PrefabAsset: {fileID: 0}
+--- !u!1 &70872955
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 70872957}
+  - component: {fileID: 70872956}
+  m_Layer: 0
+  m_Name: AlarmLight
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!108 &70872956
+Light:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 70872955}
+  m_Enabled: 1
+  serializedVersion: 13
+  m_Type: 2
+  m_Color: {r: 1, g: 0, b: 0, a: 1}
+  m_Intensity: 0
+  m_Range: 12
+  m_SpotAngle: 30
+  m_InnerSpotAngle: 21.80208
+  m_CookieSize2D: {x: 0.5, y: 0.5}
+  m_Shadows:
+    m_Type: 0
+    m_Resolution: -1
+    m_CustomResolution: -1
+    m_Strength: 1
+    m_Bias: 0.05
+    m_NormalBias: 0.4
+    m_NearPlane: 0.2
+    m_CullingMatrixOverride:
+      e00: 1
+      e01: 0
+      e02: 0
+      e03: 0
+      e10: 0
+      e11: 1
+      e12: 0
+      e13: 0
+      e20: 0
+      e21: 0
+      e22: 1
+      e23: 0
+      e30: 0
+      e31: 0
+      e32: 0
+      e33: 1
+    m_UseCullingMatrixOverride: 0
+  m_Cookie: {fileID: 0}
+  m_DrawHalo: 0
+  m_Flare: {fileID: 0}
+  m_RenderMode: 0
+  m_CullingMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  m_RenderingLayerMask: 1
+  m_Lightmapping: 4
+  m_LightShadowCasterMode: 0
+  m_AreaSize: {x: 1, y: 1}
+  m_BounceIntensity: 1
+  m_ColorTemperature: 6570
+  m_UseColorTemperature: 0
+  m_BoundingSphereOverride: {x: 0, y: 0, z: 0, w: 0}
+  m_UseBoundingSphereOverride: 0
+  m_UseViewFrustumForShadowCasterCull: 1
+  m_ForceVisible: 0
+  m_ShapeRadius: 0.025
+  m_ShadowAngle: 0
+  m_LightUnit: 1
+  m_LuxAtDistance: 1
+  m_EnableSpotReflector: 1
+--- !u!4 &70872957
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 70872955}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 2.2, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 489972191}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &70912113
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -2421,103 +2518,6 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 3267953782415969304, guid: 1799cc7c56e44b14399f4ecdabd365a2, type: 3}
   m_PrefabInstance: {fileID: 215920164}
   m_PrefabAsset: {fileID: 0}
---- !u!1 &216629105
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 216629107}
-  - component: {fileID: 216629106}
-  m_Layer: 0
-  m_Name: AlarmLight
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!108 &216629106
-Light:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 216629105}
-  m_Enabled: 1
-  serializedVersion: 13
-  m_Type: 2
-  m_Color: {r: 1, g: 0, b: 0, a: 1}
-  m_Intensity: 0
-  m_Range: 12
-  m_SpotAngle: 30
-  m_InnerSpotAngle: 21.80208
-  m_CookieSize2D: {x: 0.5, y: 0.5}
-  m_Shadows:
-    m_Type: 0
-    m_Resolution: -1
-    m_CustomResolution: -1
-    m_Strength: 1
-    m_Bias: 0.05
-    m_NormalBias: 0.4
-    m_NearPlane: 0.2
-    m_CullingMatrixOverride:
-      e00: 1
-      e01: 0
-      e02: 0
-      e03: 0
-      e10: 0
-      e11: 1
-      e12: 0
-      e13: 0
-      e20: 0
-      e21: 0
-      e22: 1
-      e23: 0
-      e30: 0
-      e31: 0
-      e32: 0
-      e33: 1
-    m_UseCullingMatrixOverride: 0
-  m_Cookie: {fileID: 0}
-  m_DrawHalo: 0
-  m_Flare: {fileID: 0}
-  m_RenderMode: 0
-  m_CullingMask:
-    serializedVersion: 2
-    m_Bits: 4294967295
-  m_RenderingLayerMask: 1
-  m_Lightmapping: 4
-  m_LightShadowCasterMode: 0
-  m_AreaSize: {x: 1, y: 1}
-  m_BounceIntensity: 1
-  m_ColorTemperature: 6570
-  m_UseColorTemperature: 0
-  m_BoundingSphereOverride: {x: 0, y: 0, z: 0, w: 0}
-  m_UseBoundingSphereOverride: 0
-  m_UseViewFrustumForShadowCasterCull: 1
-  m_ForceVisible: 0
-  m_ShapeRadius: 0.025
-  m_ShadowAngle: 0
-  m_LightUnit: 1
-  m_LuxAtDistance: 1
-  m_EnableSpotReflector: 1
---- !u!4 &216629107
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 216629105}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 2.2, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 489972191}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &217059724
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -2829,6 +2829,66 @@ Transform:
   m_Children:
   - {fileID: 1456095208}
   m_Father: {fileID: 2076228648}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &230438105
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 230438107}
+  - component: {fileID: 230438106}
+  m_Layer: 0
+  m_Name: ExitDoor
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &230438106
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 230438105}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d689aac6f3d67934fb67406b74fa6842, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::FireSafety.ExitDoor
+  doorWidth: 1.5
+  doorHeight: 2.1
+  doorThickness: 0.1
+  frameThickness: 0.12
+  enterDistance: 0.9
+  player: {fileID: 0}
+  detectByDistance: 1
+  signText: "\u5B89\u5168\u51FA\u53E3 EXIT"
+  signLockedColor: {r: 0.72, g: 0.22, b: 0.18, a: 1}
+  signOpenColor: {r: 0.25, g: 0.85, b: 0.42, a: 1}
+  onUnlocked:
+    m_PersistentCalls:
+      m_Calls: []
+  onEntered:
+    m_PersistentCalls:
+      m_Calls: []
+--- !u!4 &230438107
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 230438105}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: -5.6}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &230686113
 PrefabInstance:
@@ -5381,7 +5441,7 @@ MonoBehaviour:
   sirenVolume: 0.8
   startDelay: 0
   alarmLights:
-  - {fileID: 216629106}
+  - {fileID: 70872956}
   alarmColor: {r: 1, g: 0, b: 0, a: 1}
   blinkHz: 2
   maxIntensity: 2
@@ -5500,7 +5560,7 @@ Transform:
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
-  - {fileID: 216629107}
+  - {fileID: 70872957}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &502758207
@@ -9972,10 +10032,12 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::FireSafety.OnboardingScreen
   startScreen: {fileID: 1266593490}
   anchorHand: {fileID: 913019883}
-  handForwardDistance: 1
-  handUpOffset: 0.14
+  handForwardDistance: 0.6
+  handUpOffset: 0.12
   canvasScale: 0.0009
-  fallbackDistance: 1.2
+  fallbackDistance: 1
+  maxCameraDistance: 1.3
+  cameraFallbackDistance: 1
   title: "\u64CD\u4F5C\u6559\u5B66 \xB7 \u5F00\u59CB\u524D\u5FC5\u8BFB"
   prevLabel: "\u4E0A\u4E00\u6B65"
   nextLabel: "\u4E0B\u4E00\u6B65"
@@ -14924,6 +14986,78 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 8566179962405506125, guid: 794ca9ac3e34a6c42bd845432f87cd68, type: 3}
   m_PrefabInstance: {fileID: 1013881070}
   m_PrefabAsset: {fileID: 0}
+--- !u!1 &1018141597
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1018141599}
+  - component: {fileID: 1018141598}
+  m_Layer: 0
+  m_Name: StageTwoFlow
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1018141598
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1018141597}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ce5ac5bf92919d243a1110f2a56a584c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::FireSafety.StageTwoFlow
+  arrows: {fileID: 1085176505}
+  smoke: {fileID: 1778377463}
+  exitDoor: {fileID: 230438106}
+  countdown: {fileID: 348867192}
+  endingScreen: {fileID: 1648768258}
+  player: {fileID: 0}
+  stageTwoFire: {fileID: 0}
+  spareExtinguisher: {fileID: 0}
+  crouchHeight: 1.15
+  lobbyEnterDistance: 1.2
+  exitEnterDistance: 0.9
+  smokeWarningInterval: 4
+  stageTwoFireOffset: {x: 0, y: 0.35, z: 1.1}
+  stageTwoExtinguishThreshold: 2.2
+  autoCreateFire: 1
+  autoMoveSpareExtinguisher: 1
+  onStageTwoBegin:
+    m_PersistentCalls:
+      m_Calls: []
+  onStageThreeBegin:
+    m_PersistentCalls:
+      m_Calls: []
+  onExitOpened:
+    m_PersistentCalls:
+      m_Calls: []
+  onCleared:
+    m_PersistentCalls:
+      m_Calls: []
+--- !u!4 &1018141599
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1018141597}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &1025327352
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -15636,6 +15770,8 @@ MonoBehaviour:
   onArrivedAtLobby:
     m_PersistentCalls:
       m_Calls: []
+  exitTarget: {fileID: 230438107}
+  exitArriveDistance: 0.9
   arrowCount: 6
   spacing: 1.2
   floorY: 0.02
@@ -17355,11 +17491,12 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::FireSafety.StageOneCompletePanel
   countdown: {fileID: 348867192}
   startScreen: {fileID: 1266593490}
+  stageTwo: {fileID: 1018141598}
   title: "\u9636\u6BB5\u4E00\u5B8C\u6210"
   buttonSettlement: "\u7ACB\u523B\u7ED3\u7B97"
   buttonContinue: "\u7EE7\u7EED\u5F80\u4E0B"
-  distanceFromCamera: 1.2
-  verticalOffset: 0
+  distanceFromCamera: 1.55
+  verticalOffset: 0.08
   onSettlement:
     m_PersistentCalls:
       m_Calls: []
@@ -17551,7 +17688,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::FireSafety.StartScreen
   title: "\u529E\u516C\u5BA4\u6D88\u9632\u77E5\u8BC6\u6F14\u7EC3"
-  instructions: "\u73A9\u6CD5\u8BF4\u660E\uFF1A\n\u2460 \u624B\u67C4\u5C04\u7EBF\u6307\u5411\u5F00\u59CB\u9762\u677F\uFF0C\u70B9\u300C\u5F00\u59CB\u6F14\u7EC3\u300D\u2192 \u8B66\u62A5\u54CD\u8D77\uFF0C\u5012\u8BA1\u65F6\u5F00\u59CB\uFF08\u4E0A\u9650 3 \u5206\u949F\uFF09\uFF1B\n\u2461 \u627E\u5230\u7EA2\u8272\u706D\u706B\u5668\uFF1A\u8FDB\u5165\u89C6\u7EBF\u4F1A\u9AD8\u4EAE\u63D0\u793A\uFF0C\u5730\u9762\u7BAD\u5934\u6307\u5411\u5B83\u7684\u4F4D\u7F6E\uFF1B\n\u2462 \u9F20\u6807\u53F3\u952E\u5355\u51FB\u706D\u706B\u5668 \u2192 \u5F39\u51FA 5 \u9053\u5E38\u8BC6\u9898\uFF0C\u6BCF\u9898 10 \u79D2\uFF0C\u7B54\u5BF9 60%\uFF083 \u9898\uFF09\u624D\u80FD\u62FF\u8D77\uFF1B\n\u2463 \u62FF\u8D77\u540E\uFF1A\u5DE6\u952E\u5355\u51FB\u62D4\u9500 \u2192 \u5DE6\u952E\u53CC\u51FB\u538B\u628A \u2192 \u53F3\u952E\u53CC\u51FB\u55B7\u5C04\uFF0C\u706B\u7130 2~3 \u79D2\u7184\u706D\u5373\u5B8C\u6210\u9636\u6BB5\u4E00\uFF1B\n\u2464 \u9636\u6BB5\u4E00\u5B8C\u6210\u2192\u7EE7\u7EED\u5F80\u4E0B\uFF0C\u6CBF\u7BAD\u5934\u64A4\u79BB\u5230\u5927\u5385\u96C6\u5408\u70B9\uFF0C\u5F39\u51FA\u7ED3\u675F\u9875\u3002\n\u952E\u76D8\uFF1AP \u653E\u4E0B\u706D\u706B\u5668\uFF1B\u56DE\u8F66 / \u7A7A\u683C \u5F00\u59CB\u6F14\u7EC3\uFF1B\u95EE\u7B54\u65F6\u6309 1 / 2 / 3 \u4F5C\u7B54\u3002\n\u4E0D\u786E\u5B9A\u600E\u4E48\u64CD\u4F5C\uFF1F\u70B9\u4E0B\u65B9\u300C\u64CD\u4F5C\u6559\u5B66\u300D\uFF0C\u5206\u9875\u770B\u5B8C\u6574\u6B65\u9AA4\u3002"
+  instructions: "\u73A9\u6CD5\u8BF4\u660E\uFF1A\n\u2460 \u624B\u67C4\u5C04\u7EBF\u6307\u5411\u5F00\u59CB\u9762\u677F\uFF0C\u70B9\u300C\u5F00\u59CB\u6F14\u7EC3\u300D\u2192 \u8B66\u62A5\u54CD\u8D77\uFF0C\u5012\u8BA1\u65F6\u5F00\u59CB\uFF08\u4E0A\u9650 3 \u5206\u949F\uFF09\uFF1B\n\u2461 \u627E\u5230\u7EA2\u8272\u706D\u706B\u5668\uFF1A\u8FDB\u5165\u89C6\u7EBF\u4F1A\u9AD8\u4EAE\u63D0\u793A\uFF0C\u5730\u9762\u7BAD\u5934\u6307\u5411\u5B83\u7684\u4F4D\u7F6E\uFF1B\n\u2462 \u9F20\u6807\u53F3\u952E\u5355\u51FB\u706D\u706B\u5668 \u2192 \u5F39\u51FA 5 \u9053\u5E38\u8BC6\u9898\uFF0C\u6BCF\u9898 10 \u79D2\uFF0C\u7B54\u5BF9 60%\uFF083 \u9898\uFF09\u624D\u80FD\u62FF\u8D77\uFF1B\n\u2463 \u62FF\u8D77\u540E\uFF1A\u5DE6\u952E\u5355\u51FB\u62D4\u9500 \u2192 \u5DE6\u952E\u53CC\u51FB\u538B\u628A \u2192 \u53F3\u952E\u53CC\u51FB\u55B7\u5C04\uFF0C\u706B\u7130 2~3 \u79D2\u7184\u706D\u5373\u5B8C\u6210\u9636\u6BB5\u4E00\uFF1B\n\u2464 \u9636\u6BB5\u4E00\u5B8C\u6210\u2192\u7EE7\u7EED\u5F80\u4E0B\uFF1A\u70DF\u96FE\u6269\u6563\uFF0C\u6309 C \u8E72\u4E0B\u6F5C\u884C\uFF08VR \u91CC\u771F\u7684\u8E72\u4E0B\uFF09\uFF0C\u6CBF\u5B89\u5168\u51FA\u53E3\u7BAD\u5934\u5230\u5927\u5385\uFF1B\n\u2465 \u5927\u5385\u590D\u71C3\uFF1A\u518D\u6267\u884C\u4E00\u904D\u62FF\u8D77\u2192\u62D4\u9500\u2192\u538B\u628A\u2192\u55B7\u5C04\uFF0C\u6251\u706D\u540E\u300C\u5B89\u5168\u51FA\u53E3 EXIT\u300D\u5F00\u542F\uFF0C\u8D70\u8FDB\u95E8\u5185\u901A\u5173\u3002\n\u952E\u76D8\uFF1AP \u653E\u4E0B\u706D\u706B\u5668\uFF1B\u56DE\u8F66 / \u7A7A\u683C \u5F00\u59CB\u6F14\u7EC3\uFF1B\u95EE\u7B54\u65F6\u6309 1 / 2 / 3 \u4F5C\u7B54\u3002\n\u4E0D\u786E\u5B9A\u600E\u4E48\u64CD\u4F5C\uFF1F\u70B9\u4E0B\u65B9\u300C\u64CD\u4F5C\u6559\u5B66\u300D\uFF0C\u5206\u9875\u770B\u5B8C\u6574\u6B65\u9AA4\u3002"
   buttonLabel: "\u5F00\u59CB\u6F14\u7EC3"
   worldPosition: {x: 0, y: 1.3, z: 1.8}
   canvasScale: 0.0009
@@ -23895,7 +24032,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::FireSafety.EndingScreen
   countdown: {fileID: 348867192}
   quiz: {fileID: 2133534251}
-  distanceFromCamera: 1.2
+  exitDoor: {fileID: 230438106}
+  distanceFromCamera: 1.35
   verticalOffset: 0
   titleSuccess: "\u6F14\u7EC3\u5B8C\u6210 \xB7 \u6210\u529F\u64A4\u79BB"
   titleFailure: "\u6F14\u7EC3\u7ED3\u675F \xB7 \u65F6\u95F4\u5230"
@@ -25642,6 +25780,57 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 9167407993231221327, guid: e58f3a007909fa84ba968739582b4af6, type: 3}
   m_PrefabInstance: {fileID: 1770703518}
   m_PrefabAsset: {fileID: 0}
+--- !u!1 &1778377462
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1778377464}
+  - component: {fileID: 1778377463}
+  m_Layer: 0
+  m_Name: SmokeZone
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1778377463
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1778377462}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f25f148ddeafe324ca3356221b402dc7, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::FireSafety.SmokeZone
+  start: {x: 0, y: 0.3, z: 1.8}
+  end: {x: 0, y: 0.3, z: -4}
+  emitterCount: 6
+  smokeColor: {r: 0.64, g: 0.66, b: 0.68, a: 0.55}
+  particleSize: 2.2
+  lifetime: 5
+  ratePerSecond: 12
+--- !u!4 &1778377464
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1778377462}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &1794947610
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -28666,7 +28855,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 4345197550711715204, guid: bf0ea4a7b2c279047a7d801bff445913, type: 3}
       propertyPath: m_LocalPosition.x
-      value: -3.65
+      value: 1.92
       objectReference: {fileID: 0}
     - target: {fileID: 4345197550711715204, guid: bf0ea4a7b2c279047a7d801bff445913, type: 3}
       propertyPath: m_LocalPosition.y
@@ -28674,7 +28863,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 4345197550711715204, guid: bf0ea4a7b2c279047a7d801bff445913, type: 3}
       propertyPath: m_LocalPosition.z
-      value: -7.26
+      value: -0.81
       objectReference: {fileID: 0}
     - target: {fileID: 4345197550711715204, guid: bf0ea4a7b2c279047a7d801bff445913, type: 3}
       propertyPath: m_LocalRotation.w
@@ -29975,6 +30164,7 @@ MonoBehaviour:
   stagePanel: {fileID: 1235155103}
   onboarding: {fileID: 0}
   endingScreen: {fileID: 0}
+  stageTwo: {fileID: 0}
   cameraTransform: {fileID: 849437993}
   handAnchor: {fileID: 1863045657}
   handOffset: {x: 0.33, y: -0.24, z: 0.7}
@@ -30876,3 +31066,6 @@ SceneRoots:
   - {fileID: 1296861561}
   - {fileID: 684108752}
   - {fileID: 1648768259}
+  - {fileID: 1778377464}
+  - {fileID: 230438107}
+  - {fileID: 1018141599}

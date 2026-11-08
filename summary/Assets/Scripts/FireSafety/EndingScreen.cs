@@ -20,6 +20,7 @@ namespace FireSafety
         [Header("引用（留空自动查找）")]
         public DrillCountdown countdown;
         public ExtinguisherQuizPanel quiz;
+        public ExitDoor exitDoor;
 
         [Header("位置")]
         public float distanceFromCamera = 1.2f;
@@ -67,14 +68,16 @@ namespace FireSafety
         {
             if (countdown == null) countdown = FindObjectOfType<DrillCountdown>();
             if (quiz == null) quiz = FindObjectOfType<ExtinguisherQuizPanel>();
+            if (exitDoor == null) exitDoor = FindObjectOfType<ExitDoor>(true);
         }
 
         private void Subscribe()
         {
-            if (GuidanceArrows.Instance != null)
+            // 成功条件已从「到达大厅」改为「穿过安全出口门」：大厅只是第二阶段的检查点
+            if (exitDoor != null)
             {
-                GuidanceArrows.Instance.onArrivedAtLobby.RemoveListener(OnArrivedAtLobby);
-                GuidanceArrows.Instance.onArrivedAtLobby.AddListener(OnArrivedAtLobby);
+                exitDoor.onEntered.RemoveListener(OnExitDoorEntered);
+                exitDoor.onEntered.AddListener(OnExitDoorEntered);
             }
             if (countdown != null)
             {
@@ -85,12 +88,16 @@ namespace FireSafety
 
         private void Unsubscribe()
         {
-            if (GuidanceArrows.Instance != null)
-                GuidanceArrows.Instance.onArrivedAtLobby.RemoveListener(OnArrivedAtLobby);
+            if (exitDoor != null) exitDoor.onEntered.RemoveListener(OnExitDoorEntered);
             if (countdown != null) countdown.onTimeExpired.RemoveListener(OnTimeExpired);
         }
 
-        private void OnArrivedAtLobby() => Show(true);
+        private void OnExitDoorEntered()
+        {
+            if (exitDoor != null && !exitDoor.IsUnlocked) return;
+            Show(true);
+        }
+
         private void OnTimeExpired() => Show(false);
 
         /// <summary>弹出结束页；success=true 为成功撤离，false 为时间到失败。</summary>
@@ -102,6 +109,9 @@ namespace FireSafety
             if (_canvas == null) BuildUI();
 
             if (success && countdown != null) countdown.Pause();
+
+            // 结束页弹出即清掉场景里所有明火（与阶段一完成面板一致）
+            FireSource.ClearAllFlames();
 
             if (_titleText != null)
             {
@@ -180,7 +190,7 @@ namespace FireSafety
                 : "未知");
 
             string head = success
-                ? "你已完成全流程：拿起 → 拔销 → 压把 → 喷射扑灭 → 沿箭头撤离到大厅。"
+                ? "你已完成全流程：灭火 → 蹲姿穿过烟雾撤离大厅 → 处理大厅复燃 → 走进安全出口。"
                 : "倒计时已耗尽，演练未完成。可重新演练再试一次。";
 
             return head + "\n\n" +

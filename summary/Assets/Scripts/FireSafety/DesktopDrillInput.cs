@@ -28,7 +28,14 @@ namespace FireSafety
         public StageOneCompletePanel stagePanel;
         public OnboardingScreen onboarding;
         public EndingScreen endingScreen;
+        public StageTwoFlow stageTwo;
         public Transform cameraTransform;
+
+        /// <summary>场景内唯一的桌面输入实例，供其他脚本推送提示。</summary>
+        public static DesktopDrillInput Instance { get; private set; }
+
+        /// <summary>对外推送一条临时提示（第二阶段流程用）。</summary>
+        public void PushHint(string message) => Hint(message);
 
         [Header("桌面手部锚点（留空自动创建在相机下）")]
         public Transform handAnchor;
@@ -66,6 +73,7 @@ namespace FireSafety
 
         private void Awake()
         {
+            Instance = this;
             if (cameraTransform == null && Camera.main != null) cameraTransform = Camera.main.transform;
 
             if (handAnchor == null)
@@ -80,6 +88,7 @@ namespace FireSafety
 
         private void OnDestroy()
         {
+            if (Instance == this) Instance = null;
             if (_hudCanvas != null) Destroy(_hudCanvas.gameObject);
         }
 
@@ -113,6 +122,7 @@ namespace FireSafety
             if (stagePanel == null) stagePanel = FindObjectOfType<StageOneCompletePanel>();
             if (onboarding == null) onboarding = FindObjectOfType<OnboardingScreen>();
             if (endingScreen == null) endingScreen = FindObjectOfType<EndingScreen>();
+            if (stageTwo == null) stageTwo = FindObjectOfType<StageTwoFlow>();
 
             RefreshHudText(true);
         }
@@ -128,9 +138,26 @@ namespace FireSafety
 
             RefreshHudText(false);
 
+            // 阶段一完成 / 结束页 / 引导页打开时隐藏底部 HUD 黑条，避免压住面板按钮
+            if (_hudCanvas != null)
+            {
+                bool hideHud = (stagePanel != null && stagePanel.IsOpen)
+                            || (endingScreen != null && endingScreen.IsOpen)
+                            || (onboarding != null && onboarding.IsOpen);
+                _hudCanvas.enabled = !hideHud;
+            }
+
             var mouse = Mouse.current;
             var keyboard = Keyboard.current;
             if (mouse == null || keyboard == null) return;
+
+            // ---------- C：蹲下 / 站起（第二阶段浓烟潜行） ----------
+            if (keyboard.cKey.wasPressedThisFrame)
+            {
+                if (stageTwo == null) stageTwo = FindObjectOfType<StageTwoFlow>();
+                if (stageTwo != null) stageTwo.ToggleDesktopCrouch();
+                else Hint("C：蹲下潜行（当前场景未挂 StageTwoFlow）");
+            }
 
             // ---------- 开始演练 ----------
             if (keyboard.enterKey.wasPressedThisFrame || keyboard.spaceKey.wasPressedThisFrame)
@@ -563,6 +590,24 @@ namespace FireSafety
                 if (stagePanel != null && stagePanel.IsOpen)
                     return "状态：阶段一完成 → 在面板中选择「立刻结算」或「继续往下」";
             }
+
+            if (stageTwo != null)
+            {
+                switch (stageTwo.CurrentStage)
+                {
+                    case StageTwoFlow.Stage.Evacuating:
+                        return "状态：第二阶段 · 浓烟撤离 → "
+                               + (stageTwo.IsCrouched ? "已蹲下潜行，沿安全出口箭头前往大厅" : "站立在浓烟中 → 按 C 蹲下潜行")
+                               + "（浓烟暴露 " + Mathf.CeilToInt(stageTwo.SmokeExposureSeconds) + " 秒）";
+                    case StageTwoFlow.Stage.StageThree:
+                        return "状态：第三阶段 · 大厅复燃 → 重复拿起 → 拔销 → 压把 → 喷射 扑灭它";
+                    case StageTwoFlow.Stage.ExitOpen:
+                        return "状态：安全出口已开启 → 走进「安全出口 EXIT」门内通关";
+                    case StageTwoFlow.Stage.Done:
+                        return "状态：演练完成 · 成功撤离";
+                }
+            }
+
             if (startScreen != null && !startScreen.Started)
                 return "状态：等待开始（点击「开始演练」或按 回车 / 空格）";
 

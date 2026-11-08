@@ -21,6 +21,10 @@ namespace FireSafety
         public float lobbyArriveDistance = 0.6f;
         public UnityEvent onArrivedAtLobby = new UnityEvent();
 
+        [Header("第 3 阶段：安全出口目标")]
+        public Transform exitTarget;
+        public float exitArriveDistance = 0.9f;
+
         [Header("箭头参数")]
         public int arrowCount = 6;
         public float spacing = 1.2f;
@@ -36,6 +40,8 @@ namespace FireSafety
         public bool Active { get; private set; }
         /// <summary>当前是否处于「引导去大厅」模式（true 时箭头指向 lobbyTarget，不再指灭火器）。</summary>
         public bool LobbyMode { get; private set; }
+        /// <summary>当前是否处于「引导去安全出口」模式（第三阶段灭火完成后开启）。</summary>
+        public bool ExitMode { get; private set; }
 
         Camera _cam;
         Transform _player;
@@ -96,10 +102,27 @@ namespace FireSafety
                 return;
             }
             LobbyMode = true;
+            ExitMode = false;
             Active = true;
             SetArrowsVisible(true);
             onGuidanceStarted?.Invoke();
             Debug.Log("[Arrows] 第 2 阶段引导箭头已启动，指向大厅。");
+        }
+
+        /// <summary>第 3 阶段：切换为「引导去安全出口」并显示箭头。</summary>
+        public void BeginExitGuidance()
+        {
+            if (exitTarget == null)
+            {
+                Debug.LogWarning("[Arrows] 未配置 exitTarget，安全出口引导未启动。");
+                return;
+            }
+            ExitMode = true;
+            LobbyMode = false;
+            Active = true;
+            SetArrowsVisible(true);
+            onGuidanceStarted?.Invoke();
+            Debug.Log("[Arrows] 第 3 阶段引导箭头已启动，指向安全出口。");
         }
 
         /// <summary>停止并隐藏引导箭头。</summary>
@@ -122,7 +145,9 @@ namespace FireSafety
                 if (p) _player = p.transform;
             }
 
-            Transform target = LobbyMode ? lobbyTarget : PickNearestActiveTarget();
+            Transform target = ExitMode && exitTarget != null
+                ? exitTarget
+                : (LobbyMode ? lobbyTarget : PickNearestActiveTarget());
             if (target == null)
             {
                 StopGuidance();
@@ -137,7 +162,8 @@ namespace FireSafety
             dir.y = 0f;
             float dist = dir.magnitude;
 
-            float arriveThreshold = LobbyMode ? lobbyArriveDistance : 0.4f;
+            float arriveThreshold = ExitMode ? exitArriveDistance
+                : (LobbyMode ? lobbyArriveDistance : 0.4f);
             if (dist < arriveThreshold)
             {
                 StopGuidance();

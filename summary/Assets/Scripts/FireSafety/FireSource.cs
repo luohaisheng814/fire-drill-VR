@@ -93,5 +93,30 @@ namespace FireSafety
                 if (f != null && !f.IsExtinguished) return false;
             return true;
         }
+
+        /// <summary>
+        /// 只清掉视觉上的明火（粒子 + 灯光 + 声音），不改变灭火进度、不触发事件。
+        /// 用于「弹面板/结束时火焰必须立刻消失」这类表现诉求。
+        /// </summary>
+        public void ClearFlame()
+        {
+            if (particles != null)
+                foreach (var p in particles)
+                    if (p) p.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            if (fireLight) fireLight.intensity = 0f;
+            if (fireAudio) fireAudio.Stop();
+        }
+
+        /// <summary>清掉场景里所有火源的明火表现（含未登记在 Active 的粒子系统）。</summary>
+        public static void ClearAllFlames()
+        {
+            var all = FindObjectsByType<FireSource>(FindObjectsSortMode.None);
+            foreach (var f in all)
+                if (f != null) f.ClearFlame();
+
+            var allIncludingInactive = Resources.FindObjectsOfTypeAll<FireSource>();
+            foreach (var f in allIncludingInactive)
+                if (f != null && f.gameObject.scene.IsValid()) f.ClearFlame();
+        }
     }
 }

@@ -97,6 +97,7 @@ namespace FireSafety.EditorTools
             // 5.6 阶段一完成面板（暂停倒计时 + 立刻结算 / 继续往下）
             SetupStageOnePanel();
             SetupEndingScreen();
+            SetupStageTwoFlow();
 
             // 6. 灭火器
             SetupExtinguisher("Extinguisher01", rig, leftHand, rightHand);
@@ -255,7 +256,8 @@ namespace FireSafety.EditorTools
                 "② 找到红色灭火器：进入视线会高亮提示，地面箭头指向它的位置；\n" +
                 "③ 鼠标右键单击灭火器 → 弹出 5 道常识题，每题 10 秒，答对 60%（3 题）才能拿起；\n" +
                 "④ 拿起后：左键单击拔销 → 左键双击压把 → 右键双击喷射，火焰 2~3 秒熄灭即完成阶段一；\n" +
-                "⑤ 阶段一完成→继续往下，沿箭头撤离到大厅集合点，弹出结束页。\n" +
+                "⑤ 阶段一完成→继续往下：烟雾扩散，按 C 蹲下潜行（VR 里真的蹲下），沿安全出口箭头到大厅；\n" +
+                "⑥ 大厅复燃：再执行一遍拿起→拔销→压把→喷射，扑灭后「安全出口 EXIT」开启，走进门内通关。\n" +
                 "键盘：P 放下灭火器；回车 / 空格 开始演练；问答时按 1 / 2 / 3 作答。\n" +
                 "不确定怎么操作？点下方「操作教学」，分页看完整步骤。";
             start.onboardingLabel = "操作教学";
@@ -377,7 +379,8 @@ namespace FireSafety.EditorTools
             var panel = go.GetComponent<StageOneCompletePanel>() ?? go.AddComponent<StageOneCompletePanel>();
             panel.countdown = UnityEngine.Object.FindObjectOfType<DrillCountdown>();
             panel.startScreen = UnityEngine.Object.FindObjectOfType<StartScreen>();
-            panel.distanceFromCamera = 1.2f;
+            panel.distanceFromCamera = 1.55f;   // 1.2 米时面板顶满视野、按钮被桌面 HUD 压住；1.55 米更稳
+            panel.verticalOffset = 0.08f;
             panel.title = "阶段一完成";
             panel.buttonSettlement = "立刻结算";
             panel.buttonContinue = "继续往下";
@@ -392,17 +395,19 @@ namespace FireSafety.EditorTools
             var ob = go.GetComponent<OnboardingScreen>() ?? go.AddComponent<OnboardingScreen>();
             ob.startScreen = UnityEngine.Object.FindObjectOfType<StartScreen>();
             ob.anchorHand = rightHand;
-            ob.handForwardDistance = 1.0f;
-            ob.handUpOffset = 0.14f;
+            ob.handForwardDistance = 0.6f;      // 引导页拉近：手柄前 0.6 米，一屏读完正文
+            ob.handUpOffset = 0.12f;
             ob.canvasScale = 0.0009f;
-            ob.fallbackDistance = 1.2f;
+            ob.fallbackDistance = 1.0f;
+            ob.maxCameraDistance = 1.3f;        // 距离保护：锚点太远就拉回相机前方
+            ob.cameraFallbackDistance = 1.0f;
             ob.title = "操作教学 · 开始前必读";
             ob.prevLabel = "上一步";
             ob.nextLabel = "下一步";
             ob.lastLabel = "开始演练";
             ob.skipLabel = "跳过教学";
             if (go.GetComponent<AudioSource>() == null) go.AddComponent<AudioSource>();
-            Debug.Log("[Setup] ✔ 引导页：OnboardingScreen（4 页教学，锚定右手手柄前方 1.0 米 / 上抬 0.14 米）");
+            Debug.Log("[Setup] ✔ 引导页：OnboardingScreen（4 页教学，锚定右手手柄前方 0.6 米 / 上抬 0.12 米，带 1.3 米距离保护）");
         }
 
         /// <summary>结束页（엔딩）：撤离到大厅成功 / 倒计时耗尽失败。</summary>
@@ -413,14 +418,67 @@ namespace FireSafety.EditorTools
             ending.countdown = UnityEngine.Object.FindObjectOfType<DrillCountdown>();
             var ext = GameObject.Find("Extinguisher01");
             if (ext != null) ending.quiz = ext.GetComponentInChildren<ExtinguisherQuizPanel>(true);
-            ending.distanceFromCamera = 1.2f;
+            ending.distanceFromCamera = 1.35f;
             ending.verticalOffset = 0f;
+            ending.exitDoor = UnityEngine.Object.FindObjectOfType<ExitDoor>(true);
             ending.titleSuccess = "演练完成 · 成功撤离";
             ending.titleFailure = "演练结束 · 时间到";
             ending.buttonRestart = "重新演练";
             ending.buttonClose = "关闭";
             if (go.GetComponent<AudioSource>() == null) go.AddComponent<AudioSource>();
-            Debug.Log("[Setup] ✔ 结束页：EndingScreen（到大厅=成功 / 倒计时耗尽=失败，含成绩汇总）");
+            Debug.Log("[Setup] ✔ 结束页：EndingScreen（走进安全出口=成功 / 倒计时耗尽=失败，含成绩汇总）");
+        }
+
+        /// <summary>
+        /// 第二 / 第三阶段：烟雾区 + 安全出口门 + 流程编排（StageTwoFlow）。
+        /// 大厅 Lobby 是第二阶段检查点，出口门在它后方 1.1 米，玩家进门才通关。
+        /// </summary>
+        static void SetupStageTwoFlow()
+        {
+            // 烟雾区：灭火房间 → 大厅之间的走廊
+            var smokeGo = GameObject.Find("SmokeZone") ?? new GameObject("SmokeZone");
+            var smoke = smokeGo.GetComponent<SmokeZone>() ?? smokeGo.AddComponent<SmokeZone>();
+            smoke.emitterCount = 6;
+            smoke.start = new Vector3(0f, 0.30f, 1.8f);
+            smoke.end = new Vector3(0f, 0.30f, -4.0f);
+            smoke.particleSize = 2.2f;
+            smoke.ratePerSecond = 12f;
+
+            // 安全出口门：大厅正后方
+            var doorGo = GameObject.Find("ExitDoor") ?? new GameObject("ExitDoor");
+            doorGo.transform.position = new Vector3(0f, 0f, -5.6f);
+            doorGo.transform.rotation = Quaternion.identity;
+            var door = doorGo.GetComponent<ExitDoor>() ?? doorGo.AddComponent<ExitDoor>();
+            door.enterDistance = 0.9f;
+            door.signText = "安全出口 EXIT";
+
+            var go = GameObject.Find("StageTwoFlow") ?? new GameObject("StageTwoFlow");
+            var flow = go.GetComponent<StageTwoFlow>() ?? go.AddComponent<StageTwoFlow>();
+            flow.smoke = smoke;
+            flow.exitDoor = door;
+            flow.arrows = UnityEngine.Object.FindObjectOfType<GuidanceArrows>();
+            flow.countdown = UnityEngine.Object.FindObjectOfType<DrillCountdown>();
+            flow.endingScreen = UnityEngine.Object.FindObjectOfType<EndingScreen>();
+            flow.crouchHeight = 1.15f;
+            flow.lobbyEnterDistance = 1.2f;
+            flow.exitEnterDistance = 0.9f;
+            flow.stageTwoFireOffset = new Vector3(0f, 0.35f, 1.1f);
+
+            // 箭头能指到出口
+            var arrows = UnityEngine.Object.FindObjectOfType<GuidanceArrows>();
+            if (arrows != null)
+            {
+                arrows.exitTarget = doorGo.transform;
+                arrows.exitArriveDistance = 0.9f;
+            }
+
+            var panel = UnityEngine.Object.FindObjectOfType<StageOneCompletePanel>();
+            if (panel != null) panel.stageTwo = flow;
+
+            var ending = UnityEngine.Object.FindObjectOfType<EndingScreen>();
+            if (ending != null) ending.exitDoor = door;
+
+            Debug.Log("[Setup] ✔ 第二阶段流程：StageTwoFlow + SmokeZone（6 个烟雾发射点）+ ExitDoor（大厅后方 1.1 米）");
         }
 
         /// <summary>清理场景中脚本丢失（Missing Mono Script）的组件。</summary>

@@ -19,6 +19,7 @@ namespace FireSafety
         [Header("引用（留空自动查找）")]
         public DrillCountdown countdown;
         public StartScreen startScreen;
+        public StageTwoFlow stageTwo;
 
         [Header("文案")]
         public string title = "阶段一完成";
@@ -26,8 +27,9 @@ namespace FireSafety
         public string buttonContinue = "继续往下";
 
         [Header("位置")]
-        public float distanceFromCamera = 1.2f;
-        public float verticalOffset = 0f;
+        [Tooltip("面板离相机的距离（米）；太近会顶满视野、按钮被桌面 HUD 压住，1.55 米更稳")]
+        public float distanceFromCamera = 1.55f;
+        public float verticalOffset = 0.08f;
 
         [Header("事件")]
         public UnityEvent onSettlement = new UnityEvent();
@@ -87,6 +89,9 @@ namespace FireSafety
             if (countdown != null) countdown.Pause();
             if (_canvas == null) BuildUI();
 
+            // 面板弹出的同一帧就把火焰彻底清掉：截图里「面板已弹、火还在烧」的问题根因在此
+            FireSource.ClearAllFlames();
+
             RefreshSummary();
             PlaceInFrontOfCamera();
             _canvas.gameObject.SetActive(true);
@@ -119,10 +124,12 @@ namespace FireSafety
             Hide();
             if (countdown == null) countdown = FindObjectOfType<DrillCountdown>();
             if (countdown != null) countdown.Resume();
-            // 第 2 阶段：灭火完成后引导玩家沿地面箭头走到大厅
-            if (GuidanceArrows.Instance != null) GuidanceArrows.Instance.BeginLobbyGuidance();
+            // 第 2 阶段：烟雾 + 安全出口箭头 + 蹲姿潜行，交给 StageTwoFlow 编排
+            if (stageTwo == null) stageTwo = FindObjectOfType<StageTwoFlow>();
+            if (stageTwo != null) stageTwo.Begin();
+            else if (GuidanceArrows.Instance != null) GuidanceArrows.Instance.BeginLobbyGuidance();
             onContinue?.Invoke();
-            Debug.Log("[StageOne] 选择继续往下，倒计时继续，引导箭头指向大厅。");
+            Debug.Log("[StageOne] 选择继续往下，倒计时继续，进入第二阶段（烟雾 + 安全出口箭头）。");
         }
 
         private void Hide()
@@ -139,7 +146,8 @@ namespace FireSafety
                 : "倒计时已暂停";
             _summaryText.text =
                 "火焰已扑灭，拿起 → 拔销 → 压把 → 喷射 的完整流程已完成。\n" + time + "。\n\n" +
-                "请选择：立刻结算，或继续往下进入第二阶段。";
+                "请选择：立刻结算；或继续往下进入第二阶段——烟雾中蹲下潜行到大厅，" +
+                "处理大厅复燃火源后走进「安全出口 EXIT」通关。";
         }
 
         private string SettlementText()
@@ -168,7 +176,7 @@ namespace FireSafety
             _canvas.renderMode = RenderMode.WorldSpace;
             _canvas.sortingOrder = 280;
             var rt = go.GetComponent<RectTransform>();
-            rt.sizeDelta = new Vector2(1000, 560);
+            rt.sizeDelta = new Vector2(1000, 600);
             rt.localScale = Vector3.one * 0.0009f;
             go.AddComponent<CanvasScaler>();
             go.AddComponent<GraphicRaycaster>();
@@ -190,13 +198,13 @@ namespace FireSafety
             layout.childForceExpandHeight = false;
 
             var prt = panel.GetComponent<RectTransform>();
-            prt.sizeDelta = new Vector2(940, 500);
+            prt.sizeDelta = new Vector2(940, 540);
             prt.anchorMin = prt.anchorMax = new Vector2(0.5f, 0.5f);
             prt.pivot = new Vector2(0.5f, 0.5f);
             prt.anchoredPosition = Vector2.zero;
 
             AddText(panel.transform, title, 46, new Color(0.45f, 0.95f, 0.55f), 66f);
-            _summaryText = AddText(panel.transform, "", 26, Color.white, 190f);
+            _summaryText = AddText(panel.transform, "", 26, Color.white, 230f);
 
             var btnRow = new GameObject("Buttons", typeof(RectTransform), typeof(HorizontalLayoutGroup));
             btnRow.transform.SetParent(panel.transform, false);
