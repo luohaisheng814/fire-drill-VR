@@ -258,13 +258,20 @@ namespace FireSafety
         {
             _arrows = new GameObject[arrowCount];
 
-            var shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
+            // 地面箭头必须「自发光」：场景在浓烟里几乎没有环境光，用 Lit 材质会渲成一团黑，
+            // 玩家在雾里看不到任何指引。这里用 URP Unlit，颜色不随光照变化。
+            var shader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (shader == null) shader = Shader.Find("Unlit/Color");
+            if (shader == null) shader = Shader.Find("Standard");
             _arrowMat = new Material(shader);
-            _arrowMat.color = arrowColor;
-            if (_arrowMat.HasProperty("_EmissionColor"))
-                _arrowMat.SetColor("_EmissionColor", arrowColor);
-            // 地面箭头双面可见
-            if (_arrowMat.HasProperty("_Cull")) _arrowMat.SetFloat("_Cull", 0);
+            _arrowMat.name = "GuideArrowMat";
+            var lit = new Color(arrowColor.r, arrowColor.g, arrowColor.b, 1f);
+            if (_arrowMat.HasProperty("_BaseColor")) _arrowMat.SetColor("_BaseColor", lit);
+            if (_arrowMat.HasProperty("_Color")) _arrowMat.SetColor("_Color", lit);
+            _arrowMat.color = lit;
+            if (_arrowMat.HasProperty("_Surface")) _arrowMat.SetFloat("_Surface", 0f);   // 不透明
+            if (_arrowMat.HasProperty("_Cull")) _arrowMat.SetFloat("_Cull", 0f);          // 双面可见
+            _arrowMat.renderQueue = 2000;
 
             Mesh arrowMesh = BuildArrowMesh();
 
@@ -345,7 +352,7 @@ namespace FireSafety
             canvas.sortingOrder = 320;
             var rt = _signRoot.GetComponent<RectTransform>();
             rt.sizeDelta = new Vector2(1000, 260);
-            rt.localScale = Vector3.one * 0.0022f;   // ≈2.2 米宽 × 0.57 米高，浓烟 4 米外也能读清
+            rt.localScale = Vector3.one * 0.0016f;   // ≈1.6 米宽 × 0.42 米高，浓烟 3 米外能读清，又不至于糊住门口
             _signRoot.AddComponent<CanvasScaler>();
 
             var bg = new GameObject("Bg", typeof(RectTransform), typeof(Image));
@@ -390,8 +397,14 @@ namespace FireSafety
             _signRoot.transform.position = new Vector3(target.position.x, floorSignHeight, target.position.z)
                                            + toPlayer * floorSignBackOffset;
             if (_cam != null)
+            {
                 _signRoot.transform.rotation =
                     Quaternion.LookRotation(_signRoot.transform.position - _cam.transform.position, Vector3.up);
+
+                // 玩家走到标识跟前时收起：否则一块 1.6 米宽的牌子贴在脸上，把门口的门和火焰全挡住
+                float d = Vector3.Distance(_signRoot.transform.position, _cam.transform.position);
+                if (d < 2.4f) { SetSignVisible(false); return; }
+            }
             SetSignVisible(true);
         }
 

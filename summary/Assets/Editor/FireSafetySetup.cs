@@ -200,9 +200,68 @@ namespace FireSafety.EditorTools
             ray.interactionManager = UnityEngine.Object.FindObjectOfType<XRInteractionManager>();
 
             if (go.GetComponent<XRInteractorLineVisual>() == null) go.AddComponent<XRInteractorLineVisual>();
+            FixRayLine(go);   // 射线不设材质/宽度 → 手边一条 1 米宽洋红色带子挡视线
 
             Debug.Log("[Setup] ✔ 手柄控制器：" + name);
             return go.transform;
+        }
+
+        /// <summary>
+        /// 手柄射线：LineRenderer 若没有材质，Unity 用「洋红」当错误材质；而 XRILV 自动挂上的
+        /// LineRenderer 默认宽度是 1 米，玩家第一人称视角里就被一条贴脸的洋红大板挡住。
+        /// 这里把宽度调回细线、颜色改成青色，并补一份 URP 透明材质。
+        /// </summary>
+        static void FixRayLine(GameObject go)
+        {
+            var lr = go.GetComponent<LineRenderer>();
+            if (lr != null)
+            {
+                for (int i = 0; i < lr.positionCount; i++) { }   // 保留已有点位
+                var flat = new AnimationCurve();
+                flat.AddKey(0f, 0.012f);
+                flat.AddKey(1f, 0.012f);
+                lr.widthCurve = flat;
+                lr.startWidth = 0.012f;
+                lr.endWidth = 0.012f;
+                lr.widthMultiplier = 1f;
+                lr.useWorldSpace = true;
+                lr.numCapVertices = 4;
+                lr.alignment = LineAlignment.View;
+                var tint = new Color(0.38f, 0.85f, 1f, 0.55f);
+                lr.startColor = tint;
+                lr.endColor = tint;
+
+                if (lr.sharedMaterial == null)
+                {
+                    var mat = SmokeZone.CreateParticleMaterial(null, true);
+                    if (mat != null)
+                    {
+                        if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", tint);
+                        if (mat.HasProperty("_Color")) mat.SetColor("_Color", tint);
+                        mat.name = "HandRay_LineMat";
+                        lr.sharedMaterial = mat;
+                    }
+                }
+            }
+
+            // XRI 的线视觉组件在运行期会用自己的 lineWidth 覆盖 LineRenderer，一并写掉
+            var vis = go.GetComponent<XRInteractorLineVisual>();
+            if (vis == null) return;
+            foreach (var f in vis.GetType().GetFields(System.Reflection.BindingFlags.Instance |
+                                                      System.Reflection.BindingFlags.Public |
+                                                      System.Reflection.BindingFlags.NonPublic))
+            {
+                if (f.FieldType == typeof(float) && f.Name.ToLower().Contains("linewidth"))
+                {
+                    if (f.IsInitOnly) continue;
+                    try { f.SetValue(vis, 0.012f); } catch (Exception) { }
+                }
+                else if (f.FieldType == typeof(Material) && f.Name.ToLower().Contains("material"))
+                {
+                    if (lr != null && lr.sharedMaterial != null)
+                        try { f.SetValue(vis, lr.sharedMaterial); } catch (Exception) { }
+                }
+            }
         }
 
         // ================================================================
@@ -730,6 +789,9 @@ namespace FireSafety.EditorTools
             spray.sprayColor = new Color(0.94f, 0.96f, 0.98f, 0.75f);
 
             ext.sprayParticles = ps;
+
+            // 喷射粒子的材质在运行期由 ExtinguisherSpray 自己生成（贴图是运行时画的，不能存进场景，
+            // 存进去会变成丢失引用 → 洋红）。这里只确保渲染器存在且材质字段会在 Play 时补上。
 
             Debug.Log("[Setup] ✔ 压把 + 粒子喷射：" + root.name + "（HandleLever · ExtinguisherSpray）");
         }

@@ -522,6 +522,21 @@ namespace FireSafety.EditorTools
             flow.Begin();
             Check("继续往下：进入撤离阶段", flow.CurrentStage == StageTwoFlow.Stage.Evacuating);
             Check("撤离阶段：烟雾已开启", smoke.Active && smoke.EmitterCount == 3);
+
+            // URP 下粒子必须是「真透明」：只设 _Surface=1 不够，缺关键字/混合/队列会渲成硬边不透明面片
+            {
+                var rends = smoke.GetComponentsInChildren<ParticleSystemRenderer>(true);
+                Check("撤离：烟雾发射器已带材质（不是洋红空材质）", rends.Length > 0 && rends[0].sharedMaterial != null);
+                if (rends.Length > 0 && rends[0].sharedMaterial != null)
+                {
+                    var m = rends[0].sharedMaterial;
+                    Check("撤离：烟雾材质带 _SURFACE_TYPE_TRANSPARENT 关键字（URP 透明渲染）",
+                        m.IsKeywordEnabled("_SURFACE_TYPE_TRANSPARENT"));
+                    Check("撤离：烟雾材质排在 Transparent 队列（不是不透明队列）", m.renderQueue >= 3000);
+                    Check("撤离：烟雾材质关闭 ZWrite（多层粒子能互相透出）",
+                        !m.HasProperty("_ZWrite") || m.GetFloat("_ZWrite") <= 0.01f);
+                }
+            }
             Check("撤离阶段：箭头切到大厅模式", arrows.Active && arrows.LobbyMode && !arrows.ExitMode);
 
             // 编辑模式补跑 Start/Update：箭头与「安全出口 →」标识才会真正生成并摆位
@@ -555,6 +570,8 @@ namespace FireSafety.EditorTools
                 flow.stageTwoFire != null && !flow.stageTwoFire.IsExtinguished);
             Check("第三阶段：烟雾停止", !smoke.Active);
             Check("第三阶段：复燃火源有灭火阈值", flow.stageTwoFire != null && flow.stageTwoFire.extinguishThreshold > 0f);
+            Check("第三阶段：复燃火源带粒子系统（不是空火源）",
+                flow.stageTwoFire != null && flow.stageTwoFire.particles != null && flow.stageTwoFire.particles.Length >= 1);
 
             if (flow.stageTwoFire != null)
             {
@@ -639,10 +656,17 @@ namespace FireSafety.EditorTools
             var f2 = hiddenGo.AddComponent<FireSource>();
             f2.fireLight = light2;
 
+            // 没登记进 fireLight / particles 数组的子灯光：清火也必须一起熄掉
+            var childLightGo = new GameObject("TEST_ChildGlow");
+            childLightGo.transform.SetParent(fireGo.transform, false);
+            var light3 = childLightGo.AddComponent<Light>();
+            light3.intensity = 4f;
+
             FireSource.ClearAllFlames();
 
             Check("清火：激活火源被立刻熄灯（弹面板火焰消失）", light1.intensity <= 0.001f);
             Check("清火：未激活火源也被熄灯（Resources 兜底路径生效）", light2.intensity <= 0.001f);
+            Check("清火：未登记进数组的子灯光也被熄掉（火焰不再残留）", light3.intensity <= 0.001f);
 
             UnityEngine.Object.DestroyImmediate(fireGo);
             UnityEngine.Object.DestroyImmediate(hiddenGo);
@@ -856,6 +880,34 @@ namespace FireSafety.EditorTools
             foreach (var f in fires)
             {
                 Check("场景火源 " + f.name + "：有灭火阈值配置", f.extinguishThreshold > 0f);
+            }
+
+            // 第三阶段复燃火源是克隆「场景现成火焰」的，模板必须够丰富（否则只剩一坨色块）
+            {
+                var baseFire = GameObject.Find("BaseFire000");
+                Check("场景：存在可复用的火焰模板 BaseFire000", baseFire != null);
+                if (baseFire != null)
+                {
+                    var tplFire = baseFire.GetComponent<FireSource>();
+                    Check("场景：BaseFire000 挂了 FireSource（可被克隆成复燃火源）", tplFire != null);
+                    int psCount = baseFire.GetComponentsInChildren<ParticleSystem>(true).Length;
+                    Check("场景：火焰模板含多个粒子系统（实测 " + psCount + " 个，复燃火不是单张面片）",
+                        psCount >= 2);
+                }
+            }
+
+            // 手柄射线：空材质会被 Unity 画成洋红，默认 1 米线宽会糊住半屏视野
+            {
+                foreach (var cn in new[] { "RightHand Controller", "LeftHand Controller" })
+                {
+                    var go = GameObject.Find("XR Origin (Drill)/" + cn);
+                    Check("场景手柄 " + cn + "：存在", go != null);
+                    var lr = go != null ? go.GetComponent<LineRenderer>() : null;
+                    Check("场景手柄 " + cn + "：射线 LineRenderer 有材质（不再渲染成洋红）",
+                        lr != null && lr.sharedMaterial != null);
+                    Check("场景手柄 " + cn + "：射线线宽 ≤0.05 米（不再是一条挡视线的大板）",
+                        lr != null && lr.startWidth * lr.widthMultiplier <= 0.05f);
+                }
             }
 
             var arrows = UnityEngine.Object.FindObjectOfType<GuidanceArrows>();

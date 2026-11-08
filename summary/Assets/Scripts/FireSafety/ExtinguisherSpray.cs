@@ -190,7 +190,17 @@ namespace FireSafety
         public void Play()
         {
             if (_ps == null) return;
+            EnsureMaterial();   // 材质只在 Start 里建过，若 Start 没跑到（或材质被清掉），粒子会渲染成洋红
             if (!_ps.isPlaying) _ps.Play();
+        }
+
+        private void EnsureMaterial()
+        {
+            if (_ps == null) return;
+            var r = _ps.GetComponent<ParticleSystemRenderer>();
+            if (r == null) return;
+            if (r.sharedMaterial == null || r.sharedMaterial.shader == null)
+                r.sharedMaterial = BuildMaterial();
         }
 
         /// <summary>停止喷出，已喷出的粒子自然消散。</summary>

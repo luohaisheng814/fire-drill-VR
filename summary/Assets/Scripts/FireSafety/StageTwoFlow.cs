@@ -303,6 +303,47 @@ namespace FireSafety
             if (!autoCreateFire) return;
 
             Vector3 pos = FirePosition();
+
+            // ① 优先复用工程里现成的火焰（BaseFire000）：外观与第一阶段完全一致。
+            //    运行时手搓的粒子在 URP 下容易退化成橙色硬边方块，门口的「火焰」看着像色块。
+            GameObject template = FindSceneFireTemplate();
+            if (template != null)
+            {
+                var clone = Instantiate(template);
+                clone.name = "StageTwoFire";
+                clone.SetActive(true);
+                clone.transform.SetParent(transform, true);
+                clone.transform.position = pos;
+                clone.transform.rotation = Quaternion.identity;
+
+                // 模板自带一个 FireSource，先清掉，避免两个火源同时登记进 Active
+                foreach (var old in clone.GetComponentsInChildren<FireSource>(true)) KillObject(old);
+
+                var cloneParts = clone.GetComponentsInChildren<ParticleSystem>(true);
+                var cloneLight = clone.GetComponentInChildren<Light>(true);
+                if (cloneLight == null) cloneLight = AddFireLight(clone.transform);
+                else
+                {
+                    cloneLight.enabled = true;
+                    cloneLight.type = LightType.Point;
+                    cloneLight.color = new Color(1f, 0.55f, 0.2f);
+                    cloneLight.range = 5f;
+                    cloneLight.intensity = 2.4f;
+                }
+
+                var cloneFire = clone.GetComponent<FireSource>();
+                if (cloneFire == null) cloneFire = clone.AddComponent<FireSource>();
+                cloneFire.particles = cloneParts;
+                cloneFire.fireLight = cloneLight;
+                cloneFire.extinguishThreshold = stageTwoExtinguishThreshold;
+                if (cloneFire.onExtinguished == null) cloneFire.onExtinguished = new UnityEvent();
+                cloneFire.onExtinguished.AddListener(OnStageTwoFireExtinguished);
+                stageTwoFire = cloneFire;
+                Debug.Log("[Stage2] 复燃火源复用场景火焰模板 " + template.name + "（" + cloneParts.Length + " 个粒子系统）");
+                return;
+            }
+
+            // ② 兜底：模板缺失时才新建粒子系统
             var go = new GameObject("StageTwoFire");
             go.transform.SetParent(transform, false);
             go.transform.position = pos;
@@ -347,24 +388,9 @@ namespace FireSafety
             size.enabled = true;
             size.size = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.EaseInOut(0f, 0.5f, 1f, 1.1f));
 
-            var shader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
-            if (shader == null) shader = Shader.Find("Sprites/Default");
-            if (shader == null) shader = Shader.Find("Standard");
-            if (shader != null)
-            {
-                var mat = new Material(shader);
-                var tex = SmokeZone.CreateSoftTexture();
-                mat.mainTexture = tex;
-                if (mat.HasProperty("_BaseMap")) mat.SetTexture("_BaseMap", tex);
-                if (mat.HasProperty("_Surface")) mat.SetFloat("_Surface", 1f);
-                var rend = go.GetComponent<ParticleSystemRenderer>();
-                if (rend != null) rend.material = mat;
-            }
-            else
-            {
-                var rend = go.GetComponent<ParticleSystemRenderer>();
-                if (rend != null) rend.material = null;
-            }
+            var mat = SmokeZone.CreateParticleMaterial(SmokeZone.CreateSoftTexture(), true);
+            var rend = go.GetComponent<ParticleSystemRenderer>();
+            if (rend != null) rend.material = mat;
 
             var lightGo = new GameObject("FireLight");
             lightGo.transform.SetParent(go.transform, false);
@@ -383,6 +409,37 @@ namespace FireSafety
             fire.onExtinguished.AddListener(OnStageTwoFireExtinguished);
 
             stageTwoFire = fire;
+        }
+
+        /// <summary>在场景里找一簇现成的火焰当模板（BaseFire000 是 Office Set 导入后自带的火）。</summary>
+        private GameObject FindSceneFireTemplate()
+        {
+            foreach (var f in FindObjectsOfType<FireSource>(true))
+            {
+                if (f == null || f.gameObject == gameObject) continue;
+                if (f.gameObject.name.Contains("BaseFire")) return f.gameObject;
+            }
+            return GameObject.Find("BaseFire000");
+        }
+
+        private static Light AddFireLight(Transform parent)
+        {
+            var lightGo = new GameObject("FireLight");
+            lightGo.transform.SetParent(parent, false);
+            lightGo.transform.localPosition = new Vector3(0f, 0.5f, 0f);
+            var lt = lightGo.AddComponent<Light>();
+            lt.type = LightType.Point;
+            lt.color = new Color(1f, 0.55f, 0.2f);
+            lt.range = 5f;
+            lt.intensity = 2.2f;
+            return lt;
+        }
+
+        private static void KillObject(UnityEngine.Object o)
+        {
+            if (o == null) return;
+            if (Application.isPlaying) UnityEngine.Object.Destroy(o);
+            else UnityEngine.Object.DestroyImmediate(o);
         }
 
         /// <summary>复燃火源位置：安全出口门正前方（朝玩家一侧），而不是大厅中心。</summary>
@@ -420,21 +477,22 @@ namespace FireSafety
             }
             if (best != null && best.grab != null && !best.grab.IsHeld)
             {
-                // 按「渲染包围盒」而不是物体原点来落位：瓶身立在目标点、底部贴地，
-                // 既不会因为子物体偏移插进墙里，也不会横躺在通道正中挡路
+                // 先纠正姿态（躺着的瓶身转成竖立），再按「渲染包围盒」落位：
+                // 瓶身立在目标点、底部贴地，既不会因为子物体偏移插进墙里，也不会横躺挡路
+                best.EnsureUprightStanding(false);
                 Vector3 target = new Vector3(spareExtinguisherSpot.x, 0f, spareExtinguisherSpot.z);
                 var rend = best.GetComponentInChildren<Renderer>();
                 if (rend != null)
                 {
                     Bounds b = rend.bounds;
-                    Vector3 delta = target - new Vector3(b.center.x, b.min.y, b.center.z);
+                    Vector3 delta = new Vector3(target.x - b.center.x, -b.min.y, target.z - b.center.z);
                     best.transform.position += delta;
                 }
                 else
                 {
                     best.transform.position = target;
                 }
-                // 保持原有站立姿态（图 3 里瓶身是直立靠在门边的），不强行转头
+                best.EnsureUprightStanding(true);   // 落位后再确认一次竖立 + 贴地
                 best.ResetQuizForStageTwo();   // 重新拾取要再答 B 组 5 题
                 Debug.Log("[Stage2] 备用灭火器已摆到安全出口门边（图 3 位置），问答已换成 B 组 5 题：" + best.name);
             }

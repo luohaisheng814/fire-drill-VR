@@ -87,17 +87,7 @@ namespace FireSafety
             if (_systems != null && _systems.Length > 0) return;
 
             _softTex = CreateSoftTexture();
-            var shader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
-            if (shader == null) shader = Shader.Find("Sprites/Default");
-            if (shader == null) shader = Shader.Find("Standard");
-            _material = shader != null ? new Material(shader) : null;
-            if (_material != null)
-            {
-                _material.mainTexture = _softTex;
-                if (_material.HasProperty("_BaseMap")) _material.SetTexture("_BaseMap", _softTex);
-                if (_material.HasProperty("_BaseColor")) _material.SetColor("_BaseColor", Color.white);
-                if (_material.HasProperty("_Surface")) _material.SetFloat("_Surface", 1f);
-            }
+            _material = CreateParticleMaterial(_softTex, false);
 
             var list = new List<ParticleSystem>();
             for (int i = 0; i < Mathf.Max(1, emitterCount); i++)
@@ -183,6 +173,47 @@ namespace FireSafety
             }
             ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
             return ps;
+        }
+
+        /// <summary>
+        /// 生成一份「真正透明」的粒子材质（烟雾=Alpha 混合，火焰=加色混合）。
+        /// 只写 _Surface=1 是不够的：URP Unlit 还依赖 _SURFACE_TYPE_TRANSPARENT 关键字、
+        /// 混合因子与渲染队列，缺任何一项粒子都会退化成硬边不透明方块（画面里就是一坨灰/橙色面片）。
+        /// </summary>
+        public static Material CreateParticleMaterial(Texture2D tex, bool additive)
+        {
+            var shader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
+            if (shader == null) shader = Shader.Find("Sprites/Default");
+            if (shader == null) shader = Shader.Find("Standard");
+            if (shader == null) return null;
+
+            var mat = new Material(shader);
+            mat.name = additive ? "FX_Additive" : "FX_Alpha";
+            if (tex != null)
+            {
+                mat.mainTexture = tex;
+                if (mat.HasProperty("_BaseMap")) mat.SetTexture("_BaseMap", tex);
+            }
+            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", Color.white);
+
+            if (mat.HasProperty("_Surface")) mat.SetFloat("_Surface", 1f);   // Transparent
+            if (mat.HasProperty("_Blend")) mat.SetFloat("_Blend", additive ? 2f : 0f); // 2=Additive 0=Alpha
+            if (mat.HasProperty("_SrcBlend"))
+                mat.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            if (mat.HasProperty("_DstBlend"))
+                mat.SetFloat("_DstBlend", (float)(additive
+                    ? UnityEngine.Rendering.BlendMode.One
+                    : UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha));
+            if (mat.HasProperty("_ZWrite")) mat.SetFloat("_ZWrite", 0f);
+            if (mat.HasProperty("_AlphaClip")) mat.SetFloat("_AlphaClip", 0f);
+            if (mat.HasProperty("_Cull")) mat.SetFloat("_Cull", (float)UnityEngine.Rendering.CullMode.Off);
+
+            mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            mat.EnableKeyword("_ALPHATEST_OFF");
+            mat.DisableKeyword("_ALPHATEST_ON");
+            mat.SetOverrideTag("RenderType", "Transparent");
+            mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+            return mat;
         }
 
         /// <summary>运行时生成一张柔边圆形贴图，避免烟雾/火焰变成方块。</summary>

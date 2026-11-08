@@ -103,6 +103,14 @@ namespace FireSafety
             if (particles != null)
                 foreach (var p in particles)
                     if (p) p.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+
+            // 不依赖序列化数组：把自身和所有子物体的粒子系统一并停掉，
+            // 否则 Smoke001 / Fire002 这类「没登记进数组」的子系统会继续烧，面板弹出后火焰还在
+            foreach (var p in GetComponentsInChildren<ParticleSystem>(true))
+                p.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            foreach (var l in GetComponentsInChildren<Light>(true))
+                l.intensity = 0f;
+
             if (fireLight) fireLight.intensity = 0f;
             if (fireAudio) fireAudio.Stop();
         }

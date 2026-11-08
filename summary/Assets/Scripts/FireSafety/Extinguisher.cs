@@ -146,6 +146,35 @@ namespace FireSafety
             Debug.Log("[Extinguisher] 第二阶段问答已重置（5 题），重新拾取需再次作答。");
         }
 
+        /// <summary>
+        /// 让灭火器「立着」：最长的一轴转到竖直方向，可选把瓶底贴到地面。
+        /// 美术 prefab 的 pivot 与瓶身不重合、朝向也不统一，靠写死 rotation 会横躺，
+        /// 所以这里按渲染包围盒判断长轴，只在不竖时补转 90°。
+        /// </summary>
+        public void EnsureUprightStanding(bool dropToFloor)
+        {
+            var rend = GetComponentInChildren<Renderer>();
+            if (rend == null) return;
+
+            Bounds b = rend.bounds;
+            int guard = 0;
+            while (guard < 3 && Mathf.Max(b.size.x, b.size.z) > b.size.y * 1.05f)
+            {
+                if (b.size.z >= b.size.x) transform.Rotate(90f, 0f, 0f, Space.World);   // 长轴 Z → Y
+                else transform.Rotate(0f, 0f, 90f, Space.World);                        // 长轴 X → Y
+                b = rend.bounds;
+                guard++;
+            }
+
+            if (dropToFloor)
+            {
+                b = rend.bounds;
+                transform.position += new Vector3(0f, -b.min.y, 0f);
+            }
+
+            if (guard > 0) Debug.Log("[Extinguisher] 已把 " + name + " 纠正为竖放（转 " + guard + " 次）");
+        }
+
         private void Update()
         {
             CheckReach();   // ④
