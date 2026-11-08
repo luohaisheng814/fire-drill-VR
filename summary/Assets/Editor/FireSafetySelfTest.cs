@@ -549,19 +549,20 @@ namespace FireSafety.EditorTools
                 flow.TryArriveLobby(false) == false && flow.CurrentStage == StageTwoFlow.Stage.Evacuating);
 
             flow.SetCrouchOverrideForTest(true);
-            flow.autoMoveSpareExtinguisher = true;    // 进入第三阶段时才搬备用灭火器
+            flow.autoMoveSpareExtinguisher = false;   // 生产配置：这台备用瓶运到第三阶段必须待在原地
+            Vector3 sparePosBefore = spareGo.transform.position;
             Check("蹲姿到达大厅：进入第三阶段",
                 flow.TryArriveLobby(true) && flow.CurrentStage == StageTwoFlow.Stage.StageThree);
             {
                 var rend = spareGo.GetComponentInChildren<Renderer>();
-                Check("第三阶段：备用灭火器已带渲染体（可按包围盒落位）", rend != null);
+                Check("第三阶段：备用灭火器已带渲染体", rend != null);
                 if (rend != null)
                 {
                     Bounds b = rend.bounds;
-                    Check("第三阶段：备用灭火器摆在出口门附近（x≈3.90 / z≈1.85）",
-                        Mathf.Abs(b.center.x - 3.90f) < 0.3f && Mathf.Abs(b.center.z - 1.85f) < 0.3f);
-                    Check("第三阶段：备用灭火器直立且底部贴地（不再横躺）",
-                        b.min.y < 0.08f && b.size.y >= b.size.x && b.size.y >= b.size.z);
+                    Check("第三阶段：备用灭火器待在原地（不再被搬到他处）",
+                        (spareGo.transform.position - sparePosBefore).magnitude < 0.05f);
+                    Check("第三阶段：备用灭火器原地仍是直立姿态（不横躺）",
+                        b.size.y >= b.size.x && b.size.y >= b.size.z);
                 }
                 Check("第三阶段：备用灭火器问答已重置（重新拾取要再答题）",
                     spareExt != null && !spareExt.QuizPassed);
@@ -968,14 +969,37 @@ namespace FireSafety.EditorTools
                 Check("场景：第三阶段固定用 Extinguisher02（B 组题）",
                     spare != null && flow.spareExtinguisher != null
                     && flow.spareExtinguisher.gameObject == spare);
-                Check("场景：备用灭火器摆在出口门附近（1.0～2.4 米，且不挡门口）",
-                    Vector3.Distance(
-                        new Vector3(flow.spareExtinguisherSpot.x, 0f, flow.spareExtinguisherSpot.z),
-                        new Vector3(5.25f, 0f, 1.02f)) > 1.0f
-                    && Vector3.Distance(
-                        new Vector3(flow.spareExtinguisherSpot.x, 0f, flow.spareExtinguisherSpot.z),
-                        new Vector3(5.25f, 0f, 1.02f)) < 2.4f
-                    && flow.spareExtinguisherSpot.z > 1.02f + 0.5f);
+                Check("场景：第三阶段不搬移备用灭火器（autoMoveSpareExtinguisher 已关闭）",
+                    flow.autoMoveSpareExtinguisher == false);
+                {
+                    // 原地 = 场景里那台瓶身的作者位置（1.70 / 0.52），且离大厅点在 3 米内仍然找得到
+                    Vector3 authored = new Vector3(1.70f, 0f, 0.52f);
+                    Check("场景：备用灭火器落点参数＝它的原位（x≈1.70 / z≈0.52）",
+                        Mathf.Abs(flow.spareExtinguisherSpot.x - authored.x) < 0.3f
+                        && Mathf.Abs(flow.spareExtinguisherSpot.z - authored.z) < 0.3f);
+                    Vector3 bodyCenter = new Vector3(1.69f, 0f, 0.58f);
+                    Check("场景：备用灭火器离大厅点不超过 3 米（第三阶段找得到）",
+                        Vector3.Distance(bodyCenter, new Vector3(3.35f, 0f, 1.02f)) < 3.0f);
+
+                    // 这台瓶是带 Rigidbody 的刚体：初始位置一旦被别人的碰撞体包住，一运行就会被顶飞
+                    bool fireHasCollider = false;
+                    foreach (var fs in UnityEngine.Object.FindObjectsByType<FireSource>(FindObjectsSortMode.None))
+                        if (fs.GetComponentsInChildren<Collider>(true).Length > 0) fireHasCollider = true;
+                    Check("场景：火源不带碰撞体（火是视觉物，不会把灭火器顶飞）", !fireHasCollider);
+
+                    var spareCol = spare.GetComponent<Collider>();
+                    int overlap = 0;
+                    if (spareCol != null)
+                    {
+                        Vector3 half = new Vector3(spareCol.bounds.extents.x - 0.01f,
+                                                   spareCol.bounds.extents.y - 0.01f,
+                                                   spareCol.bounds.extents.z - 0.01f);
+                        foreach (var h in Physics.OverlapBox(spareCol.bounds.center, half, spare.transform.rotation, ~0, QueryTriggerInteraction.Collide))
+                            if (h != spareCol && !h.transform.IsChildOf(spare.transform)) overlap++;
+                    }
+                    Check("场景：备用灭火器初始位置没有与任何碰撞体重叠（运行后原地不动）",
+                        spareCol != null && overlap == 0);
+                }
             }
 
             var smokeZone = UnityEngine.Object.FindObjectOfType<SmokeZone>(true);

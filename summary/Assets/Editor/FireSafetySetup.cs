@@ -546,6 +546,22 @@ namespace FireSafety.EditorTools
             lamp.range = 4.2f;
             lamp.shadows = LightShadows.None;
 
+            // 场景自带的火（BaseFire000）带了一个把整间屋子都包住的 BoxCollider（约 8.7 米）。
+            // 灭火器是带 Rigidbody 的刚体，一进运行就被这个盒子「顶」出去 —— 表现为“运行后直接弹到他处”。
+            // 火是纯视觉，不需要碰撞体：全部移除（也顺带不再挡住右键射线 / 视线遮挡判定）。
+            foreach (var fireSource in UnityEngine.Object.FindObjectsByType<FireSource>(FindObjectsSortMode.None))
+            {
+                if (fireSource == null) continue;
+                int removed = 0;
+                foreach (var c in fireSource.GetComponentsInChildren<Collider>(true))
+                {
+                    UnityEngine.Object.DestroyImmediate(c);
+                    removed++;
+                }
+                if (removed > 0)
+                    Debug.Log("[Setup] 已移除火源 " + fireSource.name + " 的 " + removed + " 个碰撞体（避免把刚体顶飞）");
+            }
+
             var go = GameObject.Find("StageTwoFlow") ?? new GameObject("StageTwoFlow");
             var flow = go.GetComponent<StageTwoFlow>() ?? go.AddComponent<StageTwoFlow>();
             flow.smoke = smoke;
@@ -562,8 +578,9 @@ namespace FireSafety.EditorTools
             // 第三阶段固定用 Extinguisher02（B 组 5 题），保证第二个灭火器考的是另一套题
             var spare = GameObject.Find("Extinguisher02");
             if (spare != null) flow.spareExtinguisher = spare.GetComponent<Extinguisher>();
-            // 瓶身立在门口侧后方 1.6 米：门口不挡路、玩家在大厅一转身就看得到
-            flow.spareExtinguisherSpot = new Vector3(3.90f, 0f, 1.85f);
+            // 这台灭火器运到第三阶段**待在原地**，不再搬移（以前搬到大门口会插进长凳）
+            flow.autoMoveSpareExtinguisher = false;
+            flow.spareExtinguisherSpot = new Vector3(1.70f, 0f, 0.52f);   // 仅作「最近空闲灭火器」的参照点
 
             // 箭头能指到出口
             var arrows = UnityEngine.Object.FindObjectOfType<GuidanceArrows>();

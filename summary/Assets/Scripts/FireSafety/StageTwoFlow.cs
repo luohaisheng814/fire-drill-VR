@@ -51,8 +51,8 @@ namespace FireSafety
         public Vector3 stageTwoFireOffset = new Vector3(0f, 0.25f, 0.75f);
         public float stageTwoExtinguishThreshold = 2.2f;
         public bool autoCreateFire = true;
-        [Tooltip("第三阶段开始时，把最近的一台空闲灭火器挪到大厅备用")]
-        public bool autoMoveSpareExtinguisher = true;
+        [Tooltip("第三阶段开始时，把最近的一台空闲灭火器挪到 spareExtinguisherSpot")]
+        public bool autoMoveSpareExtinguisher = false;
 
         [Header("事件")]
         public UnityEvent onStageTwoBegin = new UnityEvent();
@@ -319,6 +319,13 @@ namespace FireSafety
                 // 模板自带一个 FireSource，先清掉，避免两个火源同时登记进 Active
                 foreach (var old in clone.GetComponentsInChildren<FireSource>(true)) KillObject(old);
 
+                // 模板的巨包围盒碰撞体（包住整间屋子）会把带 Rigidbody 的灭火器顶飞，火是纯视觉，直接去掉
+                foreach (var c in clone.GetComponentsInChildren<Collider>(true))
+                {
+                    c.enabled = false;
+                    KillObject(c);
+                }
+
                 var cloneParts = clone.GetComponentsInChildren<ParticleSystem>(true);
                 var cloneLight = clone.GetComponentInChildren<Light>(true);
                 if (cloneLight == null) cloneLight = AddFireLight(clone.transform);
@@ -459,13 +466,11 @@ namespace FireSafety
             return new Vector3(basePos.x, 0f, basePos.z) + stageTwoFireOffset;
         }
 
-        // 第三阶段：备用灭火器摆到出口门旁边（瓶身中心目标世界坐标，y 自动贴地）
-        public Vector3 spareExtinguisherSpot = new Vector3(3.90f, 0f, 1.85f);
+        // 第三阶段：备用灭火器的可选搬移落点（autoMoveSpareExtinguisher 关闭时不使用）
+        public Vector3 spareExtinguisherSpot = new Vector3(1.70f, 0f, 0.52f);
 
         private void MoveSpareExtinguisherToLobby()
         {
-            if (!autoMoveSpareExtinguisher) return;
-
             if (spareExtinguisher != null && spareExtinguisher.grab != null && spareExtinguisher.grab.IsHeld)
                 return;
 
@@ -480,10 +485,12 @@ namespace FireSafety
                     if (d < bestDist) { bestDist = d; best = ext; }
                 }
             }
-            if (best != null && best.grab != null && !best.grab.IsHeld)
+            if (best == null || (best.grab != null && best.grab.IsHeld)) return;
+
+            // 默认（autoMoveSpareExtinguisher = false）不动这台灭火器：它运到第三阶段就该待在原地。
+            // 只有显式打开开关时才搬移，并按「渲染包围盒」落位，避免横躺或插进家具。
+            if (autoMoveSpareExtinguisher)
             {
-                // 先纠正姿态（躺着的瓶身转成竖立），再按「渲染包围盒」落位：
-                // 瓶身立在目标点、底部贴地，既不会因为子物体偏移插进墙里，也不会横躺挡路
                 best.EnsureUprightStanding(false);
                 Vector3 target = new Vector3(spareExtinguisherSpot.x, 0f, spareExtinguisherSpot.z);
                 var rend = best.GetComponentInChildren<Renderer>();
@@ -498,9 +505,16 @@ namespace FireSafety
                     best.transform.position = target;
                 }
                 best.EnsureUprightStanding(true);   // 落位后再确认一次竖立 + 贴地
-                best.ResetQuizForStageTwo();   // 重新拾取要再答 B 组 5 题
-                Debug.Log("[Stage2] 备用灭火器已摆到安全出口门边（图 3 位置），问答已换成 B 组 5 题：" + best.name);
+                Debug.Log("[Stage2] 备用灭火器已搬到落点，问答已换成 B 组 5 题：" + best.name);
             }
+            else
+            {
+                // 不搬也要保证站得住：原地只纠正姿态，不碰位置
+                best.EnsureUprightStanding(false);
+                Debug.Log("[Stage2] 备用灭火器保持原地（不搬移），问答已换成 B 组 5 题：" + best.name);
+            }
+
+            best.ResetQuizForStageTwo();   // 重新拾取都要再答 B 组 5 题
         }
 
         // ---------------- 工具 ----------------
