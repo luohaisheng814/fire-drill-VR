@@ -110,6 +110,8 @@ namespace FireSafety
             if (_cam != null)
                 desired = ClampToCamera(desired, _cam.position, _cam.forward,
                                         cameraFallbackDistance, maxCameraDistance);
+            if (_cam != null)
+                desired = HudPlacement.KeepInView(desired, _cam.position, _cam.rotation, 2.0f, 14f, -6f, 8f);
 
             _canvas.transform.position = desired;
 
@@ -179,7 +181,7 @@ namespace FireSafety
             layout.childForceExpandHeight = false;
 
             _panelRect = panel.GetComponent<RectTransform>();
-            _panelRect.sizeDelta = new Vector2(940, 700);
+            _panelRect.sizeDelta = new Vector2(940, 880);
             _panelRect.anchorMin = _panelRect.anchorMax = new Vector2(0.5f, 0.5f);
             _panelRect.pivot = new Vector2(0.5f, 0.5f);
             _panelRect.anchoredPosition = Vector2.zero;
@@ -190,9 +192,10 @@ namespace FireSafety
             UIFX.Pulse(this, _titleText.transform, 1f, titlePulseAmplitude, titlePulseFrequency);
 
             // 玩法说明文本框（可在 Inspector 的 Instructions 里修改）
-            _instText = MakeText(panel.transform, instructions, 30, Color.white, 296f);
+            _instText = MakeText(panel.transform, instructions, 20, Color.white, 470f);
             _instText.horizontalOverflow = HorizontalWrapMode.Wrap;
-            _instText.verticalOverflow = VerticalWrapMode.Overflow;
+            _instText.verticalOverflow = VerticalWrapMode.Truncate;
+            _instText.lineSpacing = 1.15f;
             _instText.alignment = TextAnchor.UpperLeft;
 
             // 开始按钮（带呼吸动画）

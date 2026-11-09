@@ -129,6 +129,7 @@ namespace FireSafety
 
         private void Grab(HandBinding h)
         {
+            ReleaseOthers(h.side);
             IsHeld = true; _holding = h; CurrentHandSide = h.side;
 
             _wasKinematic = _rb.isKinematic;
@@ -171,6 +172,7 @@ namespace FireSafety
         {
             if (IsHeld || _locked || anchor == null) return;
 
+            ReleaseOthers(side);
             IsHeld = true;
             _holding = null;                 // 无手柄绑定
             CurrentHandSide = side;
@@ -206,9 +208,19 @@ namespace FireSafety
             Release(null);
         }
 
-        private void Release(HandBinding h)
+        /// <summary>一只手只拿一件：抓起新物体时，把同侧手上已有的一件放下。</summary>
+        private void ReleaseOthers(HandSide side)
         {
-            if (_snap != null) { StopCoroutine(_snap); _snap = null; }
+            foreach (var g in FindObjectsByType<ToggleGrab>(FindObjectsSortMode.None))
+            {
+                if (g == null || g == this || !g.IsHeld) continue;
+                if (g.CurrentHandSide != side) continue;
+                g.ForceRelease();
+            }
+        }
+
+        private void Release(HandBinding h)
+        {            if (_snap != null) { StopCoroutine(_snap); _snap = null; }
 
             transform.SetParent(_originalParent, true);
             _rb.isKinematic = _wasKinematic;

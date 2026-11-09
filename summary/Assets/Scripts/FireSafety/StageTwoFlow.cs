@@ -348,6 +348,12 @@ namespace FireSafety
                 cloneFire.particles = cloneParts;
                 cloneFire.fireLight = cloneLight;
                 cloneFire.extinguishThreshold = stageTwoExtinguishThreshold;
+                // 模板在第一阶段可能已被扑灭：克隆会把 progress01 一起复制过来（=1），
+                // 新火一被碰就立刻判定熄灭，门瞬间就开。这里必须清零并点燃粒子。
+                cloneFire.progress01 = 0f;
+                foreach (var part in cloneParts)
+                    if (part != null && !part.isPlaying) part.Play();
+                if (cloneLight != null) cloneLight.enabled = true;
                 if (cloneFire.onExtinguished == null) cloneFire.onExtinguished = new UnityEvent();
                 cloneFire.onExtinguished.RemoveAllListeners();   // 克隆会连事件表一起复制，先清掉模板留下的监听
                 cloneFire.onExtinguished.AddListener(OnStageTwoFireExtinguished);

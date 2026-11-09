@@ -109,10 +109,14 @@ namespace FireSafety
             if (extinguishers == null || extinguishers.Length == 0)
                 extinguishers = FindObjectsByType<Extinguisher>(FindObjectsSortMode.None);
 
+            // 头显连接时不能强制桌面模式：desktopMode 会短路 Extinguisher.CheckSpray，
+            // 压把→喷射链路就整段失效，只能用右键双击。
+            bool headset = VRDrillInput.DrillInputActive;
+
             foreach (var e in extinguishers)
             {
                 if (e == null) continue;
-                e.desktopMode = true;                 // 喷射改由右键双击触发
+                e.desktopMode = !headset;             // 桌面：喷射由右键双击触发；头显：走压把/扳机
                 if (e.pin == null) e.pin = e.GetComponentInChildren<SafetyPin>(true);   // 兜底：避免"左键单击没反应"
             }
 
@@ -129,6 +133,18 @@ namespace FireSafety
 
         private void LateUpdate()
         {
+            // 头显已连接：整条桌面键鼠链路让位给 VRDrillInput，避免两套输入互相打架
+            if (VRDrillInput.DrillInputActive)
+            {
+                if (handAnchor != null && cameraTransform != null)
+                {
+                    handAnchor.localPosition = handOffset;
+                    handAnchor.localRotation = Quaternion.Euler(handEuler);
+                }
+                if (_hudCanvas != null) _hudCanvas.enabled = false;
+                return;
+            }
+
             // 桌面手部锚点跟随视角
             if (handAnchor != null && cameraTransform != null)
             {

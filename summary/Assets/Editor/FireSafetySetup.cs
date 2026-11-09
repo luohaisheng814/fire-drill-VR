@@ -109,7 +109,10 @@ namespace FireSafety.EditorTools
             // 8. 桌面鼠标调试输入（无头显也能走完阶段一操作流程）
             SetupDesktopInput(rig);
 
-            // 9. 清理历史遗留的「缺失脚本」组件
+            // 9. 头显输入层：Trigger 拔销/压把/喷射、A/B/X 问答与翻页、左摇杆按下蹲起、VR 提示条
+            SetupVrInput(rig, cam);
+
+            // 10. 清理历史遗留的「缺失脚本」组件
             RemoveMissingScripts();
 
             EditorSceneManager.MarkSceneDirty(scene);
@@ -134,30 +137,59 @@ namespace FireSafety.EditorTools
             rig.Origin = rootGO;                                // GameObject
             rig.CameraYOffset = 0f;
 
-            // Camera Offset
-            var offset = GameObject.Find(OffsetName) ?? new GameObject(OffsetName);
-            offset.transform.SetParent(rootGO.transform, false);
-            offset.transform.localPosition = new Vector3(0f, 1.6f, 0f);
+            // Camera Offset：只认本 rig 自己的子物体，避免复用到其它预制体 rig 的 offset
+            GameObject offset = null;
+            foreach (var ch in rootGO.GetComponentsInChildren<Transform>(true))
+                if (ch != rootGO.transform && ch.name == OffsetName && ch.parent == rootGO.transform) { offset = ch.gameObject; break; }
+            if (offset == null)
+            {
+                offset = new GameObject(OffsetName);
+                offset.transform.SetParent(rootGO.transform, false);
+            }
+            offset.transform.localPosition = new Vector3(0f, 1.6f, 0f);   // 站立眼高 1.6 米
             rig.CameraFloorOffsetObject = offset;
 
-            // Main Camera：优先复用已有相机，否则新建
-            var camGO = GameObject.FindGameObjectWithTag("MainCamera");
-            if (camGO == null) camGO = UnityEngine.Object.FindObjectOfType<Camera>()?.gameObject;
-            if (camGO == null || camGO.transform.IsChildOf(rootGO.transform))
+            // Main Camera：本 rig 自带一台相机，保证「XR Origin 一动，视角就跟着动」。
+            // 场景里 XRI Starter Assets 预制体的第二套 XR Origin 会随场景还原，抢同一个 Camera.main，
+            // 因此这里不共用它的相机，而是把它的相机和整条旧 rig 一起停用。
+            var camGO = offset.transform.Find(CameraName)?.gameObject;
+            if (camGO == null)
             {
                 camGO = new GameObject(CameraName);
+                camGO.transform.SetParent(offset.transform, false);
                 var c = camGO.AddComponent<Camera>();
                 c.fieldOfView = 60f;
                 c.nearClipPlane = 0.05f;
                 c.farClipPlane = 100f;
                 c.clearFlags = CameraClearFlags.Skybox;
                 camGO.AddComponent<AudioListener>();
-                camGO.tag = "MainCamera";
             }
-            camGO.transform.SetParent(offset.transform, false);
+            camGO.tag = "MainCamera";
             camGO.transform.localPosition = Vector3.zero;
             camGO.transform.localRotation = Quaternion.identity;
             rig.Camera = camGO.GetComponent<Camera>();
+
+            // 旧的第二套 XR Origin（预制体自带相机/手柄）整体停用，避免双相机、双追踪
+            foreach (var other in UnityEngine.Object.FindObjectsByType<XROrigin>(FindObjectsSortMode.None))
+            {
+                if (other == rig) continue;
+                if (other.GetComponentInChildren<Camera>(true) != null)
+                {
+                    other.gameObject.SetActive(false);
+                    Debug.Log("[Setup] 停用重复的 XR Origin：" + other.name + "（相机与手柄已由 " + RigName + " 承担）");
+                }
+            }
+
+            // 头显近裁面：0.05 米（再近会切脸），远裁面 100 米够看清走廊尽头
+            if (rig.Camera != null)
+            {
+                rig.Camera.nearClipPlane = 0.05f;
+                rig.Camera.farClipPlane = 100f;
+                rig.Camera.fieldOfView = 60f;
+            }
+
+            // 站立身高追踪：地板为原点，玩家真实身高直接映射
+            rig.RequestedTrackingOriginMode = XROrigin.TrackingOriginMode.Floor;
 
             var pose = camGO.GetComponent<DrillTrackedPose>() ?? camGO.AddComponent<DrillTrackedPose>();
             pose.node = XRNode.CenterEye;
@@ -281,14 +313,20 @@ namespace FireSafety.EditorTools
             if (loco == null) loco = root.gameObject.AddComponent<XRDrillLocomotion>();
             loco.rigRoot = root;
             loco.head = cam;
+            loco.moveAction = GetOrCreateRef("XRI Left Locomotion", "Move");
+            loco.turnAction = GetOrCreateRef("XRI Right Locomotion", "Snap Turn");
             loco.moveSpeed = 2.2f;
+            loco.crawlSpeed = 1.05f;
             loco.sprintMultiplier = 1.6f;
             loco.turnSpeed = 120f;
             loco.snapAngle = 45f;
+            loco.snapCooldown = 0.35f;
+            loco.deadzone = 0.15f;
+            loco.crouchHeight = 1.15f;
             loco.useSnapTurn = true;
             loco.allowSprint = true;
             loco.keyboardDebug = true;
-            Debug.Log("[Setup] ✔ 用户移动：左摇杆移动 / 右摇杆转身 / WASD+Q E 桌面调试");
+            Debug.Log("[Setup] ✔ 用户移动：左摇杆(XRI Move)移动 / 右摇杆(XRI Snap Turn)瞬转 45° / 蹲下自动降速 / WASD+Q E 桌面调试");
         }
 
         // ================================================================
@@ -467,6 +505,7 @@ namespace FireSafety.EditorTools
             ob.nextLabel = "下一步";
             ob.lastLabel = "开始演练";
             ob.skipLabel = "跳过教学";
+            ob.pages = OnboardingScreen.BuildDefaultPages();   // 场景里同步最新 VR 移动/功能键位文案
             if (go.GetComponent<AudioSource>() == null) go.AddComponent<AudioSource>();
             Debug.Log("[Setup] ✔ 引导页：OnboardingScreen（4 页教学，锚定右手手柄前方 0.6 米 / 上抬 0.12 米，带 1.3 米距离保护）");
         }
@@ -944,6 +983,46 @@ namespace FireSafety.EditorTools
 
             Debug.Log("[Setup] ✔ 桌面鼠标输入：右键单击灭火器答题/拿起 / 左键单击拔销 / 左键双击压把 / 右键双击喷射 / P 放下"
                       + "（主灭火器：" + (primary != null ? primary.gameObject.name : "未找到") + "）");
+        }
+
+        // ================================================================
+        // 9. 头显输入层（Trigger 拔销/压把 · A/B/X 问答 · 摇杆按下蹲起 · VR 提示条）
+        // ================================================================
+
+        static void SetupVrInput(XROrigin rig, Transform cam)
+        {
+            var host = rig.Origin != null ? rig.Origin : rig.gameObject;
+            var vr = host.GetComponent<VRDrillInput>();
+            if (vr == null) vr = host.AddComponent<VRDrillInput>();
+
+            var all = UnityEngine.Object.FindObjectsByType<Extinguisher>(FindObjectsSortMode.None);
+            vr.extinguishers = all;
+            vr.startScreen = UnityEngine.Object.FindObjectOfType<StartScreen>();
+            vr.onboarding = UnityEngine.Object.FindObjectOfType<OnboardingScreen>();
+            vr.stagePanel = UnityEngine.Object.FindObjectOfType<StageOneCompletePanel>();
+            vr.stageTwo = UnityEngine.Object.FindObjectOfType<StageTwoFlow>();
+            vr.leftHand = GameObject.Find(LeftHandName) != null ? GameObject.Find(LeftHandName).transform : null;
+            vr.rightHand = GameObject.Find(RightHandName) != null ? GameObject.Find(RightHandName).transform : null;
+            vr.rightTriggerAction = GetOrCreateRef("XRI Right Interaction", "Activate");
+            vr.leftTriggerAction = GetOrCreateRef("XRI Left Interaction", "Activate");
+
+            var hudGo = GameObject.Find("VRDrillHud") ?? new GameObject("VRDrillHud");
+            hudGo.transform.SetParent(host.transform, false);
+            var hud = hudGo.GetComponent<VRDrillHud>();
+            if (hud == null) hud = hudGo.AddComponent<VRDrillHud>();
+            hud.head = cam;
+            hud.distance = 0.95f;
+            hud.verticalOffset = -0.22f;
+            hud.canvasScale = 0.00055f;
+            hud.holdSeconds = 5f;
+            hud.idleAlpha = 0.55f;
+            vr.hud = hud;
+
+            // 场景里默认关掉：桌面模式不看这块面板，头显接通后由 VRDrillInput 打开
+            hudGo.SetActive(true);
+
+            Debug.Log("[Setup] ✔ 头显输入层：VRDrillInput（Trigger 拔销/压把/喷射 · A 开始/翻页 · A/B/X 选答 · 左摇杆按下蹲起）"
+                      + " + VRDrillHud（视线下方 0.22 米的世界空间提示条）");
         }
 
         // ================================================================

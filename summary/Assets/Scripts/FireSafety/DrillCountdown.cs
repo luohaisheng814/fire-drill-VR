@@ -36,6 +36,9 @@ namespace FireSafety
 
         public bool IsRunning { get; private set; }
         public bool IsPaused { get; private set; }
+
+        /// <summary>被模态面板（问答/完成/结算）暂时隐藏：与其叠在一起不如让位。</summary>
+        private bool _hudHidden;
         public bool IsExpired { get; private set; }
         public bool IsFinished { get; private set; }
         public float Remaining { get; private set; }
@@ -145,18 +148,30 @@ namespace FireSafety
             SetText(Format(Remaining), Color.white);
         }
 
+        /// <summary>模态面板打开期间隐藏倒计时牌（关闭后恢复）。</summary>
+        public void SetHudVisible(bool visible)
+        {
+            _hudHidden = !visible;
+            if (_group != null && !visible) _group.alpha = 0f;
+        }
+
         private void Update()
         {
             if (_cam == null) _cam = Camera.main;
+
+            if (_group != null && _hudHidden) _group.alpha = 0f;
 
             // HUD 跟随：绑定手柄时位于手柄正上方并朝向玩家；否则跟随头显偏移
             if (_canvas != null)
             {
                 if (anchorHand != null)
                 {
-                    _canvas.transform.position = anchorHand.position
+                    Vector3 p = anchorHand.position
                         + Vector3.up * handAboveDistance
                         + anchorHand.forward * handForwardOffset;
+                    if (_cam != null) p = HudPlacement.KeepInView(p, _cam.transform.position,
+                        _cam.transform.rotation, 1.8f, 12f, 16f, 26f);
+                    _canvas.transform.position = p;
                     Transform look = _cam != null ? _cam.transform : anchorHand;
                     Quaternion target = Quaternion.LookRotation(_canvas.transform.position - look.position);
                     _canvas.transform.rotation = Quaternion.Slerp(_canvas.transform.rotation, target,

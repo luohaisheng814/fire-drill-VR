@@ -283,6 +283,7 @@ namespace FireSafety
 
             if (_canvas == null) BuildUI();
             PlaceInFrontOfCamera();
+            SetPeripheralHud(false);
             _canvas.gameObject.SetActive(true);
             _panelRoot.SetActive(true);
             if (Application.isPlaying)
@@ -309,8 +310,24 @@ namespace FireSafety
             IsOpen = false;
             _finished = false;
             _answered = false;
+            SetPeripheralHud(true);
             if (_canvas != null) _canvas.gameObject.SetActive(false);
         }
+
+        /// <summary>
+        /// 问答面板是模态的：打开时把世界空间 HUD 提示条与倒计时牌让开，
+        /// 否则三者叠在同一块视线里，题目和选项直接被盖住（实测标题被"02:55"压掉）。
+        /// </summary>
+        void SetPeripheralHud(bool on)
+        {
+            var hud = FindObjectOfType<VRDrillHud>();
+            if (hud != null) hud.suppressed = !on;
+            AnyOpen = !on;
+            if (DrillCountdown.Instance != null) DrillCountdown.Instance.SetHudVisible(on);
+        }
+
+        /// <summary>是否有问答面板正开着（世界空间 HUD 据此让位，无需再去场景里找组件）。</summary>
+        public static bool AnyOpen { get; private set; }
 
         public void ResetQuiz()
         {

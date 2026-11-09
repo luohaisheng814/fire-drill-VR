@@ -5,6 +5,8 @@ using System.Reflection;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.XR;
+using Unity.XR.CoreUtils;
 using FireSafety;
 
 namespace FireSafety.EditorTools
@@ -34,6 +36,7 @@ namespace FireSafety.EditorTools
             TestFlameClearAll();
             TestStepChain();
             TestSceneWiring();
+            TestVrConfiguration();
 
             if (_fail == 0) Debug.Log("[TEST] ==== 全部通过 ====");
             else Debug.LogError("[TEST] ==== 失败项：" + _fail + " ====");
@@ -1181,6 +1184,124 @@ namespace FireSafety.EditorTools
                 ResetManagerInstance();
                 UnityEngine.Object.DestroyImmediate(mgrGo);
             }
+        }
+
+        // ------------------------------------------------------------
+        // 头显接入配置：OpenXR 运行时 + 手柄动作绑定 + 移动/交互组件
+        // ------------------------------------------------------------
+        static void TestVrConfiguration()
+        {
+            if (!Application.isBatchMode)
+            {
+                Debug.Log("[TEST] 跳过 VR 配置校验（仅在 batchmode 下执行）");
+                return;
+            }
+
+            UnityEditor.SceneManagement.EditorSceneManager.OpenScene(
+                "Assets/Scenes/FireSafetyOffice.unity",
+                UnityEditor.SceneManagement.OpenSceneMode.Single);
+
+            // 1) OpenXR 运行时
+            var fails = new List<string>();
+            bool xrOk = VROpenXRConfig.Verify(fails);
+            if (!xrOk) foreach (var f in fails) Debug.LogError("[TEST] VR 配置缺口：" + f);
+            Check("VR：OpenXR Loader 已挂到 Standalone 且交互 profile 全部启用（缺口 " + fails.Count + " 项）", xrOk);
+
+            // 2) XR 锚点与相机
+            var rig = UnityEngine.Object.FindObjectOfType<XROrigin>(true);
+            Check("VR：场景存在 XR Origin (Drill)", rig != null);
+            if (rig == null) return;
+            Check("VR：追踪原点为地板模式（真实身高直接映射）",
+                rig.RequestedTrackingOriginMode == XROrigin.TrackingOriginMode.Floor);
+            var cam = rig.Camera;
+            Check("VR：相机存在并已挂到锚点上", cam != null);
+            if (cam != null)
+            {
+                Check("VR：相机近裁面 0.05 米（贴近压把/销子不穿模）",
+                    Mathf.Abs(cam.nearClipPlane - 0.05f) < 0.001f);
+                Check("VR：相机远裁面 ≥ 60 米（能看清走廊尽头）", cam.farClipPlane >= 60f);
+                var camPose = cam.GetComponent<DrillTrackedPose>();
+                Check("VR：相机由 CenterEye 位姿驱动", camPose != null && camPose.node == XRNode.CenterEye);
+            }
+
+            // 3) 双手手柄：位姿 / 抓取 / 扳机 / UI 点按 / 射线
+            CheckHand("LeftHand Controller", XRNode.LeftHand);
+            CheckHand("RightHand Controller", XRNode.RightHand);
+
+            // 4) 移动
+            var loco = rig.GetComponentInChildren<XRDrillLocomotion>(true);
+            Check("VR：XRDrillLocomotion 挂在锚点上", loco != null);
+            if (loco != null)
+            {
+                Check("VR：移动动作指向 XRI Left Locomotion/Move", loco.moveAction != null);
+                Check("VR：转身动作指向 XRI Right Locomotion/Snap Turn", loco.turnAction != null);
+                Check("VR：瞬转角度 45°", Mathf.Approximately(loco.snapAngle, 45f));
+                Check("VR：行走速度 2.2 米/秒", Mathf.Approximately(loco.moveSpeed, 2.2f));
+                Check("VR：蹲行速度低于行走速度", loco.crawlSpeed > 0f && loco.crawlSpeed < loco.moveSpeed);
+                var cc = rig.GetComponent<CharacterController>();
+                Check("VR：锚点上有 CharacterController（碰撞与重力生效）", cc != null && cc.enabled);
+            }
+
+            // 5) 头显输入层与提示条
+            var vr = rig.GetComponentInChildren<VRDrillInput>(true);
+            Check("VR：VRDrillInput 挂在锚点上", vr != null);
+            if (vr != null)
+            {
+                Check("VR：已引用两台灭火器（实际 " + (vr.extinguishers != null ? vr.extinguishers.Length : 0) + "）",
+                    vr.extinguishers != null && vr.extinguishers.Length >= 2);
+                Check("VR：已引用开始界面", vr.startScreen != null);
+                Check("VR：已引用引导页", vr.onboarding != null);
+                Check("VR：已引用阶段一完成面板", vr.stagePanel != null);
+                Check("VR：已引用阶段二流程", vr.stageTwo != null);
+                Check("VR：右手扳机动作已绑定（Activate）", vr.rightTriggerAction != null);
+                Check("VR：左手扳机动作已绑定（Activate）", vr.leftTriggerAction != null);
+                Check("VR：已引用 VR 提示条", vr.hud != null);
+                if (vr.hud != null)
+                {
+                    Check("VR：提示条锚定在相机上", vr.hud.head == cam.transform);
+                    Check("VR：提示条在视线下方（-0.22 米）", vr.hud.verticalOffset <= -0.1f);
+                    Check("VR：提示条距离 0.95 米（一臂内可读）", vr.hud.distance >= 0.6f && vr.hud.distance <= 1.2f);
+                }
+            }
+
+            // 6) 头显下不能退回桌面喷射模式
+            var desktop = UnityEngine.Object.FindObjectOfType<DesktopDrillInput>(true);
+            Check("VR：桌面输入组件存在（无头显时仍可键鼠演练）", desktop != null);
+            foreach (var e in UnityEngine.Object.FindObjectsByType<Extinguisher>(FindObjectsSortMode.None))
+            {
+                Check("VR：" + e.gameObject.name + " 压把链路已装配（handleLever 引用）", e.handleLever != null);
+                Check("VR：" + e.gameObject.name + " 保险销已装配", e.pin != null);
+            }
+        }
+
+        static void CheckHand(string name, XRNode node)
+        {
+            var go = GameObject.Find(name);
+            Check("VR：场景存在 " + name, go != null);
+            if (go == null) return;
+
+            var pose = go.GetComponent<DrillTrackedPose>();
+            Check("VR：" + name + " 位姿驱动节点 = " + node, pose != null && pose.node == node);
+
+            var ctrl = go.GetComponent<UnityEngine.XR.Interaction.Toolkit.ActionBasedController>();
+            Check("VR：" + name + " 有 ActionBasedController", ctrl != null);
+            if (ctrl != null)
+            {
+                Check("VR：" + name + " 位置/旋转动作已绑定", ctrl.positionAction.action != null && ctrl.rotationAction.action != null);
+                Check("VR：" + name + " 抓取动作（Select）已绑定", ctrl.selectAction.action != null);
+                Check("VR：" + name + " 扳机动作（Activate）已绑定", ctrl.activateAction.action != null);
+                Check("VR：" + name + " UI 动作（UI Press）已绑定", ctrl.uiPressAction.action != null);
+            }
+
+            var ray = go.GetComponent<UnityEngine.XR.Interaction.Toolkit.Interactors.XRRayInteractor>();
+            Check("VR：" + name + " 有射线交互器（射线点按 UI）",
+                ray != null && ray.enableUIInteraction);
+
+            var line = go.GetComponent<UnityEngine.XR.Interaction.Toolkit.Interactors.Visuals.XRInteractorLineVisual>();
+            Check("VR：" + name + " 有射线视觉组件", line != null);
+            var lr = go.GetComponent<LineRenderer>();
+            Check("VR：" + name + " 射线是细线（≤0.02 米，不挡视线）",
+                lr != null && lr.startWidth <= 0.02f);
         }
 
         static void Check(string name, bool ok)
