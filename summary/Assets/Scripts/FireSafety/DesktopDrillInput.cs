@@ -43,6 +43,15 @@ namespace FireSafety
         public Vector3 handOffset = new Vector3(0.33f, -0.24f, 0.7f);
         public Vector3 handEuler = new Vector3(0f, -12f, 0f);
 
+        [Header("视角跟随（桌面鼠标）")]
+        [Tooltip("鼠标转视角灵敏度（度 / 鼠标像素，乘以 1）")]
+        public float mouseLookSensitivity = 0.12f;
+        [Tooltip("俯仰最大角度（度），防止仰头/低头翻转")]
+        public float pitchClamp = 75f;
+
+        float _yaw;
+        float _pitch;
+
         [Header("选取灭火器")]
         [Tooltip("鼠标射不中时，允许在该距离内自动选取视线前方的灭火器")]
         public float grabRadius = 2.2f;
@@ -76,6 +85,12 @@ namespace FireSafety
             Instance = this;
             if (cameraTransform == null && Camera.main != null) cameraTransform = Camera.main.transform;
 
+            if (cameraTransform != null)
+            {
+                _yaw = cameraTransform.localEulerAngles.y;
+                _pitch = 0f;
+            }
+
             if (handAnchor == null)
             {
                 var h = new GameObject("DesktopHand");
@@ -90,6 +105,15 @@ namespace FireSafety
         {
             if (Instance == this) Instance = null;
             if (_hudCanvas != null) Destroy(_hudCanvas.gameObject);
+        }
+
+        /// <summary>直接施加一段视角增量（探针/自检用）：yawDelta 水平、pitchDelta 垂直，方向与鼠标一致。</summary>
+        public void ApplyLook(float yawDelta, float pitchDelta)
+        {
+            if (cameraTransform == null) return;
+            _yaw += yawDelta * mouseLookSensitivity;
+            _pitch = Mathf.Clamp(_pitch - pitchDelta * mouseLookSensitivity, -pitchClamp, pitchClamp);
+            cameraTransform.localRotation = Quaternion.Euler(_pitch, _yaw, 0f);
         }
 
         private void Start()
@@ -150,6 +174,13 @@ namespace FireSafety
             {
                 handAnchor.localPosition = handOffset;
                 handAnchor.localRotation = Quaternion.Euler(handEuler);
+            }
+
+            // 鼠标视角跟随：水平偏航累计到相机本地 Y，俯仰限幅，避免翻转
+            if (cameraTransform != null && Mouse.current != null)
+            {
+                Vector2 look = Mouse.current.delta.ReadValue();
+                if (look.sqrMagnitude > 0.0001f) ApplyLook(look.x, look.y);
             }
 
             RefreshHudText(false);
@@ -605,6 +636,7 @@ namespace FireSafety
             _nextHudRefresh = Time.unscaledTime + 0.1f;
 
             const string controls =
+                "【视角/移动】移动鼠标转头　｜　W/A/S/D 平移　｜　Q/E 转身　｜　Shift 加速　｜　C 蹲下　" +
                 "【鼠标操作】右键单击灭火器：答题/拿起　｜　左键单击：拔出保险销　｜　左键双击：按下压把　" +
                 "｜　右键双击：喷射（再双击停止）　｜　P：放下";
 

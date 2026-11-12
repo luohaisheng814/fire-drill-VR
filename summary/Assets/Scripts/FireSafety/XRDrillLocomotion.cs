@@ -7,8 +7,9 @@ namespace FireSafety
 {
     /// <summary>
     /// 玩家移动（头显摇杆 + 键盘调试）：
-    ///   · 左摇杆：沿头显朝向平移（推杆方向即前进方向）
+    ///   · 左摇杆：沿头显朝向平移（推杆方向即前进方向；可切成沿左手柄朝向）
     ///   · 右摇杆左右：瞬转 45°（可切连续旋转），带冷却避免一次推杆连转多格
+    ///   · 推满摇杆自动小跑（sprintMultiplier），不需要额外按键，也不和 Grip 抓取抢键
     ///   · 头顶低于 crouchHeight（真人蹲下）时自动切到蹲行速度
     ///   · 键盘：WASD 平移、Q/E 转身、Shift 加速（无头显时桌面调试）
     /// 输入优先走 XRI 默认动作资产（"XRI Left Locomotion/Move" 与
@@ -18,6 +19,9 @@ namespace FireSafety
     [DisallowMultipleComponent]
     public class XRDrillLocomotion : MonoBehaviour
     {
+        /// <summary>推杆方向的基准：头显朝向 / 左右手柄朝向。</summary>
+        public enum DirectionMode { Head, LeftHand, RightHand }
+
         [Header("输入动作（XRI 默认动作资产）")]
         [Tooltip("XRI Left Locomotion / Move（Vector2）")]
         public InputActionReference moveAction;
@@ -38,11 +42,19 @@ namespace FireSafety
         [Tooltip("两次瞬转之间的最短间隔（秒）")]
         public float snapCooldown = 0.35f;
 
+        [Header("移动方向")]
+        [Tooltip("推杆时的朝向基准：Head=朝头显看的方向走（默认）；LeftHand=朝左手柄指的方向走")]
+        public DirectionMode moveDirection = DirectionMode.Head;
+
         [Header("控制")]
         [Tooltip("true=右摇杆瞬转，false=连续转动")]
         public bool useSnapTurn = true;
-        [Tooltip("允许按住 Grip 加速（桌面 Shift 始终可用）")]
-        public bool allowSprint = true;
+        [Tooltip("推满摇杆自动小跑（不需要额外按键，也不会和抓取抢键）")]
+        public bool sprintOnFullStick = true;
+        [Tooltip("摇杆推杆幅度达到该值视为小跑（0~1）")]
+        public float fullStickThreshold = 0.92f;
+        [Tooltip("允许按住 Grip 加速。Grip 同时是抓取键，抓着灭火器移动会自动加速，默认关闭")]
+        public bool allowSprint = false;
         [Tooltip("启用重力（需要 CharacterController）")]
         public bool useGravity = true;
         public float gravity = -9.81f;
@@ -56,6 +68,10 @@ namespace FireSafety
         public Transform rigRoot;
         [Tooltip("头显相机（用于确定移动方向与蹲姿高度）")]
         public Transform head;
+        [Tooltip("左手柄（移动方向为 LeftHand 时用来取朝向）")]
+        public Transform leftHand;
+        [Tooltip("右手柄（移动方向为 RightHand 时用来取朝向）")]
+        public Transform rightHand;
 
         [Header("调试")]
         [Tooltip("无头显时可用 WASD/Q/E 在桌面预览")]
@@ -65,6 +81,8 @@ namespace FireSafety
         public float CurrentSpeed { get; private set; }
         /// <summary>最近一帧是否处于蹲行状态。</summary>
         public bool IsCrawling { get; private set; }
+        /// <summary>最近一帧是否在小跑（推满摇杆 / 允许时按住 Grip / 桌面 Shift）。</summary>
+        public bool IsSprinting { get; private set; }
         /// <summary>虚拟输入模式：播放态探针接管摇杆，完全不读真实设备。</summary>
         public bool virtualMode { get; private set; }
 
@@ -141,13 +159,11 @@ namespace FireSafety
 
             Vector2 move;
             float turn;
-            bool sprint;
 
             if (virtualMode)
             {
                 move = _virtualMove;
                 turn = _virtualTurn;
-                sprint = false;
             }
             else
             {
@@ -163,13 +179,8 @@ namespace FireSafety
                     if (mx != 0f || mz != 0f) move = new Vector2(mx, mz);
                     float kt = (kb.qKey.isPressed ? -1f : 0f) + (kb.eKey.isPressed ? 1f : 0f);
                     if (kt != 0f) turn = kt;
-                    sprint = kb.leftShiftKey.isPressed;
                 }
-                else sprint = allowSprint && (Grip(XRNode.LeftHand) || Grip(XRNode.RightHand));
             }
-
-            if (virtualMode) sprint = false;
-            else if (keyboardDebug && Keyboard.current != null && Keyboard.current.leftShiftKey.isPressed) sprint = true;
 
             // ---- 转身 ----
             float turnValue = Mathf.Abs(turn) > 0.6f ? Mathf.Sign(turn) : 0f;
@@ -197,9 +208,19 @@ namespace FireSafety
             Vector3 dir = Vector3.zero;
             Vector2 planar = new Vector2(Mathf.Abs(move.x) < deadzone ? 0f : move.x,
                                          Mathf.Abs(move.y) < deadzone ? 0f : move.y);
+
+            // 小跑：推满摇杆即可（不需要额外按键，避免和 Grip 抓取抢键）
+            bool sprint = false;
+            if (sprintOnFullStick && planar.magnitude >= fullStickThreshold) sprint = true;
+            if (!virtualMode)
+            {
+                if (allowSprint && (Grip(XRNode.LeftHand) || Grip(XRNode.RightHand))) sprint = true;
+                if (keyboardDebug && Keyboard.current != null && Keyboard.current.leftShiftKey.isPressed) sprint = true;
+            }
+
             if (planar.sqrMagnitude > 0.0001f)
             {
-                float yaw = _head != null ? _head.eulerAngles.y : _root.eulerAngles.y;
+                float yaw = MoveBasisYaw();
                 Vector3 forward = Quaternion.Euler(0f, yaw, 0f) * Vector3.forward;
                 Vector3 right = Quaternion.Euler(0f, yaw, 0f) * Vector3.right;
                 dir = (forward * planar.y + right * planar.x);
@@ -207,8 +228,9 @@ namespace FireSafety
             }
 
             IsCrawling = IsHeadLow();
+            IsSprinting = sprint && !IsCrawling;
             float baseSpeed = IsCrawling ? crawlSpeed : moveSpeed;
-            if (sprint && !IsCrawling) baseSpeed *= sprintMultiplier;
+            if (IsSprinting) baseSpeed *= sprintMultiplier;
             CurrentSpeed = dir.magnitude * baseSpeed;
 
             if (_cc != null && _cc.enabled)
@@ -236,6 +258,20 @@ namespace FireSafety
             return h != null && h.position.y <= crouchHeight;
         }
 
+        /// <summary>推杆朝向基准：按 moveDirection 取头显或手柄的偏航角，取不到时退回自身朝向。</summary>
+        float MoveBasisYaw()
+        {
+            Transform basis = _head;
+            switch (moveDirection)
+            {
+                case DirectionMode.LeftHand: basis = leftHand != null ? leftHand : _head; break;
+                case DirectionMode.RightHand: basis = rightHand != null ? rightHand : _head; break;
+                default: basis = _head; break;
+            }
+            if (basis == null) basis = _root;
+            return basis != null ? basis.eulerAngles.y : 0f;
+        }
+
         // ---------------- 输入读取 ----------------
 
         Vector2 ReadMove()
@@ -250,10 +286,12 @@ namespace FireSafety
 
         float ReadTurn()
         {
+            // XRI Snap Turn 动作的 expectedControlType 是 Vector2（右摇杆二维轴），
+            // 必须按 Vector2 读取再取 x；按 float 读会静默返回 0，动作层瞬转整条失效。
             if (turnAction != null && turnAction.action != null)
             {
-                float v = turnAction.action.ReadValue<float>();
-                if (Mathf.Abs(v) > 0.01f) return v;
+                Vector2 v = turnAction.action.ReadValue<Vector2>();
+                if (Mathf.Abs(v.x) > 0.01f) return v.x;
             }
             // 回退：右摇杆无法读到 ✓ 就试左手摇杆
             Vector2 r = Stick(XRNode.RightHand, UnityEngine.XR.CommonUsages.primary2DAxis);

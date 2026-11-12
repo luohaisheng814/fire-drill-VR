@@ -45,6 +45,11 @@ namespace FireSafety.EditorTools
         static Vector3 _walkStart;
         static float _lastProgress = -1f;
         static bool _shotStart, _shotQuiz, _shotSpray, _shotDoor, _shotEnd;
+        static bool _shotHands;
+        static int _shotQuizFrame = -1;
+        static VRControllerVisual _visLeft, _visRight;
+        static RectTransform panelForDebug;
+        static Transform _leftHand;
         static float _quizOpenT = -1f, _doorOpenAt = -1f, _endingAt = -1f;
         static string _lastMsg = ""; static float _lastMsgT;
 
@@ -173,7 +178,8 @@ namespace FireSafety.EditorTools
         {
             if (_rightHand == null || _cam == null) return;
             Transform ct = _cam.transform;
-            _rightHand.position = ct.position + ct.rotation * new Vector3(0.30f, -0.30f, 0.42f);
+            // 右前下方 0.26 m / 0.48 m：仍在 60° FOV 内（下偏 26.6°），手柄代理模型能出现在画面里
+            _rightHand.position = ct.position + ct.rotation * new Vector3(0.26f, -0.24f, 0.48f);
         }
 
         static bool Resolve()
@@ -198,6 +204,10 @@ namespace FireSafety.EditorTools
 
             foreach (var tr in UnityEngine.Object.FindObjectsByType<Transform>(FindObjectsSortMode.None))
                 if (tr.name == "RightHand Controller") _rightHand = tr;
+            foreach (var tr in UnityEngine.Object.FindObjectsByType<Transform>(FindObjectsSortMode.None))
+                if (tr.name == "LeftHand Controller") _leftHand = tr;
+            foreach (var v in UnityEngine.Object.FindObjectsByType<VRControllerVisual>(FindObjectsSortMode.None))
+                if (v.side == HandSide.Left) _visLeft = v; else _visRight = v;
 
             Debug.Log("[VRPROBE] 诊断：_rig.Camera=" + (_rig.Camera != null ? _rig.Camera.name : "null")
                 + " Camera.main=" + (Camera.main != null ? Camera.main.name : "null")
@@ -217,19 +227,52 @@ namespace FireSafety.EditorTools
             _vr.virtualMode = true;
             _vr.vTrigger = false; _vr.vStickClick = false;
             _loco.SetVirtualInput(Vector2.zero, 0f);
+            PoseHand();       // 手柄摆在身前，开始面板/提示条才会像真人举在眼前
+            if (_leftHand != null && _cam != null)
+                _leftHand.position = _cam.transform.position
+                    + _cam.transform.rotation * new Vector3(-0.26f, -0.24f, 0.48f);
 
             float t = Time.realtimeSinceStartup - _phaseT;
-            if (!_shotStart && t > 0.85f)
+            if (!_shotStart && t > 1.3f)
             {
                 Shot("vr0_hud_start.png");
                 Say("头显提示条：可见=" + _vr.hud.Visible + "，内容=" + _vr.hud.CurrentHint);
+
+                // 手柄代理模型：真机里「看得见自己的手」是操作前提
+                bool handsOk = _visLeft != null && _visRight != null &&
+                               _visLeft.Built && _visRight.Built &&
+                               _visLeft.Visible && _visRight.Visible;
+                Say("双手柄模型：左手 Built=" + (_visLeft != null && _visLeft.Built)
+                    + " 可见=" + (_visLeft != null && _visLeft.Visible)
+                    + " / 右手 Built=" + (_visRight != null && _visRight.Built)
+                    + " 可见=" + (_visRight != null && _visRight.Visible)
+                    + "（各 " + (_visRight != null ? _visRight.PartCount : 0) + " 个几何体）");
+                if (!handsOk) Fail("头显接管时双手柄模型未生成或不可见");
+
                 _shotStart = true;
             }
-            if (t < 1.0f) return;
+            if (t < 1.6f) return;
 
-            _vr.vPrimary = t < 1.9f;
-            if (t < 2.6f) return;
-            Say("A 键开始演练：Started=" + (_vr.startScreen != null && _vr.startScreen.Started));
+            // 按 A：真人也会按一两下（开始面板后面可能还压着一层引导页），这里发 4 次短脉冲
+            const float kPulse = 0.45f;           // 0.20 s 按下 + 0.25 s 松开
+            float local = t - 1.6f;
+            int idx = Mathf.FloorToInt(local / kPulse);
+            bool started = _vr.startScreen != null && _vr.startScreen.Started;
+            if (idx < 4 && !started)
+            {
+                float phase = local - idx * kPulse;
+                _vr.vPrimary = phase < 0.20f;
+                if (phase < 0.20f) Say("第 " + (idx + 1) + " 次按 A …");
+                return;
+            }
+            _vr.vPrimary = false;
+            if (t < 1.6f + kPulse * 4f + 0.1f) return;
+
+            started = _vr.startScreen != null && _vr.startScreen.Started;
+            Say("A 键开始演练：Started=" + started
+                + "（startScreen=" + (_vr.startScreen != null) + "，引导页打开="
+                + (_vr.onboarding != null && _vr.onboarding.IsOpen) + "）");
+            if (!started) Fail("按 A 之后演练没有开始");
             _walkStart = CamPos();
             _dirStart = _walkStart;
             _dirIndex = 0;
@@ -279,6 +322,9 @@ namespace FireSafety.EditorTools
                     _dirTimes[_dirIndex] = d;
                     Say("左摇杆推" + (_dirIndex == 0 ? "前" : _dirIndex == 1 ? "后" : _dirIndex == 2 ? "右" : "左")
                         + " 0.9 秒：位移 " + d.ToString("F2") + " 米");
+                    if (_dirIndex == 0)
+                        Say("推满摇杆小跑：IsSprinting=" + _loco.IsSprinting
+                            + "，当前速度 " + _loco.CurrentSpeed.ToString("F2") + " 米/秒（基础 2.2 × 倍率 1.6）");
                 }
                 return;
             }
@@ -366,6 +412,62 @@ namespace FireSafety.EditorTools
                                         QueryTriggerInteraction.Ignore);
         }
 
+        /// <summary>诊断问答面板的实际世界尺寸（判图看到文字跑到面板外时用来定位）。</summary>
+        static void DumpQuiz(ExtinguisherQuizPanel q)
+        {
+            var canvas = q.transform.Find("Canvas_Quiz") as RectTransform;
+            if (canvas == null) { Say("问答面板：找不到 Canvas_Quiz"); return; }
+            var panel = canvas.Find("QuizPanel") as RectTransform;
+            if (panel == null) { Say("问答面板：找不到 QuizPanel"); return; }
+            panelForDebug = panel;
+            var pimg = panel.GetComponent<UnityEngine.UI.Image>();
+            if (pimg != null)
+                Say("面板 Image：sprite=" + (pimg.sprite == null ? "null" : pimg.sprite.name)
+                    + " type=" + pimg.type + " preserveAspect=" + pimg.preserveAspect
+                    + " rect=" + pimg.rectTransform.rect.ToString("F0")
+                    + " anchoredPos=" + pimg.rectTransform.anchoredPosition.ToString("F0")
+                    + " 本地scale=" + pimg.rectTransform.localScale.ToString("F4")
+                    + " canvasRect=" + canvas.rect.ToString("F0")
+                    + " canvasWorldScale=" + canvas.lossyScale.ToString("F5"));
+
+            foreach (var cv in UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsSortMode.None))
+            {
+                if (cv.gameObject.name != "Canvas_Quiz") continue;
+                Say("Canvas_Quiz 实例：active=" + cv.gameObject.activeInHierarchy
+                    + " lossyScale=" + cv.transform.lossyScale.ToString("F5")
+                    + " 父=" + (cv.transform.parent != null ? cv.transform.parent.name : "root")
+                    + " 父lossy=" + (cv.transform.parent != null ? cv.transform.parent.lossyScale.ToString("F3") : "-"));
+            }
+            var corners = new Vector3[4];
+            panel.GetWorldCorners(corners);
+            float minX = float.MaxValue, maxX = float.MinValue, minY = float.MaxValue, maxY = float.MinValue;
+            foreach (var c in corners)
+            {
+                Vector3 sp = _cam.WorldToScreenPoint(c);
+                minX = Mathf.Min(minX, sp.x); maxX = Mathf.Max(maxX, sp.x);
+                minY = Mathf.Min(minY, sp.y); maxY = Mathf.Max(maxY, sp.y);
+            }
+            Say("面板实测：canvasScale=" + canvas.localScale.ToString("F4")
+                + " panelRect=" + panel.rect.size.ToString("F0")
+                + " 世界宽=" + (corners[3] - corners[0]).magnitude.ToString("F2") + " 米"
+                + " 世界高=" + (corners[1] - corners[0]).magnitude.ToString("F2") + " 米"
+                + " 距相机=" + (panel.position - _cam.transform.position).magnitude.ToString("F2") + " 米"
+                + " 屏幕=(" + minX.ToString("F0") + ".." + maxX.ToString("F0") + ", "
+                + minY.ToString("F0") + ".." + maxY.ToString("F0") + ")");
+            foreach (var tx in panel.GetComponentsInChildren<UnityEngine.UI.Text>(true))
+            {
+                var rt = tx.GetComponent<RectTransform>();
+                Vector3[] tc = new Vector3[4];
+                rt.GetWorldCorners(tc);
+                string s = tx.text == null ? "" : tx.text.Replace("\n", " ");
+                if (s.Length > 14) s = s.Substring(0, 14);
+                Vector3 spo = _cam.WorldToScreenPoint(tc[0]);
+                Say("  文本[" + s + "] 世界宽=" + (tc[3] - tc[0]).magnitude.ToString("F2")
+                    + " 父=" + rt.parent.name
+                    + " 屏幕左=" + spo.x.ToString("F0") + " 屏幕y=" + spo.y.ToString("F0"));
+            }
+        }
+
         static void P3_Quiz()
         {
             var q = _ext1.quizPanel;
@@ -375,7 +477,39 @@ namespace FireSafety.EditorTools
             if (!q.IsOpen && !q.Passed && t < 2f) { q.Open(_rightHand); Say("右手射线点选灭火器 → 问答面板打开"); return; }
             if (q.IsOpen && _quizOpenT < 0f) _quizOpenT = Time.realtimeSinceStartup;
             if (!_shotQuiz && q.IsOpen && Time.realtimeSinceStartup - _quizOpenT > 0.45f)
-            { Shot("vr2_quiz_panel.png"); _shotQuiz = true; }
+            {
+                Shot("vr2_quiz_panel.png"); _shotQuiz = true;
+                DumpQuiz(q);
+
+                // 调试用：把面板底色临时改成亮绿，确认背景矩形到底在哪（不进交付物）
+                var bg = panelForDebug != null ? panelForDebug.GetComponent<UnityEngine.UI.Image>() : null;
+                if (bg != null)
+                {
+                    var keep = bg.color;
+                    bg.color = new Color(0f, 1f, 0f, 1f);
+                    Canvas.ForceUpdateCanvases();
+                    Shot("_quiz_bg_debug.png");
+
+                    // 再看一遍：强制重建布局后拍一张，判断是不是布局/网格没跟上 rect
+                    UnityEngine.UI.LayoutRebuilder.ForceRebuildLayoutImmediate(panelForDebug);
+                    Canvas.ForceUpdateCanvases();
+                    Shot("_quiz_rebuild.png");
+
+                    // 再验一次：把面板拉近到 0.72 米重放，判断左边被挡是不是墙壁遮住了面板
+                    q.distanceFromCamera = 0.72f;
+                    q.PlaceInFrontOfCamera();
+                    Canvas.ForceUpdateCanvases();
+                    Shot("_quiz_near.png");
+                    bg.color = keep;
+                }
+                _shotQuizFrame = Time.frameCount;
+            }
+
+            if (_shotQuizFrame > 0 && Time.frameCount == _shotQuizFrame + 10)
+            {
+                Shot("vr2b_quiz_late.png");
+                Say("问答面板 10 帧后再拍一张（排查是否单帧批处理滞后）");
+            }
 
             if (q.IsOpen && _shotQuiz && !q.IsAnsweredThisQuestion && q.QuestionIndex < q.questions.Count)
             {
@@ -456,6 +590,19 @@ namespace FireSafety.EditorTools
                 Shot("vr3_spray_at_fire.png");
                 Say("玩家视角：白雾喷向火焰根部，进度 " + prog.ToString("F3") + "，喷嘴距离 " + nd.ToString("F2") + " 米");
                 _shotSpray = true;
+            }
+            // 手柄模型 + 手持灭火器同框：验证「手上看得见东西」
+            if (_shotSpray && !_shotHands && prog > 0.3f)
+            {
+                Shot("vr3b_hands_hold.png");
+                Say("玩家视角：右手柄代理模型与手持灭火器同框（模型 " +
+                    (_visRight != null ? _visRight.PartCount.ToString() : "0") + " 个几何体，可见=" +
+                    (_visRight != null && _visRight.Visible) + "）");
+                Say("触觉反馈：调用 " + VRHaptics.AttemptCount + " 次，实际下发 " + VRHaptics.SendCount
+                    + " 次，无设备跳过 " + VRHaptics.SkipCount + " 次（" + VRHaptics.LastInfo + "）");
+                if (_visRight == null || !_visRight.Visible) Fail("手持灭火器时右手柄模型不可见");
+                if (VRHaptics.AttemptCount <= 0) Fail("抓取/拔销/压把没有触发任何触觉调用");
+                _shotHands = true;
             }
             if (_lastProgress < 0f || Mathf.Abs(prog - _lastProgress) > 0.1f)
             {

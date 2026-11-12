@@ -234,6 +234,13 @@ namespace FireSafety.EditorTools
             if (go.GetComponent<XRInteractorLineVisual>() == null) go.AddComponent<XRInteractorLineVisual>();
             FixRayLine(go);   // 射线不设材质/宽度 → 手边一条 1 米宽洋红色带子挡视线
 
+            // 手柄可见模型：真机里看得见自己的手在哪、抓没抓住
+            var vis = go.GetComponent<VRControllerVisual>() ?? go.AddComponent<VRControllerVisual>();
+            vis.side = side;
+            vis.showInDesktop = false;
+            vis.accentColor = side == HandSide.Left ? new Color(0.28f, 0.82f, 1f) : new Color(1f, 0.55f, 0.2f);
+            vis.emission = 0.55f;
+
             Debug.Log("[Setup] ✔ 手柄控制器：" + name);
             return go.transform;
         }
@@ -324,9 +331,15 @@ namespace FireSafety.EditorTools
             loco.deadzone = 0.15f;
             loco.crouchHeight = 1.15f;
             loco.useSnapTurn = true;
-            loco.allowSprint = true;
+            loco.sprintOnFullStick = true;           // 推满摇杆自动小跑
+            loco.fullStickThreshold = 0.92f;
+            loco.allowSprint = false;                // Grip 是抓取键，不再兼任加速
+            loco.moveDirection = XRDrillLocomotion.DirectionMode.Head;
+            loco.leftHand = GameObject.Find(LeftHandName) != null ? GameObject.Find(LeftHandName).transform : null;
+            loco.rightHand = GameObject.Find(RightHandName) != null ? GameObject.Find(RightHandName).transform : null;
             loco.keyboardDebug = true;
-            Debug.Log("[Setup] ✔ 用户移动：左摇杆(XRI Move)移动 / 右摇杆(XRI Snap Turn)瞬转 45° / 蹲下自动降速 / WASD+Q E 桌面调试");
+            Debug.Log("[Setup] ✔ 用户移动：左摇杆(XRI Move)移动 / 右摇杆(XRI Snap Turn)瞬转 45°"
+                      + " / 推满摇杆小跑 / 蹲下自动降速 / WASD+Q E 桌面调试");
         }
 
         // ================================================================
@@ -942,6 +955,8 @@ namespace FireSafety.EditorTools
             input.doubleClickWindow = 0.25f;
             input.handOffset = new Vector3(0.33f, -0.24f, 0.7f);   // 0.7 米：既不糊镜头又能看清瓶身
             input.handEuler = new Vector3(0f, -12f, 0f);
+            input.mouseLookSensitivity = 0.12f;                      // 鼠标转头灵敏度
+            input.pitchClamp = 75f;                                 // 俯仰限幅，防翻转
 
             // 桌面手部锚点：挂在相机下，随视角移动
             Transform anchor = null;
@@ -1011,12 +1026,19 @@ namespace FireSafety.EditorTools
             var hud = hudGo.GetComponent<VRDrillHud>();
             if (hud == null) hud = hudGo.AddComponent<VRDrillHud>();
             hud.head = cam;
-            hud.distance = 0.95f;
-            hud.verticalOffset = -0.22f;
-            hud.canvasScale = 0.00055f;
+            hud.distance = 0.9f;               // 与玩家视角判图后调好的场景值保持一致
+            hud.verticalOffset = -0.4f;
+            hud.canvasScale = 0.00038f;
             hud.holdSeconds = 5f;
             hud.idleAlpha = 0.55f;
             vr.hud = hud;
+
+            // 触觉反馈：抓取/拔销/压把/答题各一次短脉冲
+            vr.hapticGrab = 0.22f;
+            vr.hapticPin = 0.75f;
+            vr.hapticPress = 0.42f;
+            vr.hapticAnswer = 0.30f;
+            vr.hapticDuration = 0.07f;
 
             // 场景里默认关掉：桌面模式不看这块面板，头显接通后由 VRDrillInput 打开
             hudGo.SetActive(true);

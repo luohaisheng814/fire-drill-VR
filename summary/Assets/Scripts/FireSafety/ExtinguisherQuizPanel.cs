@@ -42,6 +42,10 @@ namespace FireSafety
         public float verticalOffset = -0.05f;
         [Tooltip("面板打开时若玩家走开，自动重新放到正前方（避免走到墙角还在看远处的题）")]
         public bool followCamera = true;
+        [Tooltip("前方有墙/家具时最近只能拉近到这个距离（米），再近会顶到脸上")]
+        public float minDistance = 0.60f;
+        [Tooltip("画布缩放（1 单位 ≈ 0.0009 米）：1000 单位 ≈ 0.9 米宽")]
+        public float panelScale = 0.0009f;
 
         [Header("行为")]
         [Tooltip("答错时显示正确答案与讲解，随后进入下一题")]
@@ -535,7 +539,7 @@ namespace FireSafety
         }
 
         /// <summary>把面板放到相机正前方固定距离处，并面向玩家。</summary>
-        void PlaceInFrontOfCamera()
+        public void PlaceInFrontOfCamera()
         {
             Camera cam = Camera.main;
             Transform c = cam != null ? cam.transform : transform;

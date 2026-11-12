@@ -241,6 +241,19 @@ namespace FireSafety.EditorTools
             Check("HUD 画布已创建", canvas != null);
             Check("HUD 文本已创建", text != null);
             Check("HUD 文本包含鼠标键位说明", text != null && text.text != null && text.text.Contains("右键单击"));
+            Check("HUD 文本标注鼠标转头与 Q/E 转身",
+                  text != null && text.text != null && text.text.Contains("移动鼠标转头") && text.text.Contains("Q/E"));
+            Check("桌面：鼠标视角跟随灵敏度 > 0", input.mouseLookSensitivity > 0f);
+            Check("桌面：俯仰限幅在 30°~90° 之间", input.pitchClamp > 30f && input.pitchClamp <= 90f);
+
+            var lookCam = new GameObject("TEST_LookCam").transform;
+            input.cameraTransform = lookCam;
+            input.ApplyLook(100f, 0f);
+            Check("桌面：鼠标偏航累计到相机朝向（≈12°）", Mathf.Abs(lookCam.localEulerAngles.y - 12f) < 1f);
+            input.ApplyLook(0f, 1000f);
+            Check("桌面：俯仰被限幅在 ±75°",
+                Mathf.Abs(Mathf.DeltaAngle(0f, lookCam.localEulerAngles.x)) <= 75.5f);
+            UnityEngine.Object.DestroyImmediate(lookCam.gameObject);
 
             if (canvas != null) UnityEngine.Object.DestroyImmediate(canvas.gameObject);
             UnityEngine.Object.DestroyImmediate(go);
@@ -1235,9 +1248,18 @@ namespace FireSafety.EditorTools
             {
                 Check("VR：移动动作指向 XRI Left Locomotion/Move", loco.moveAction != null);
                 Check("VR：转身动作指向 XRI Right Locomotion/Snap Turn", loco.turnAction != null);
+                Check("VR：瞬转动作按二维轴(Vector2)绑定（代码按 Vector2.x 读取）",
+                    loco.turnAction != null && loco.turnAction.action != null &&
+                    loco.turnAction.action.expectedControlType == "Vector2");
                 Check("VR：瞬转角度 45°", Mathf.Approximately(loco.snapAngle, 45f));
                 Check("VR：行走速度 2.2 米/秒", Mathf.Approximately(loco.moveSpeed, 2.2f));
                 Check("VR：蹲行速度低于行走速度", loco.crawlSpeed > 0f && loco.crawlSpeed < loco.moveSpeed);
+                Check("VR：推满摇杆自动小跑（阈值 0.92）",
+                    loco.sprintOnFullStick && Mathf.Abs(loco.fullStickThreshold - 0.92f) < 0.001f);
+                Check("VR：Grip 加速默认关闭（Grip 是抓取键，不能顺带加速）", !loco.allowSprint);
+                Check("VR：移动方向基准 = 头显朝向",
+                    loco.moveDirection == XRDrillLocomotion.DirectionMode.Head);
+                Check("VR：移动组件已引用左手柄（左摇杆方向模式可用）", loco.leftHand != null);
                 var cc = rig.GetComponent<CharacterController>();
                 Check("VR：锚点上有 CharacterController（碰撞与重力生效）", cc != null && cc.enabled);
             }
@@ -1256,6 +1278,9 @@ namespace FireSafety.EditorTools
                 Check("VR：右手扳机动作已绑定（Activate）", vr.rightTriggerAction != null);
                 Check("VR：左手扳机动作已绑定（Activate）", vr.leftTriggerAction != null);
                 Check("VR：已引用 VR 提示条", vr.hud != null);
+                Check("VR：拔销触觉幅度够强（≥0.5）", vr.hapticPin >= 0.5f);
+                Check("VR：压把触觉幅度有效", vr.hapticPress > 0f);
+                Check("VR：触觉脉冲时长有效", vr.hapticDuration > 0f);
                 if (vr.hud != null)
                 {
                     Check("VR：提示条锚定在相机上", vr.hud.head == cam.transform);
@@ -1272,6 +1297,25 @@ namespace FireSafety.EditorTools
                 Check("VR：" + e.gameObject.name + " 压把链路已装配（handleLever 引用）", e.handleLever != null);
                 Check("VR：" + e.gameObject.name + " 保险销已装配", e.pin != null);
             }
+
+            // 7) 手柄模型的生成逻辑与触觉接口（临时对象，不写进场景）
+            var probeGo = new GameObject("__controller_visual_probe");
+            var pv = probeGo.AddComponent<VRControllerVisual>();
+            pv.Build();
+            Check("VR：手柄模型可生成（握把 + 前球 + 顶部条 = 3 个几何体）",
+                pv.Built && pv.PartCount == 3);
+            Check("VR：手柄模型不带碰撞体（不会被自己抓到、不挡自己的射线）",
+                probeGo.GetComponentsInChildren<Collider>(true).Length == 0);
+            var mr = probeGo.GetComponentInChildren<MeshRenderer>(true);
+            Check("VR：手柄模型有可用材质（浓烟里不会变成洋红错误材质）",
+                mr != null && mr.sharedMaterial != null && mr.sharedMaterial.shader != null);
+            UnityEngine.Object.DestroyImmediate(probeGo);
+
+            VRHaptics.ResetCounters();
+            VRHaptics.Enabled = true;
+            VRHaptics.Pulse(HandSide.Right, 0.5f, 0.05f);
+            Check("VR：触觉接口可调用（无头显时记为跳过而不报错）",
+                VRHaptics.AttemptCount == 1 && (VRHaptics.SendCount + VRHaptics.SkipCount) == 1);
         }
 
         static void CheckHand(string name, XRNode node)
@@ -1302,6 +1346,16 @@ namespace FireSafety.EditorTools
             var lr = go.GetComponent<LineRenderer>();
             Check("VR：" + name + " 射线是细线（≤0.02 米，不挡视线）",
                 lr != null && lr.startWidth <= 0.02f);
+
+            // 手柄可见模型：真机里要看得见自己的手
+            var vis = go.GetComponent<VRControllerVisual>();
+            Check("VR：" + name + " 有手柄可见模型（头显里能看见手）", vis != null);
+            if (vis != null)
+            {
+                var expect = name.Contains("Left") ? HandSide.Left : HandSide.Right;
+                Check("VR：" + name + " 模型手侧 = " + expect, vis.side == expect);
+                Check("VR：" + name + " 模型不在桌面键鼠模式显示", !vis.showInDesktop);
+            }
         }
 
         static void Check(string name, bool ok)

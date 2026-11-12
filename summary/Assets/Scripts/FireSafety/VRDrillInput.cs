@@ -16,6 +16,7 @@ namespace FireSafety
     ///   · X（左手 Primary）    ：问答选 C / 蹲下与站起兜底
     ///   · 左摇杆按下（Stick Click）：蹲下 / 站起兜底（真人蹲下也直接生效）
     ///   · 右手射线             ：点按世界空间 UI（EventSystem + XRUIInputModule 已装配）
+    ///   · 触觉                 ：抓起灭火器 / 拔销 / 压把 / 答题成功各给一次脉冲（幅度可在 Inspector 调）
     /// </summary>
     [DisallowMultipleComponent]
     public class VRDrillInput : MonoBehaviour
@@ -56,6 +57,18 @@ namespace FireSafety
         [Tooltip("秒数：同一条提示重复推送的间隔上限")]
         public float hintRefresh = 8f;
 
+        [Header("触觉反馈（0 = 关闭该动作的脉冲）")]
+        [Tooltip("抓起灭火器时的脉冲幅度")]
+        public float hapticGrab = 0.22f;
+        [Tooltip("保险销拔出的脉冲幅度（动作最关键，给最强）")]
+        public float hapticPin = 0.75f;
+        [Tooltip("压下压把的脉冲幅度")]
+        public float hapticPress = 0.42f;
+        [Tooltip("答题成功的脉冲幅度")]
+        public float hapticAnswer = 0.30f;
+        [Tooltip("单次脉冲时长（秒）")]
+        public float hapticDuration = 0.07f;
+
         /// <summary>虚拟输入（播放态探针用）：完全绕过真实设备。</summary>
         public bool virtualMode = false;
         public bool vPrimary;
@@ -69,6 +82,7 @@ namespace FireSafety
         bool _virtualRegistered;
         float _lastHint = -999f;
         Extinguisher _held;
+        Extinguisher _prevHeld;
 
         void OnDisable()
         {
@@ -108,6 +122,10 @@ namespace FireSafety
 
             _held = FindHeld();
 
+            // 抓取成功 → 一次轻脉冲（VR 里没有「拿住了」的视觉确认，靠手上震一下）
+            if (_held != null && _prevHeld != _held) PulseRight(hapticGrab, hapticDuration);
+            _prevHeld = _held;
+
             // ---- Trigger：拔销 → 压把 → 松开 ----
             if (trigger && !_prevTrigger)
             {
@@ -118,11 +136,13 @@ namespace FireSafety
                         if (_held.pin != null) _held.pin.PullByInput();
                         else _held.PullPin();
                         _triggerConsumed = true;
+                        if (_held.PinPulled) PulseRight(hapticPin, 0.10f);
                         Hint(_held.PinPulled ? "保险销已拔出 · 再按一次扳机压下压把" : "请先完成常识问答再拔销");
                     }
                     else if (_held.PinPulled && !_triggerConsumed)
                     {
                         if (_held.handleLever != null) _held.handleLever.PressExternal();
+                        PulseRight(hapticPress, hapticDuration);
                         Hint("压把已按下 · 对准火焰根部持续喷射，松开扳机停止");
                     }
                 }
@@ -196,7 +216,7 @@ namespace FireSafety
                 if (!e.quizPanel.IsOpen) continue;
                 if (e.quizPanel.IsAnsweredThisQuestion) return false;
                 bool ok = e.quizPanel.AnswerOption(option);
-                if (ok) Hint("已选择 " + (char)('A' + option) + " · 答对 3/5 题即可拿起灭火器");
+                if (ok) { PulseRight(hapticAnswer, hapticDuration); Hint("已选择 " + (char)('A' + option) + " · 答对 3/5 题即可拿起灭火器"); }
                 return ok;
             }
             return false;
@@ -244,6 +264,13 @@ namespace FireSafety
         {
             _lastHint = Time.time;
             if (hud != null) hud.SetHint(text);
+        }
+
+        /// <summary>右手柄脉冲（幅度为 0 时跳过，便于逐个关掉）。</summary>
+        void PulseRight(float amplitude, float duration)
+        {
+            if (amplitude <= 0f) return;
+            VRHaptics.Pulse(HandSide.Right, amplitude, duration);
         }
 
         bool ReadTrigger()
