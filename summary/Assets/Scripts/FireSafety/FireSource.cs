@@ -25,14 +25,34 @@ namespace FireSafety
         public float extinguishThreshold = 2.5f;
         [Range(0f, 1f)] public float progress01;
 
+        [Header("阶段门控")]
+        [Tooltip("为 true 时喷射不推进灭火进度（例：电气设备火必须先切断电源）")]
+        public bool extinguishLocked = false;
+        [Tooltip("被锁定时给玩家的说明")]
+        public string lockHint = "先切断电源，再灭火";
+        [Tooltip("开始界面点「开始演练」时是否自动点燃（设备火 / 出口火由流程脚本显式点燃，应设为 false）")]
+        public bool igniteFromStartScreen = true;
+        [Tooltip("场景初始就是未点燃状态（练习火在「操作演练」时才点燃）")]
+        public bool startUnlit = false;
+        [Tooltip("喷射被锁定拦截时广播（节流 0.8 秒一次），供流程脚本提示玩家")]
+        public UnityEvent onExtinguishBlocked = new UnityEvent();
+
         [Header("事件")]
         public UnityEvent onExtinguished;
 
         public bool IsExtinguished { get; private set; }
+        /// <summary>当前是否处于燃烧状态。未点燃的火源不参与「全部火源已扑灭」判定。</summary>
+        public bool IsBurning { get; private set; } = true;
         public Vector3 AimPoint => aimTarget ? aimTarget.position : transform.position;
 
         private float _baseIntensity;
         private float _baseVolume;
+        private float _lastBlockedLog = -999f;
+
+        private void Awake()
+        {
+            if (startUnlit) IsBurning = false;
+        }
 
         private void OnEnable()
         {
@@ -59,13 +79,68 @@ namespace FireSafety
         public void ApplyExtinguish(float amount)
         {
             if (IsExtinguished || amount <= 0f) return;
+
+            // 电气设备火：未断电前喷射只冒白烟不灭火，并给出「先切断电源」的提示
+            if (extinguishLocked)
+            {
+                if (Time.unscaledTime - _lastBlockedLog > 0.8f)
+                {
+                    _lastBlockedLog = Time.unscaledTime;
+                    Debug.Log("[Fire] 火源仍带电，喷射无效：" + lockHint);
+                    onExtinguishBlocked?.Invoke();
+                }
+                return;
+            }
+
             progress01 = Mathf.Clamp01(progress01 + amount / Mathf.Max(0.0001f, extinguishThreshold));
             if (progress01 >= 1f) Extinguish();
         }
 
-        private void Extinguish()
+        /// <summary>切断电源后解锁灭火（由 PowerSwitch / 流程脚本调用）。</summary>
+        public void SetExtinguishLocked(bool locked)
+        {
+            extinguishLocked = locked;
+            if (!locked) Debug.Log("[Fire] 电源已切断，火源解除锁定，可以喷射灭火。");
+        }
+
+        /// <summary>显式点燃：把进度清零、粒子 / 灯光重新打开（设备火、出口火用）。</summary>
+        public void IgniteNow()
+        {
+            IsExtinguished = false;
+            IsBurning = true;
+            progress01 = 0f;
+
+            if (!gameObject.activeSelf) gameObject.SetActive(true);
+
+            if (particles != null)
+            {
+                foreach (var p in particles)
+                {
+                    if (p == null) continue;
+                    p.Clear();
+                    p.Play();
+                }
+            }
+            foreach (var p in GetComponentsInChildren<ParticleSystem>(true))
+            {
+                if (p != null && !p.isPlaying) p.Play();
+            }
+
+            if (fireLight != null)
+            {
+                fireLight.enabled = true;
+                if (_baseIntensity <= 0.01f) _baseIntensity = 2.2f;
+                fireLight.intensity = _baseIntensity;
+            }
+
+            Debug.Log("[Fire] 已点燃 " + name + "（灭火进度归零）");
+        }
+
+        /// <summary>直接判定扑灭（流程切换时收掉旧火源用；正常灭火走 ApplyExtinguish）。</summary>
+        public void Extinguish()
         {
             IsExtinguished = true;
+            IsBurning = false;
             progress01 = 1f;
 
             if (particles != null)
@@ -86,12 +161,25 @@ namespace FireSafety
             }
         }
 
-        /// <summary>场景内是否已无明火。</summary>
+        /// <summary>场景内是否已无明火（只统计正在燃烧的火源）。</summary>
         public static bool AllExtinguished()
         {
             foreach (var f in Active)
-                if (f != null && !f.IsExtinguished) return false;
+                if (f != null && f.IsBurning && !f.IsExtinguished) return false;
             return true;
+        }
+
+        /// <summary>
+        /// 装配 / 初始化用：把火源置为「未点燃」——进度清零、明火全停，但不触发任何事件。
+        /// 操作演练 / 正式阶段开始时再由 IgniteNow() 点燃。
+        /// </summary>
+        public void PrepareAsUnlit()
+        {
+            IsBurning = false;
+            IsExtinguished = false;
+            progress01 = 0f;
+            startUnlit = true;
+            ClearFlame();
         }
 
         /// <summary>

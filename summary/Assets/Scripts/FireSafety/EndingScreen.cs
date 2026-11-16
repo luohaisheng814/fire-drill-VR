@@ -331,6 +331,8 @@ namespace FireSafety
             Transform c = cam != null ? cam.transform : transform;
             Vector3 pos = c.position + c.forward * distanceFromCamera + c.up * verticalOffset;
             _canvas.transform.position = pos;
+            // WorldSpace Canvas 的正面朝向 -Z：要让面板面向玩家，+Z 必须背离相机（pos - c.position）。
+            // 写成 c.position - pos 会把背面转给玩家（文字镜像、按钮点不到）。
             _canvas.transform.rotation = Quaternion.LookRotation(pos - c.position, Vector3.up);
         }
 

@@ -66,6 +66,7 @@ namespace FireSafety
         private Transform _player;
         private bool _reachedReported;
         private bool _prevTrigger;
+        private float _putDownAt = -1f;
 
         private void Awake()
         {
@@ -235,6 +236,19 @@ namespace FireSafety
         {
             CheckReach();   // ④
             CheckSpray();   // 喷射
+
+            // 火被喷灭后自动把灭火器放下：继续举着它撤离会把视野挡死（门口/结束页实测只剩瓶身）
+            if (_putDownAt > 0f && Time.time >= _putDownAt)
+            {
+                _putDownAt = -1f;
+                if (IsSpraying) StopSpray();
+                if (grab != null && grab.IsHeld)
+                {
+                    grab.ReleaseExternal();
+                    grab.ForceRelease();
+                    Debug.Log("[Ext] 火已扑灭，已放下 " + name);
+                }
+            }
         }
 
         private void CheckReach()
@@ -407,7 +421,7 @@ namespace FireSafety
 
             foreach (var fire in FireSource.Active)
             {
-                if (fire == null || fire.IsExtinguished) continue;
+                if (fire == null || fire.IsExtinguished || !fire.IsBurning) continue;
 
                 Vector3 toFire = fire.AimPoint - origin;
                 float dist = toFire.magnitude;
@@ -422,6 +436,7 @@ namespace FireSafety
                 }
 
                 fire.ApplyExtinguish(Time.deltaTime * extinguishRate);
+                if (fire.progress01 >= 0.999f) _putDownAt = Time.time + 0.9f;
             }
         }
 

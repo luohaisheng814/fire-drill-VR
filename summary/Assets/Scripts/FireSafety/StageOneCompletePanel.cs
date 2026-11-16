@@ -26,6 +26,15 @@ namespace FireSafety
         public string buttonSettlement = "立刻结算";
         public string buttonContinue = "继续往下";
 
+        [Header("新流程控制")]
+        [Tooltip("全部火源扑灭时是否自动弹出；正式演练由 DrillScenario 接管阶段推进，阶段一不弹本面板")]
+        public bool autoShow = true;
+        [Tooltip("自定义汇总文案（留空使用默认文案）")]
+        public string summaryOverride = "";
+        [System.NonSerialized]
+        [Tooltip("「继续往下」的替代回调（操作演练 → 进入正式演练）")]
+        public System.Action continueOverride;
+
         [Header("位置")]
         [Tooltip("面板离相机的距离（米）；太近会顶满视野、按钮被桌面 HUD 压住，1.55 米更稳")]
         public float distanceFromCamera = 1.55f;
@@ -40,6 +49,11 @@ namespace FireSafety
         Canvas _canvas;
         CanvasGroup _group;
         Text _summaryText;
+        Text _titleText;
+        Text _settleLabel;
+        Text _continueLabel;
+        Button _settleButton;
+        Button _continueButton;
         AudioSource _src;
 
         private void Awake()
@@ -79,7 +93,40 @@ namespace FireSafety
             if (Instance == this) Instance = null;
         }
 
-        private void OnDrillCompleted() => Show();
+        /// <summary>演练全部结束（⑨ 完成）：按 autoShow 决定是否弹出面板。</summary>
+        private void OnDrillCompleted()
+        {
+            if (!autoShow) return;
+            Show();
+        }
+
+        /// <summary>
+        /// 修改面板文案（操作演练完成 → 进入正式演练）。
+        /// 面板 UI 在 Awake 时就建好了，只改字段不会更新已有 Text，必须同步刷新引用。
+        /// </summary>
+        public void SetWording(string titleText, string summary, string continueLabel, string settlementLabel)
+        {
+            title = titleText;
+            summaryOverride = summary;
+            buttonContinue = continueLabel;
+            buttonSettlement = settlementLabel;
+            ApplyWording();
+        }
+
+        private void ApplyWording()
+        {
+            if (_titleText != null) _titleText.text = title;
+            if (_continueLabel != null) _continueLabel.text = buttonContinue;
+            if (_settleLabel != null) _settleLabel.text = buttonSettlement;
+            if (_summaryText != null && !string.IsNullOrEmpty(summaryOverride))
+                _summaryText.text = summaryOverride;
+        }
+
+        /// <summary>外部（DrillScenario）关闭面板。</summary>
+        public void HidePanel()
+        {
+            Hide();
+        }
 
         /// <summary>弹出面板：暂停倒计时。</summary>
         public void Show()
@@ -93,6 +140,7 @@ namespace FireSafety
             FireSource.ClearAllFlames();
 
             RefreshSummary();
+            ApplyWording();
             PlaceInFrontOfCamera();
             _canvas.gameObject.SetActive(true);
             if (Application.isPlaying)
@@ -118,9 +166,20 @@ namespace FireSafety
             Debug.Log("[StageOne] 选择立刻结算。");
         }
 
-        /// <summary>继续往下：倒计时从暂停处继续。</summary>
+        /// <summary>继续往下：操作演练走自定义回调；正式流程则倒计时继续并进入第二阶段。</summary>
         public void Continue()
         {
+            if (continueOverride != null)
+            {
+                var cb = continueOverride;
+                continueOverride = null;
+                Hide();
+                cb();
+                onContinue?.Invoke();
+                Debug.Log("[StageOne] 选择「" + buttonContinue + "」（自定义回调）。");
+                return;
+            }
+
             Hide();
             if (countdown == null) countdown = FindObjectOfType<DrillCountdown>();
             if (countdown != null) countdown.Resume();
@@ -141,6 +200,11 @@ namespace FireSafety
         private void RefreshSummary()
         {
             if (_summaryText == null) return;
+            if (!string.IsNullOrEmpty(summaryOverride))
+            {
+                _summaryText.text = summaryOverride;
+                return;
+            }
             string time = countdown != null
                 ? "倒计时已暂停 · 剩余 " + Format(countdown.Remaining)
                 : "倒计时已暂停";
@@ -203,7 +267,7 @@ namespace FireSafety
             prt.pivot = new Vector2(0.5f, 0.5f);
             prt.anchoredPosition = Vector2.zero;
 
-            AddText(panel.transform, title, 46, new Color(0.45f, 0.95f, 0.55f), 66f);
+            _titleText = AddText(panel.transform, title, 46, new Color(0.45f, 0.95f, 0.55f), 66f);
             _summaryText = AddText(panel.transform, "", 26, Color.white, 230f);
 
             var btnRow = new GameObject("Buttons", typeof(RectTransform), typeof(HorizontalLayoutGroup));
@@ -222,8 +286,13 @@ namespace FireSafety
 
             var settleBtn = AddButton(btnRow.transform, buttonSettlement, 34, new Color(0.72f, 0.42f, 0.12f, 1f), 84f);
             settleBtn.onClick.AddListener(Settlement);
+            _settleButton = settleBtn;
+            _settleLabel = settleBtn.GetComponentInChildren<Text>();
+
             var continueBtn = AddButton(btnRow.transform, buttonContinue, 34, new Color(0.12f, 0.55f, 0.30f, 1f), 84f);
             continueBtn.onClick.AddListener(Continue);
+            _continueButton = continueBtn;
+            _continueLabel = continueBtn.GetComponentInChildren<Text>();
 
             AddText(panel.transform, "鼠标点击按钮选择（VR 可用手柄射线点按）", 22,
                 new Color(0.72f, 0.72f, 0.72f), 40f);

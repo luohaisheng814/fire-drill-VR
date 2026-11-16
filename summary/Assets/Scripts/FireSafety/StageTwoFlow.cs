@@ -54,6 +54,16 @@ namespace FireSafety
         [Tooltip("第三阶段开始时，把最近的一台空闲灭火器挪到 spareExtinguisherSpot")]
         public bool autoMoveSpareExtinguisher = false;
 
+        [Header("流程开关（本轮重构后的第 2 阶段）")]
+        [Tooltip("第 2 阶段是否开浓烟：新流程只要安全标识 + 出口火情，默认关")]
+        public bool useSmoke = false;
+        [Tooltip("是否必须在浓烟中蹲下才能推进：新流程不强制潜行，默认关")]
+        public bool requireCrouch = false;
+        [Tooltip("第 2 阶段备用灭火器的题库组：0=A 1=B 2=C(电气) 3=D(疏散情景)")]
+        [Range(0, 3)] public int spareQuizSetIndex = 3;
+        [Tooltip("头显提示条（留空自动查找）")]
+        public VRDrillHud hud;
+
         [Header("事件")]
         public UnityEvent onStageTwoBegin = new UnityEvent();
         public UnityEvent onStageThreeBegin = new UnityEvent();
@@ -113,6 +123,7 @@ namespace FireSafety
             if (exitDoor == null) exitDoor = FindObjectOfType<ExitDoor>(true);
             if (countdown == null) countdown = FindObjectOfType<DrillCountdown>();
             if (endingScreen == null) endingScreen = FindObjectOfType<EndingScreen>();
+            if (hud == null) hud = FindObjectOfType<VRDrillHud>();
             if (player == null && Camera.main != null) player = Camera.main.transform;
         }
 
@@ -128,18 +139,38 @@ namespace FireSafety
             if (player == null) Resolve();
 
             // 浓烟中站立：累计暴露时间并周期性提示（蹲下即清零）
-            if (!IsCrouched)
+            // 新流程（useSmoke=false + requireCrouch=false）不统计，直接沿标识走
+            if (useSmoke && !requireCrouch)
             {
-                _smokeTimer += Time.deltaTime;
-                SmokeExposureSeconds += Time.deltaTime;
-                if (_smokeTimer >= Mathf.Max(1f, smokeWarningInterval))
+                // 有烟但不强制蹲：只提示，不阻挡推进
+                if (!IsCrouched)
                 {
-                    _smokeTimer = 0f;
-                    SmokeWarnings++;
-                    Hint("浓烟警告：请蹲下并沿地面箭头潜行（桌面按 C 蹲下）", true);
+                    _smokeTimer += Time.deltaTime;
+                    SmokeExposureSeconds += Time.deltaTime;
+                    if (_smokeTimer >= Mathf.Max(1f, smokeWarningInterval))
+                    {
+                        _smokeTimer = 0f;
+                        SmokeWarnings++;
+                        Hint("浓烟警告：建议蹲低并沿地面箭头撤离（桌面按 C 蹲下）", true);
+                    }
                 }
+                else _smokeTimer = 0f;
             }
-            else _smokeTimer = 0f;
+            else if (useSmoke && requireCrouch)
+            {
+                if (!IsCrouched)
+                {
+                    _smokeTimer += Time.deltaTime;
+                    SmokeExposureSeconds += Time.deltaTime;
+                    if (_smokeTimer >= Mathf.Max(1f, smokeWarningInterval))
+                    {
+                        _smokeTimer = 0f;
+                        SmokeWarnings++;
+                        Hint("浓烟警告：请蹲下并沿地面箭头潜行（桌面按 C 蹲下）", true);
+                    }
+                }
+                else _smokeTimer = 0f;
+            }
 
             Transform lobby = arrows != null ? arrows.lobbyTarget : null;
             if (lobby == null) return;
@@ -159,19 +190,22 @@ namespace FireSafety
             SmokeWarnings = 0;
             _smokeTimer = 0f;
 
-            if (smoke != null) smoke.Begin();
+            if (smoke != null && useSmoke) smoke.Begin();
             if (arrows != null) arrows.BeginLobbyGuidance();
 
-            Hint("第二阶段：烟雾扩散，蹲下潜行（桌面按 C），沿安全出口箭头前往大厅", true);
+            if (requireCrouch)
+                Hint("第二阶段：烟雾扩散，蹲下潜行（桌面按 C），沿安全出口箭头前往大厅", true);
+            else
+                Hint("第 2 阶段：沿「安全出口」标识与地面箭头前往出口，门前会升起火焰——灭掉它，门就会打开", true);
             onStageTwoBegin?.Invoke();
-            Debug.Log("[Stage2] 第二阶段开始：烟雾 + 安全出口箭头。");
+            Debug.Log("[Stage2] 第二阶段开始：安全出口标识 + 箭头（useSmoke=" + useSmoke + " / requireCrouch=" + requireCrouch + "）。");
         }
 
         /// <summary>到达大厅（crouched 由调用方给出，便于自检）。返回是否推进到第三阶段。</summary>
         public bool TryArriveLobby(bool crouched)
         {
             if (CurrentStage != Stage.Evacuating) return false;
-            if (!crouched)
+            if (requireCrouch && !crouched)
             {
                 if (!_warnedStandingAtLobby)
                 {
@@ -206,7 +240,7 @@ namespace FireSafety
 
             MoveSpareExtinguisherToLobby();
 
-            Hint("大厅复燃！放下手上灭火器，拿起大厅备用灭火器（需再答 5 题）→ 拔销 → 压把 → 对准门前火焰喷射", true);
+            Hint("出口前复燃！拿起出口旁的灭火器（需再答 5 题疏散情景题）→ 拔销 → 压把 → 对准门前火焰喷射", true);
             onStageThreeBegin?.Invoke();
             Debug.Log("[Stage2] 进入第三阶段：大厅复燃，重复灭火流程。");
         }
@@ -239,7 +273,7 @@ namespace FireSafety
             if (CurrentStage != Stage.ExitOpen)
             {
                 // 门没解锁就走到门口：提示先灭火
-                Hint("安全出口尚未开启——先扑灭大厅复燃的火源", true);
+                Hint("安全出口尚未开启——先扑灭门前的火焰", true);
                 return;
             }
             Complete();
@@ -351,13 +385,16 @@ namespace FireSafety
                 // 模板在第一阶段可能已被扑灭：克隆会把 progress01 一起复制过来（=1），
                 // 新火一被碰就立刻判定熄灭，门瞬间就开。这里必须清零并点燃粒子。
                 cloneFire.progress01 = 0f;
-                foreach (var part in cloneParts)
-                    if (part != null && !part.isPlaying) part.Play();
                 if (cloneLight != null) cloneLight.enabled = true;
                 if (cloneFire.onExtinguished == null) cloneFire.onExtinguished = new UnityEvent();
                 cloneFire.onExtinguished.RemoveAllListeners();   // 克隆会连事件表一起复制，先清掉模板留下的监听
                 cloneFire.onExtinguished.AddListener(OnStageTwoFireExtinguished);
                 cloneFire.aimTarget = MakeAimPoint(clone.transform);
+                EnsureHealthBar(cloneFire);
+                // 模板本轮已改为「未点燃」外观（startUnlit=true），克隆会继承 IsBurning=false；
+                // 这里必须显式点燃，否则喷射会被 ApplySprayToFires 跳过 —— 火在烧但进度永远 0。
+                cloneFire.startUnlit = false;
+                cloneFire.IgniteNow();
                 stageTwoFire = cloneFire;
                 Debug.Log("[Stage2] 复燃火源复用场景火焰模板 " + template.name + "（" + cloneParts.Length + " 个粒子系统）");
                 return;
@@ -428,8 +465,19 @@ namespace FireSafety
             if (fire.onExtinguished == null) fire.onExtinguished = new UnityEvent();
             fire.onExtinguished.AddListener(OnStageTwoFireExtinguished);
             fire.aimTarget = MakeAimPoint(go.transform);
+            EnsureHealthBar(fire);
 
             stageTwoFire = fire;
+        }
+
+        /// <summary>出口阶段的火焰也挂血量条：玩家能看到「HP 100 → 0」的灭火进度。</summary>
+        private static void EnsureHealthBar(FireSource fire)
+        {
+            if (fire == null) return;
+            var bar = fire.GetComponent<FireHealthBar>();
+            if (bar == null) bar = fire.gameObject.AddComponent<FireHealthBar>();
+            bar.fire = fire;
+            bar.RefreshNow();   // 新建的条当帧 Start 还没跑，先刷成 HP 100，免得玩家第一眼看到 0/100
         }
 
         /// <summary>
@@ -518,6 +566,9 @@ namespace FireSafety
             }
             if (best == null || (best.grab != null && best.grab.IsHeld)) return;
 
+            // 第 2 阶段用独立题库（默认 D 组：出口 / 疏散情景），必须在重置问答前切组
+            if (best.quizPanel != null) best.quizPanel.questionSetIndex = spareQuizSetIndex;
+
             // 默认（autoMoveSpareExtinguisher = false）不动这台灭火器：它运到第三阶段就该待在原地。
             // 只有显式打开开关时才搬移，并按「渲染包围盒」落位，避免横躺或插进家具。
             if (autoMoveSpareExtinguisher)
@@ -545,7 +596,7 @@ namespace FireSafety
                 Debug.Log("[Stage2] 备用灭火器保持原地（不搬移），问答已换成 B 组 5 题：" + best.name);
             }
 
-            best.ResetQuizForStageTwo();   // 重新拾取都要再答 B 组 5 题
+            best.ResetQuizForStageTwo();   // 重新拾取都要再答一遍（默认 D 组疏散情景题）
         }
 
         // ---------------- 工具 ----------------
@@ -565,6 +616,8 @@ namespace FireSafety
             Debug.Log("[Stage2] " + msg);
             var desktop = DesktopDrillInput.Instance;
             if (desktop != null) desktop.PushHint(msg);
+            if (hud == null) hud = FindObjectOfType<VRDrillHud>();
+            if (hud != null) hud.SetHint(msg);
         }
     }
 }

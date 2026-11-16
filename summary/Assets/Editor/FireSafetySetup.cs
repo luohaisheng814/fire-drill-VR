@@ -5,7 +5,9 @@ using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
+using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
+using UnityEngine.UI;
 using UnityEngine.XR;
 using UnityEngine.XR.Interaction.Toolkit;
 using UnityEngine.XR.Interaction.Toolkit.Interactors;
@@ -99,9 +101,13 @@ namespace FireSafety.EditorTools
             SetupEndingScreen();
             SetupStageTwoFlow();
 
-            // 6. 灭火器
+            // 5.7 天花板（办公室原来只有地板，抬头能直接看到天空盒）
+            SetupCeiling();
+
+            // 6. 灭火器（01 = 操作演练 / 02 = 正式第 1 阶段设备火 / 03 = 第 2 阶段出口火）
             SetupExtinguisher("Extinguisher01", rig, leftHand, rightHand);
             SetupExtinguisher("Extinguisher02", rig, leftHand, rightHand);
+            SetupExtinguisher("Extinguisher03", rig, leftHand, rightHand);
 
             // 7. UI 输入
             SetupEventSystem();
@@ -112,9 +118,11 @@ namespace FireSafety.EditorTools
             // 9. 头显输入层：Trigger 拔销/压把/喷射、A/B/X 问答与翻页、左摇杆按下蹲起、VR 提示条
             SetupVrInput(rig, cam);
 
+            // 10. 新流程编排：操作演练 + 正式两阶段（随机出生点 / 设备火 / 电源 / 火焰血量 / 出口火）
+            SetupDrillScenario(rig != null ? rig.gameObject : null);
+
             // 10. 清理历史遗留的「缺失脚本」组件
             RemoveMissingScripts();
-
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene, ScenePath);
             AssetDatabase.SaveAssets();
@@ -362,14 +370,17 @@ namespace FireSafety.EditorTools
             start.igniteFiresOnBegin = true;
             start.instructions =
                 "玩法说明：\n" +
-                "① 手柄射线指向开始面板，点「开始演练」→ 警报响起，倒计时开始（上限 3 分钟）；\n" +
-                "② 找到红色灭火器：进入视线会高亮提示，地面箭头指向它的位置；\n" +
-                "③ 鼠标右键单击灭火器 → 弹出 5 道常识题，每题 10 秒，答对 60%（3 题）才能拿起；\n" +
-                "④ 拿起后：左键单击拔销 → 左键双击压把 → 右键双击喷射，火焰 2~3 秒熄灭即完成阶段一；\n" +
-                "⑤ 阶段一完成→继续往下：烟雾扩散，按 C 蹲下潜行（VR 里真的蹲下），沿安全出口箭头到大厅；\n" +
-                "⑥ 大厅复燃：再执行一遍拿起→拔销→压把→喷射，扑灭后「安全出口 EXIT」开启，走进门内通关。\n" +
-                "键盘：P 放下灭火器；回车 / 空格 开始演练；问答时按 1 / 2 / 3 作答。\n" +
-                "不确定怎么操作？点下方「操作教学」，分页看完整步骤。";
+                "① 点「开始演练」→ 警报拉响、倒计时 3 分钟；出生点会在 3 处中随机落到一处，旁边就是起火的电气设备；\n" +
+                "② 设备起火会冒烟：先走到旁边的电源箱，右键单击（VR 扳机点射）切断电源——未断电时喷射无效；\n" +
+                "③ 拿灭火器：进入视线会高亮；右键单击灭火器 → 5 道题、每题 10 秒、答对 60%（3 题）才能拿起；\n" +
+                "④ 拔销（左键单击 / 扳机）→ 压把（左键双击 / 扳机）→ 喷射（右键双击 / 按住扳机）；\n" +
+                "   火焰上方有血量条（HP 100 → 0），喷到归零即扑灭；\n" +
+                "⑤ 灭掉设备火 → 第 2 阶段：沿「安全出口」标识与地面箭头撤离，出口前会再升起一团火；\n" +
+                "⑥ 用出口旁的灭火器再答 5 题 → 灭掉出口火 →「安全出口 EXIT」开门，走进门内通关。\n" +
+                "想先熟悉流程？点「操作演练」：原地练一遍 拿瓶 → 答题 → 拔销 → 压把 → 喷射。\n" +
+                "键盘：W/A/S/D 移动、鼠标转头、C 蹲下、P 放下灭火器；回车 / 空格 开始演练。";
+            start.tutorialLabel = "操作演练";
+            start.showTutorialButton = true;
             start.onboardingLabel = "操作教学";
             Debug.Log("[Setup] ✔ 开始界面：StartScreen（锚定右手手柄正前方；玩法说明可在 Inspector 修改）");
         }
@@ -624,15 +635,18 @@ namespace FireSafety.EditorTools
             flow.crouchHeight = 1.15f;
             flow.lobbyEnterDistance = 1.2f;
             flow.exitEnterDistance = 0.9f;
+            // 新流程第 2 阶段：只保留安全标识 + 出口火情，不开浓烟、不强制蹲姿
+            flow.useSmoke = false;
+            flow.requireCrouch = false;
             // 复燃火源放在安全出口门正前方 0.75 米（按门的本地坐标解释，门朝哪边就落在哪边）
             flow.stageTwoFireOffset = new Vector3(0f, 0.25f, 0.75f);
 
-            // 第三阶段固定用 Extinguisher02（B 组 5 题），保证第二个灭火器考的是另一套题
-            var spare = GameObject.Find("Extinguisher02");
+            // 第 2 阶段固定用 Extinguisher03（D 组：安全出口 / 疏散情景），摆在出口门旁
+            var spare = GameObject.Find("Extinguisher03");
             if (spare != null) flow.spareExtinguisher = spare.GetComponent<Extinguisher>();
-            // 这台灭火器运到第三阶段**待在原地**，不再搬移（以前搬到大门口会插进长凳）
             flow.autoMoveSpareExtinguisher = false;
-            flow.spareExtinguisherSpot = new Vector3(1.70f, 0f, 0.52f);   // 仅作「最近空闲灭火器」的参照点
+            flow.spareExtinguisherSpot = new Vector3(3.70f, 0f, 1.60f);   // 出口门西侧 1.7 米、Lobby 旁的空位
+            flow.spareQuizSetIndex = 3;
 
             // 箭头能指到出口
             var arrows = UnityEngine.Object.FindObjectOfType<GuidanceArrows>();
@@ -654,6 +668,615 @@ namespace FireSafety.EditorTools
             if (ending != null) ending.exitDoor = door;
 
             Debug.Log("[Setup] ✔ 第二阶段流程：StageTwoFlow + SmokeZone（7 个烟雾发射点）+ ExitDoor（复用 door_b_variant 真实门，解锁后门扇转开）");
+        }
+
+        // ================================================================
+        // 5.7 天花板 + 顶灯
+        // ================================================================
+        /// <summary>
+        /// 场景原本只有 Floor 0，抬起头能直接看到天空盒 —— 火灾房间里出现"天花板开了个洞"的违和感。
+        /// 用一块 14×12 米的 Cube 封住 3.0 米高的墙顶。关键点：必须关闭阴影投射，
+        /// 否则方向光被整块板挡住，室内会骤然变暗。
+        /// </summary>
+        static void SetupCeiling()
+        {
+            var go = GameObject.Find("Ceiling");
+            if (go == null)
+            {
+                go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                go.name = "Ceiling";
+            }
+            var col = go.GetComponent<Collider>();
+            if (col != null) UnityEngine.Object.DestroyImmediate(col);   // 不参与碰撞，纯视觉
+
+            go.transform.position = new Vector3(0.25f, 3.05f, -2.0f);   // 内表面 y=3.0，与墙顶齐
+            go.transform.rotation = Quaternion.identity;
+            go.transform.localScale = new Vector3(14f, 0.1f, 12f);
+
+            var mr = go.GetComponent<MeshRenderer>();
+            if (mr != null)
+            {
+                mr.sharedMaterial = EnsureSetupMaterial("Assets/Materials/CeilingMat.mat",
+                    new Color(0.72f, 0.73f, 0.76f), 0.15f);
+                mr.shadowCastingMode = ShadowCastingMode.Off;   // 不挡方向光，保持室内亮度
+                mr.receiveShadows = false;
+            }
+
+            // 顶灯：四盏吸顶灯盘 + 低强度点光，补天花板下方的照度（不改变原有氛围）
+            var lampDefs = new[]
+            {
+                new Vector3(-3.80f, 2.92f, 1.60f),
+                new Vector3(1.00f, 2.92f, 1.60f),
+                new Vector3(4.60f, 2.92f, 1.60f),
+                new Vector3(-1.40f, 2.92f, -3.20f)
+            };
+            for (int i = 0; i < lampDefs.Length; i++)
+            {
+                string lampName = "CeilingLamp_" + (i + 1);
+                var lampGo = GameObject.Find(lampName);
+                Transform t = lampGo != null ? lampGo.transform : null;
+                if (t == null)
+                {
+                    var disc = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+                    disc.name = lampName;
+                    var dc = disc.GetComponent<Collider>();
+                    if (dc != null) UnityEngine.Object.DestroyImmediate(dc);
+                    t = disc.transform;
+                }
+                t.position = lampDefs[i];
+                t.localScale = new Vector3(0.30f, 0.015f, 0.30f);
+                var dmr = t.GetComponent<MeshRenderer>();
+                if (dmr != null)
+                    dmr.sharedMaterial = EnsureSetupMaterial("Assets/Materials/CeilingLampMat.mat",
+                        new Color(1f, 0.96f, 0.88f), 0.6f, emission: new Color(1f, 0.92f, 0.78f) * 1.2f);
+
+                Transform lightT = t.Find("PointLight");
+                if (lightT == null)
+                {
+                    var lgo = new GameObject("PointLight");
+                    lgo.transform.SetParent(t, false);
+                    lightT = lgo.transform;
+                }
+                lightT.localPosition = new Vector3(0f, -1.0f / Mathf.Max(0.01f, t.localScale.y) * 0.015f, 0f);
+                var lamp = lightT.GetComponent<Light>();
+                if (lamp == null) lamp = lightT.gameObject.AddComponent<Light>();
+                lamp.type = LightType.Point;
+                lamp.color = new Color(1f, 0.94f, 0.84f);
+                lamp.intensity = 1.1f;
+                lamp.range = 6.0f;
+                lamp.shadows = LightShadows.None;
+            }
+
+            Debug.Log("[Setup] ✔ 天花板：14×12 米封顶（内表面 y=3.0，阴影投射已关闭）+ 4 盏吸顶灯");
+        }
+
+        /// <summary>取/建一个 URP Lit 材质资产（场景保存后引用不会丢）。</summary>
+        static Material EnsureSetupMaterial(string assetPath, Color color, float smoothness, Color? emission = null)
+        {
+            if (!AssetDatabase.IsValidFolder("Assets/Materials"))
+                AssetDatabase.CreateFolder("Assets", "Materials");
+
+            var mat = AssetDatabase.LoadAssetAtPath<Material>(assetPath);
+            if (mat == null)
+            {
+                var shader = Shader.Find("Universal Render Pipeline/Lit");
+                if (shader == null) shader = Shader.Find("Standard");
+                mat = new Material(shader);
+                mat.name = System.IO.Path.GetFileNameWithoutExtension(assetPath);
+                AssetDatabase.CreateAsset(mat, assetPath);
+            }
+            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", color);
+            mat.color = color;
+            if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", smoothness);
+            if (mat.HasProperty("_Glossiness")) mat.SetFloat("_Glossiness", smoothness);
+            if (emission.HasValue)
+            {
+                mat.EnableKeyword("_EMISSION");
+                if (mat.HasProperty("_EmissionColor")) mat.SetColor("_EmissionColor", emission.Value);
+            }
+            EditorUtility.SetDirty(mat);
+            return mat;
+        }
+
+        // ================================================================
+        // 10. 新流程编排：操作演练 + 正式第 1 阶段（设备起火 / 电源 / 随机出生）+ 第 2 阶段
+        // ================================================================
+        static void SetupDrillScenario(GameObject rig)
+        {
+            Vector3 devicePos = new Vector3(-2.40f, 0f, 2.90f);   // desk_5 西侧、北墙前 0.9 米的开阔地
+
+            // ---------------- 出生点：3 个候选，随机取一个 ----------------
+            var spawnRoot = GameObject.Find("DrillSpawnPoints");
+            if (spawnRoot == null) spawnRoot = new GameObject("DrillSpawnPoints");
+            var deviceLook = new Vector3(devicePos.x, 1.0f, devicePos.z);
+            var spawn0 = EnsureSpawn(spawnRoot.transform, "Spawn01", new Vector3(-2.20f, 0f, 0.75f), deviceLook);
+            var spawn1 = EnsureSpawn(spawnRoot.transform, "Spawn02", new Vector3(1.60f, 0f, 1.30f), deviceLook);
+            var spawn2 = EnsureSpawn(spawnRoot.transform, "Spawn03", new Vector3(0.90f, 0f, 2.90f), deviceLook);
+
+            // ---------------- 起火的电气设备（配电柜） ----------------
+            var device = GameObject.Find("DeviceCabinet");
+            if (device == null)
+            {
+                device = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                device.name = "DeviceCabinet";
+            }
+            device.transform.position = new Vector3(devicePos.x, 0.525f, devicePos.z);
+            device.transform.rotation = Quaternion.identity;
+            device.transform.localScale = new Vector3(0.70f, 1.05f, 0.55f);
+            var deviceRenderer = device.GetComponent<MeshRenderer>();
+            if (deviceRenderer != null)
+            {
+                deviceRenderer.sharedMaterial = EnsureSetupMaterial("Assets/Materials/DeviceCabinetMat.mat",
+                    new Color(0.30f, 0.31f, 0.34f), 0.35f);
+                deviceRenderer.shadowCastingMode = ShadowCastingMode.On;
+            }
+            // 面板散热条与运行指示灯（让「设备」一眼可辨认，不是一块灰砖）
+            var panel = EnsureChildCube(device.transform, "Panel", new Vector3(0f, 0.02f, -0.505f),
+                new Vector3(0.56f, 0.34f, 0.02f), "Assets/Materials/DevicePanelMat.mat", new Color(0.14f, 0.15f, 0.17f), 0.25f);
+            EnsureChildCube(device.transform, "LedRed", new Vector3(0.24f, 0.30f, -0.505f),
+                new Vector3(0.055f, 0.055f, 0.02f), "Assets/Materials/DeviceLedMat.mat", new Color(1f, 0.25f, 0.18f), 0.6f,
+                emission: new Color(1f, 0.18f, 0.10f) * 3f);
+
+            // ---------------- 设备顶部的火焰（克隆场景自带 BaseFire000） ----------------
+            var fireGo = GameObject.Find("DeviceFire");
+            var template = GameObject.Find("BaseFire000");
+            if (fireGo == null)
+            {
+                if (template != null)
+                {
+                    fireGo = UnityEngine.Object.Instantiate(template);
+                    fireGo.name = "DeviceFire";
+                }
+                else
+                {
+                    fireGo = new GameObject("DeviceFire");
+                }
+            }
+            // 不能挂到设备下面：设备 scale(0.7,1.05,0.55) 会把火焰压变形
+            fireGo.transform.SetParent(null, true);
+            fireGo.transform.position = new Vector3(devicePos.x, 1.06f, devicePos.z - 0.02f);
+            float templateScale = template != null ? template.transform.localScale.x : 1f;
+            fireGo.transform.localScale = Vector3.one * (templateScale * 0.55f);
+
+            var fireSource = PrepareFireClone(fireGo, locked: true, startUnlit: true);
+            // 火焰顶部再挂一个瞄准点 + 血量条（FireHealthBar 自己建世界空间 UI）
+            var aim = fireGo.transform.Find("Aim");
+            if (aim == null)
+            {
+                var aimGo = new GameObject("Aim").transform;
+                aimGo.SetParent(fireGo.transform, false);
+                aimGo.localPosition = new Vector3(0f, 0.30f, 0f);
+                aim = aimGo;
+            }
+            if (fireSource != null) fireSource.aimTarget = aim;
+            if (fireGo.GetComponent<FireHealthBar>() == null) fireGo.AddComponent<FireHealthBar>();
+            Debug.Log("[Setup] ✔ 设备火焰 DeviceFire：断电锁定 + 火焰血量条（HP 100 起）");
+
+            // ---------------- 设备冒烟（开始演练即播放） ----------------
+            var smokeGo = GameObject.Find("DeviceSmoke");
+            if (smokeGo == null) smokeGo = new GameObject("DeviceSmoke");
+            smokeGo.transform.SetParent(null, true);
+            smokeGo.transform.position = new Vector3(devicePos.x, 1.40f, devicePos.z);
+            var smokePs = smokeGo.GetComponent<ParticleSystem>();
+            if (smokePs == null) smokePs = smokeGo.AddComponent<ParticleSystem>();
+            ConfigureSmoke(smokePs, new Color(0.32f, 0.32f, 0.34f, 0.62f),
+                rate: 26f, speed: 0.55f, size: 1.15f, life: 3.4f, additive: false, radius: 0.18f);
+            smokePs.name = "DeviceSmoke";
+
+            // ---------------- 电源接口（配电箱总闸，贴着北墙） ----------------
+            var boxRoot = GameObject.Find("PowerBox");
+            if (boxRoot == null) boxRoot = new GameObject("PowerBox");
+            boxRoot.transform.position = new Vector3(devicePos.x, 1.35f, 3.68f);
+            boxRoot.transform.rotation = Quaternion.identity;   // 正面（本地 -Z）朝房间内
+            var powerSwitch = boxRoot.GetComponent<PowerSwitch>();
+            if (powerSwitch == null) powerSwitch = boxRoot.AddComponent<PowerSwitch>();
+            BuildPowerBox(boxRoot, powerSwitch);
+
+            // ---------------- 正式第 1 阶段独立烟雾区 ----------------
+            var s1Go = GameObject.Find("Stage1Smoke");
+            if (s1Go == null) s1Go = new GameObject("Stage1Smoke");
+            var s1 = s1Go.GetComponent<SmokeZone>();
+            if (s1 == null) s1 = s1Go.AddComponent<SmokeZone>();
+            s1.emitterCount = 5;
+            s1.start = new Vector3(-2.90f, 1.55f, 1.20f);
+            s1.end = new Vector3(-1.60f, 1.55f, 3.30f);
+            s1.floorClearance = 1.00f;
+            s1.particleSize = 1.00f;
+            s1.ratePerSecond = 18f;
+
+            // ---------------- 三台灭火器的落位与题库组 ----------------
+            var ext01 = GameObject.Find("Extinguisher01");
+            var ext02 = GameObject.Find("Extinguisher02");
+            var ext03 = GameObject.Find("Extinguisher03");
+            if (ext02 != null) PlaceExtinguisher(ext02.transform, new Vector3(-3.10f, 0.16f, 1.15f));
+            if (ext03 != null) PlaceExtinguisher(ext03.transform, new Vector3(3.70f, 0.16f, 1.60f));
+
+            // ---------------- 操作演练用的原地板火 ----------------
+            if (template != null)
+            {
+                var baseFire = template.GetComponent<FireSource>();
+                if (baseFire != null)
+                {
+                    baseFire.startUnlit = true;                 // 未开始演练时不燃烧
+                    baseFire.igniteFromStartScreen = false;     // 「开始演练」只点燃设备火
+                    baseFire.PrepareAsUnlit();
+                }
+            }
+
+            // ---------------- 总控 DrillScenario ----------------
+            var scGo = GameObject.Find("DrillScenario");
+            if (scGo == null) scGo = new GameObject("DrillScenario");
+            var sc = scGo.GetComponent<DrillScenario>();
+            if (sc == null) sc = scGo.AddComponent<DrillScenario>();
+            sc.startScreen = UnityEngine.Object.FindObjectOfType<StartScreen>();
+            sc.stageTwo = UnityEngine.Object.FindObjectOfType<StageTwoFlow>();
+            sc.stagePanel = UnityEngine.Object.FindObjectOfType<StageOneCompletePanel>();
+            sc.arrows = UnityEngine.Object.FindObjectOfType<GuidanceArrows>();
+            sc.countdown = UnityEngine.Object.FindObjectOfType<DrillCountdown>();
+            sc.endingScreen = UnityEngine.Object.FindObjectOfType<EndingScreen>();
+            sc.hud = UnityEngine.Object.FindObjectOfType<VRDrillHud>();
+            sc.tutorialFire = template != null ? template.GetComponent<FireSource>() : null;
+            sc.tutorialExtinguisher = ext01 != null ? ext01.GetComponent<Extinguisher>() : null;
+            sc.tutorialExtinguisherHome = new Vector3(-6.26f, 0.16f, 0.83f);
+            sc.deviceFire = fireSource;
+            sc.deviceSmoke = smokePs;
+            sc.powerSwitch = powerSwitch;
+            sc.deviceExtinguisher = ext02 != null ? ext02.GetComponent<Extinguisher>() : null;
+            sc.stage1Smoke = s1;
+            sc.rigRoot = rig != null ? rig.transform : null;
+            sc.spawnPoints = new[] { spawn0, spawn1, spawn2 };
+            sc.exitExtinguisher = ext03 != null ? ext03.GetComponent<Extinguisher>() : null;
+            sc.randomSpawn = true;
+            sc.requirePowerCutBeforeExtinguish = true;
+
+            // 操作演练站位：站在地板火东侧 3 米，面向西（先看火，再取西墙的火火器）
+            var tutGo = GameObject.Find("TutorialSpawn");
+            if (tutGo == null) tutGo = new GameObject("TutorialSpawn");
+            tutGo.transform.position = new Vector3(0.20f, 0f, 1.40f);
+            var lookAtFire = new Vector3(-1.79f, 0.6f, 0.29f);
+            Vector3 dir = lookAtFire - tutGo.transform.position; dir.y = 0f;
+            if (dir.sqrMagnitude > 0.001f) tutGo.transform.rotation = Quaternion.LookRotation(dir);
+            sc.tutorialSpawn = tutGo.transform;
+
+            // 第 2 阶段把头显提示条也接上
+            var flow = UnityEngine.Object.FindObjectOfType<StageTwoFlow>();
+            if (flow != null)
+            {
+                flow.hud = sc.hud;
+                flow.useSmoke = false;
+                flow.requireCrouch = false;
+                flow.spareQuizSetIndex = 3;
+                if (ext03 != null) flow.spareExtinguisher = ext03.GetComponent<Extinguisher>();
+            }
+
+            Debug.Log("[Setup] ✔ 新流程：操作演练 + 正式第 1 阶段（3 个随机出生点 / 设备火 / 电源箱 / 独立烟雾 / 火焰血量条）"
+                      + " + 第 2 阶段（安全标识 → 出口火 → Extinguisher03 疏散题 → 开门）");
+        }
+
+        /// <summary>出生点：位置 + 朝向设备（yaw 取水平朝向）。</summary>
+        static Transform EnsureSpawn(Transform parent, string name, Vector3 pos, Vector3 lookAt)
+        {
+            var t = parent.Find(name);
+            if (t == null)
+            {
+                var go = new GameObject(name);
+                t = go.transform;
+                t.SetParent(parent, false);
+            }
+            Vector3 dir = lookAt - pos;
+            dir.y = 0f;
+            t.position = pos;
+            t.rotation = dir.sqrMagnitude > 0.001f ? Quaternion.LookRotation(dir) : Quaternion.identity;
+            return t;
+        }
+
+        /// <summary>子物体方块（设备面板、指示灯这类纯装饰件）。</summary>
+        static Transform EnsureChildCube(Transform parent, string name, Vector3 localPos, Vector3 localScale,
+                                         string matPath, Color color, float smoothness, Color? emission = null)
+        {
+            var t = parent.Find(name);
+            if (t == null)
+            {
+                var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                go.name = name;
+                var col = go.GetComponent<Collider>();
+                if (col != null) UnityEngine.Object.DestroyImmediate(col);
+                t = go.transform;
+                t.SetParent(parent, false);
+            }
+            t.localPosition = localPos;
+            t.localRotation = Quaternion.identity;
+            t.localScale = localScale;
+            var mr = t.GetComponent<MeshRenderer>();
+            if (mr != null)
+                mr.sharedMaterial = EnsureSetupMaterial(matPath, color, smoothness, emission);
+            return t;
+        }
+
+        /// <summary>把克隆出来的火焰整理成「可点燃 / 可锁定 / 血量归零」的新火源。</summary>
+        static FireSource PrepareFireClone(GameObject go, bool locked, bool startUnlit)
+        {
+            // 先取组件再删碰撞体：DestroyImmediate 后同帧拿到的是待销毁对象
+            var fires = go.GetComponentsInChildren<FireSource>(true);
+            var rootFire = go.GetComponent<FireSource>();
+            foreach (var extra in fires)
+                if (extra != rootFire) UnityEngine.Object.DestroyImmediate(extra);
+
+            int removed = 0;
+            foreach (var c in go.GetComponentsInChildren<Collider>(true))
+            {
+                UnityEngine.Object.DestroyImmediate(c);
+                removed++;
+            }
+            if (removed > 0) Debug.Log("[Setup] 火焰克隆体移除 " + removed + " 个碰撞体（模板的 8.7 米盒子会把刚体顶飞）");
+
+            if (rootFire == null) rootFire = go.AddComponent<FireSource>();
+            rootFire.onExtinguished.RemoveAllListeners();       // 不能继承模板的事件表
+            rootFire.progress01 = 0f;
+            rootFire.extinguishThreshold = 2.2f;
+            rootFire.startUnlit = startUnlit;
+            rootFire.igniteFromStartScreen = false;
+            rootFire.extinguishLocked = locked;
+            rootFire.lockHint = "火焰仍带电，先切断电源！";
+            if (rootFire.particles == null || rootFire.particles.Length == 0)
+                rootFire.particles = go.GetComponentsInChildren<ParticleSystem>(true);
+
+            // 火光：克隆可能没带 Light，补一盏（否则室内火焰只亮一点粒子）
+            if (rootFire.fireLight == null)
+            {
+                var lgo = go.transform.Find("FireLight");
+                if (lgo == null)
+                {
+                    var t = new GameObject("FireLight").transform;
+                    t.SetParent(go.transform, false);
+                    t.localPosition = new Vector3(0f, 0.18f, 0f);
+                    lgo = t;
+                }
+                var light = lgo.GetComponent<Light>();
+                if (light == null) light = lgo.gameObject.AddComponent<Light>();
+                light.type = LightType.Point;
+                light.color = new Color(1f, 0.45f, 0.15f);
+                light.intensity = 1.6f;
+                light.range = 3.2f;
+                light.shadows = LightShadows.None;
+                rootFire.fireLight = light;
+            }
+
+            rootFire.PrepareAsUnlit();
+            return rootFire;
+        }
+
+        /// <summary>配电箱：箱体 + 闸柄 + 指示灯 + 电弧火花 + 世界空间标签。</summary>
+        static void BuildPowerBox(GameObject root, PowerSwitch powerSwitch)
+        {
+            // 箱体
+            var body = root.transform.Find("Body");
+            if (body == null)
+            {
+                var b = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                b.name = "Body";
+                var bc = b.GetComponent<Collider>();
+                if (bc != null) { bc.isTrigger = false; }
+                body = b.transform;
+                body.SetParent(root.transform, false);
+            }
+            body.localPosition = Vector3.zero;
+            body.localRotation = Quaternion.identity;
+            body.localScale = new Vector3(0.50f, 0.70f, 0.20f);
+            var bmr = body.GetComponent<MeshRenderer>();
+            if (bmr != null)
+                bmr.sharedMaterial = EnsureSetupMaterial("Assets/Materials/PowerBoxMat.mat",
+                    new Color(0.55f, 0.57f, 0.60f), 0.45f);
+
+            // 闸柄：pivot 在箱体正面顶部，切断时向下扳
+            var leverPivot = root.transform.Find("LeverPivot");
+            if (leverPivot == null)
+            {
+                var lp = new GameObject("LeverPivot").transform;
+                lp.SetParent(root.transform, false);
+                leverPivot = lp;
+            }
+            leverPivot.localPosition = new Vector3(0f, 0.16f, -0.115f);
+            leverPivot.localRotation = Quaternion.identity;
+            var lever = leverPivot.Find("Lever");
+            if (lever == null)
+            {
+                var l = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                l.name = "Lever";
+                var lc = l.GetComponent<Collider>();
+                if (lc != null) UnityEngine.Object.DestroyImmediate(lc);
+                lever = l.transform;
+                lever.SetParent(leverPivot, false);
+            }
+            lever.localPosition = new Vector3(0f, -0.13f, 0f);
+            lever.localScale = new Vector3(0.075f, 0.26f, 0.075f);
+            var lmr = lever.GetComponent<MeshRenderer>();
+            if (lmr != null)
+                lmr.sharedMaterial = EnsureSetupMaterial("Assets/Materials/PowerLeverMat.mat",
+                    new Color(0.92f, 0.55f, 0.16f), 0.5f);
+
+            // 指示灯
+            var lampT = root.transform.Find("IndicatorLight");
+            if (lampT == null)
+            {
+                var t = new GameObject("IndicatorLight").transform;
+                t.SetParent(root.transform, false);
+                lampT = t;
+            }
+            lampT.localPosition = new Vector3(0.17f, 0.24f, -0.115f);
+            var lamp = lampT.GetComponent<Light>();
+            if (lamp == null) lamp = lampT.gameObject.AddComponent<Light>();
+            lamp.type = LightType.Point;
+            lamp.color = new Color(1f, 0.28f, 0.18f);
+            lamp.intensity = 1.4f;
+            lamp.range = 1.0f;
+            lamp.shadows = LightShadows.None;
+
+            // 电弧火花
+            var sparkT = root.transform.Find("Sparks");
+            if (sparkT == null)
+            {
+                var t = new GameObject("Sparks").transform;
+                t.SetParent(root.transform, false);
+                sparkT = t;
+            }
+            sparkT.localPosition = new Vector3(0.19f, 0.05f, -0.14f);
+            var sparkPs = sparkT.GetComponent<ParticleSystem>();
+            if (sparkPs == null) sparkPs = sparkT.gameObject.AddComponent<ParticleSystem>();
+            ConfigureSmoke(sparkPs, new Color(1f, 0.72f, 0.22f, 0.95f),
+                rate: 14f, speed: 0.35f, size: 0.10f, life: 0.55f, additive: true, radius: 0.02f);
+
+            // 世界空间标签（始终朝相机）
+            // 注意：给普通 GameObject 加 Canvas 会把 Transform 替换成 RectTransform，
+            // 缓存的 Transform 引用当场失效（MissingReferenceException），所以必须一开始就用 RectTransform 创建。
+            var canvasGo = root.transform.Find("LabelCanvas");
+            GameObject labelGo = canvasGo != null ? canvasGo.gameObject : null;
+            if (labelGo == null)
+            {
+                labelGo = new GameObject("LabelCanvas", typeof(RectTransform));
+                labelGo.transform.SetParent(root.transform, false);
+            }
+            var canvasRt = (RectTransform)labelGo.transform;
+            canvasRt.localPosition = new Vector3(0f, 0.52f, -0.16f);
+            canvasRt.localScale = Vector3.one * 0.0014f;
+            var canvas = labelGo.GetComponent<Canvas>();
+            if (canvas == null) canvas = labelGo.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.WorldSpace;
+            canvas.sortingOrder = 12;
+            canvasRt.sizeDelta = new Vector2(360f, 110f);
+
+            var bgGo = labelGo.transform.Find("Bg") != null ? labelGo.transform.Find("Bg").gameObject : null;
+            if (bgGo == null)
+            {
+                bgGo = new GameObject("Bg", typeof(RectTransform));
+                bgGo.transform.SetParent(labelGo.transform, false);
+            }
+            var bg = bgGo.GetComponent<Image>();
+            if (bg == null) bg = bgGo.AddComponent<Image>();
+            bg.color = new Color(0.06f, 0.08f, 0.10f, 0.86f);
+            var bgRt = (RectTransform)bgGo.transform;
+            bgRt.anchorMin = Vector2.zero;
+            bgRt.anchorMax = Vector2.one;
+            bgRt.offsetMin = Vector2.zero;
+            bgRt.offsetMax = Vector2.zero;
+
+            var textGo = labelGo.transform.Find("Label") != null ? labelGo.transform.Find("Label").gameObject : null;
+            if (textGo == null)
+            {
+                textGo = new GameObject("Label", typeof(RectTransform));
+                textGo.transform.SetParent(labelGo.transform, false);
+            }
+            var text = textGo.GetComponent<Text>();
+            if (text == null) text = textGo.AddComponent<Text>();
+            text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            if (text.font == null) text.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+            text.text = powerSwitch.promptText;
+            text.fontSize = 34;
+            text.alignment = TextAnchor.MiddleCenter;
+            text.color = new Color(1f, 0.85f, 0.35f);
+            var textRt = (RectTransform)textGo.transform;
+            textRt.anchorMin = Vector2.zero;
+            textRt.anchorMax = Vector2.one;
+            textRt.offsetMin = new Vector2(8f, 4f);
+            textRt.offsetMax = new Vector2(-8f, -4f);
+
+            powerSwitch.lever = leverPivot;
+            powerSwitch.indicator = lamp;
+            powerSwitch.sparks = sparkPs;
+            powerSwitch.labelCanvas = canvas;
+            powerSwitch.labelText = text;
+            powerSwitch.maxInteractDistance = 4f;
+            var boxAudio = root.GetComponent<AudioSource>();
+            if (boxAudio == null) boxAudio = root.AddComponent<AudioSource>();
+            boxAudio.playOnAwake = false;
+            powerSwitch.audioSource = boxAudio;
+            powerSwitch.cutClip = Resources.Load<AudioClip>("Sounds/SFX/ui_click");
+        }
+
+        /// <summary>统一配置一团烟 / 火花（循环、世界空间、柔边贴图资产）。</summary>
+        static void ConfigureSmoke(ParticleSystem ps, Color color, float rate, float speed,
+                                   float size, float life, bool additive, float radius)
+        {
+            ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+
+            var main = ps.main;
+            main.duration = 5f;
+            main.loop = true;
+            main.startLifetime = new ParticleSystem.MinMaxCurve(life * 0.7f, life);
+            main.startSpeed = new ParticleSystem.MinMaxCurve(speed * 0.4f, speed);
+            main.startSize = new ParticleSystem.MinMaxCurve(size * 0.6f, size);
+            main.startColor = color;
+            main.maxParticles = 220;
+            main.simulationSpace = ParticleSystemSimulationSpace.World;
+            main.playOnAwake = false;
+
+            var em = ps.emission;
+            em.enabled = true;
+            em.rateOverTime = rate;
+
+            var shape = ps.shape;
+            shape.enabled = true;
+            shape.shapeType = ParticleSystemShapeType.Cone;
+            shape.angle = 14f;
+            shape.radius = radius;
+
+            var col = ps.colorOverLifetime;
+            col.enabled = true;
+            var grad = new Gradient();
+            grad.SetKeys(
+                new[] { new GradientColorKey(color, 0f), new GradientColorKey(color, 1f) },
+                new[] { new GradientAlphaKey(color.a, 0f), new GradientAlphaKey(0f, 1f) });
+            col.color = new ParticleSystem.MinMaxGradient(grad);
+
+            var sz = ps.sizeOverLifetime;
+            sz.enabled = true;
+            sz.size = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.EaseInOut(0f, 0.7f, 1f, 1.35f));
+
+            string assetName = additive ? "FxSpark" : "FxSmoke";
+            var mat = EnsureParticleMaterialAsset(assetName, additive);
+            var pr = ps.GetComponent<ParticleSystemRenderer>();
+            if (pr == null) pr = ps.gameObject.AddComponent<ParticleSystemRenderer>();
+            pr.renderMode = ParticleSystemRenderMode.Billboard;
+            pr.sharedMaterial = mat;
+            pr.shadowCastingMode = ShadowCastingMode.Off;
+            pr.receiveShadows = false;
+        }
+
+        /// <summary>柔边粒子材质 + 贴图存成资产（否则保存场景后引用丢失变成方块/黑块）。</summary>
+        static Material EnsureParticleMaterialAsset(string name, bool additive)
+        {
+            if (!AssetDatabase.IsValidFolder("Assets/Materials"))
+                AssetDatabase.CreateFolder("Assets", "Materials");
+
+            string texPath = "Assets/Materials/" + name + "_Tex.asset";
+            string matPath = "Assets/Materials/" + name + ".mat";
+
+            var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(texPath);
+            if (tex == null)
+            {
+                tex = SmokeZone.CreateSoftTexture();
+                tex.name = name + "_Tex";
+                AssetDatabase.CreateAsset(tex, texPath);
+            }
+            var mat = AssetDatabase.LoadAssetAtPath<Material>(matPath);
+            if (mat == null)
+            {
+                mat = SmokeZone.CreateParticleMaterial(tex, additive);
+                mat.name = name;
+                AssetDatabase.CreateAsset(mat, matPath);
+            }
+            return mat;
+        }
+
+        /// <summary>把灭火器摆到指定地面位置（保持直立、贴地）。</summary>
+        static void PlaceExtinguisher(Transform ext, Vector3 pos)
+        {
+            if (ext == null) return;
+            ext.position = pos;
+            ext.rotation = Quaternion.identity;
+            var eb = ext.GetComponent<Extinguisher>();
+            if (eb != null) eb.EnsureUprightStanding(true);
+            EditorUtility.SetDirty(ext.gameObject);
         }
 
         /// <summary>清理场景中脚本丢失（Missing Mono Script）的组件。</summary>
@@ -683,9 +1306,10 @@ namespace FireSafety.EditorTools
         static void SetupExtinguisher(string objName, XROrigin rig, Transform leftHand, Transform rightHand)
         {
             var root = GameObject.Find(objName);
-            if (root == null)
+            if (root == null && !objName.EndsWith("03"))
             {
                 // 场景里可能以其他名字存在（如 Fire Extinguisher），按名字兜底
+                // 03 是新增的第三台，必须精确命中，不能让兜底逻辑错抓 Extinguisher01
                 root = FindObjectByNameContains("Extinguisher");
             }
             if (root == null)
@@ -700,9 +1324,11 @@ namespace FireSafety.EditorTools
                     if (mat != null) { mat.color = new Color(0.85f, 0.15f, 0.15f); root.GetComponent<Renderer>().sharedMaterial = mat; }
                 }
                 root.name = objName;
-                root.transform.position = objName.EndsWith("2")
-                    ? new Vector3(3.2f, 0.5f, 0.5f)
-                    : new Vector3(1.8f, 0.5f, 1.8f);
+                root.transform.position = objName.EndsWith("3")
+                    ? new Vector3(3.70f, 0.5f, 1.60f)
+                    : objName.EndsWith("2")
+                        ? new Vector3(3.2f, 0.5f, 0.5f)
+                        : new Vector3(1.8f, 0.5f, 1.8f);
             }
 
             // 刚体 + 碰撞体
@@ -722,7 +1348,7 @@ namespace FireSafety.EditorTools
             // 抓取
             var grab = root.GetComponent<ToggleGrab>() ?? root.AddComponent<ToggleGrab>();
             grab.grabRange = 0.55f;
-            grab.heldLocalPosition = new Vector3(0f, -0.05f, 0.1f);
+            grab.heldLocalPosition = new Vector3(0f, -0.14f, 0.10f);   // 瓶身略微下沉，灭火时别把火焰和血量条糊住
             grab.heldLocalEuler = Vector3.zero;                 // 瓶身保持竖直握住，可在 Inspector 微调
             grab.hands = new[]
             {
@@ -770,9 +1396,10 @@ namespace FireSafety.EditorTools
 
             // 常识问答面板（挂在灭火器根上）
             var quiz = root.GetComponent<ExtinguisherQuizPanel>() ?? root.AddComponent<ExtinguisherQuizPanel>();
-            // 两台灭火器各 5 题、合起来 10 道且互不重复：
-            // Extinguisher01 → A 组（0），Extinguisher02 → B 组（1）
-            quiz.questionSetIndex = (root != null && root.name.Contains("02")) ? 1 : 0;
+            // 三台灭火器各 5 题，共 20 道且互不重复：
+            // Extinguisher01 → A 组（0）基础；Extinguisher02 → C 组（2）电气设备起火·先断电；
+            // Extinguisher03 → D 组（3）安全出口 / 疏散情景
+            quiz.questionSetIndex = root.name.Contains("03") ? 3 : (root.name.Contains("02") ? 2 : 0);
             quiz.ResetToDefaultQuestions();                 // 只刷本组 5 题，A/B/C 三选项
             quiz.timePerQuestion = 10f;                     // 每题 10 秒
             quiz.passRatio = 0.6f;                          // 答对 60%（3/5）才可通过

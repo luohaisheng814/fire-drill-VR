@@ -12,46 +12,55 @@ namespace FireSafety.EditorTools
 {
     /// <summary>
     /// 头显（虚拟 HMD）播放态验收探针：没有真机时用 VRDrillInput / XRDrillLocomotion 的虚拟输入通道，
-    /// 以玩家视角(相机)渲染关键帧，逐段验证「A 开始 → 左摇杆位移/右摇杆瞬转 → 问答 → Grip 抓取 →
-    /// 扳机拔销/压把/持续喷射 → 扑灭 → 蹲姿 → 复燃灭火 → 走进安全出口 → 结束页」。
-    /// 说明：办公场景有隔墙，直线推进会被墙体挡住，因此除「空地位移/瞬转」外，机位用脚本就近安置，
-    /// 交互动作仍全部走头显输入层（扳机、摇杆按下、A/B/C）。
+    /// 以玩家视角(相机)渲染关键帧，逐段验证本轮重构后的流程：
+    ///   开始页三个入口 → 天花板 → 操作演练（原第一阶段：问答/拔销/压把/喷射）→ 完成面板 →
+    ///   正式第 1 阶段（随机出生 + 立即烟雾 + 设备火 + 火焰血量条 + 未断电喷射无效 → 断电 →
+    ///   灭火器问答 → 灭火）→ 第 2 阶段（安全标识/箭头 → 出口火 → 疏散问答 → 灭火开门）→ 结束页。
     /// 批处理：-executeMethod FireSafety.EditorTools.VRPlayProbe.RunFromBatch（不要加 -nographics / -quit）
     /// </summary>
     public static class VRPlayProbe
     {
         const string ScenePath = "Assets/Scenes/FireSafetyOffice.unity";
         const string ShotDir = "Logs/shots";
-        const float HardTimeout = 150f;
+        const float HardTimeout = 240f;
+        const float PhaseTimeout = 100f;
 
         static readonly List<string> Log = new List<string>();
         static readonly List<string> Fails = new List<string>();
+        static readonly HashSet<string> _failSeen = new HashSet<string>();
 
         static XROrigin _rig;
-        static Transform _rigRoot, _rightHand;
+        static Transform _rigRoot, _rightHand, _leftHand;
         static Camera _cam;
         static VRDrillInput _vr;
         static XRDrillLocomotion _loco;
+        static DrillScenario _sc;
+        static StartScreen _start;
         static StageTwoFlow _flow;
-        static Extinguisher _ext1, _held;
-        static FireSource _fire1, _fire2;
-        static ExitDoor _door;
         static StageOneCompletePanel _panel;
         static EndingScreen _ending;
+        static ExitDoor _door;
+        static PowerSwitch _power;
+        static Extinguisher _ext1, _ext2, _ext3, _held;
+        static FireSource _tutFire, _deviceFire, _exitFire;
+        static FireHealthBar _hpDevice;
+        static VRControllerVisual _visLeft, _visRight;
 
         static bool _started;
-        static int _phase;
-        static float _phaseT, _clock0, _walkYaw;
-        static Vector3 _walkStart;
-        static float _lastProgress = -1f;
-        static bool _shotStart, _shotQuiz, _shotSpray, _shotDoor, _shotEnd;
-        static bool _shotHands;
-        static int _shotQuizFrame = -1;
-        static VRControllerVisual _visLeft, _visRight;
-        static RectTransform panelForDebug;
-        static Transform _leftHand;
-        static float _quizOpenT = -1f, _doorOpenAt = -1f, _endingAt = -1f;
-        static string _lastMsg = ""; static float _lastMsgT;
+        static int _phase, _sub;
+        static bool _subInit;
+        static float _phaseT, _clock0, _lastProgress = -1f, _lastMsgT, _subT;
+        static string _lastMsg = "";
+
+        // 单个「灭火单元」内部状态机
+        static int _uStep, _uSub;
+        static float _uStepT, _uSubT, _progA = -1f;
+        static bool _unitShotQuiz, _unitShotMid, _unitShotLocked;
+
+        static bool _shotStart, _shotCeiling, _shotTutorial, _shotPanel;
+        static bool _shotSpawn, _shotDevice, _shotStage2, _shotExitFire, _shotDoor, _shotEnd;
+        static float _shotAt;
+        static float _walkYaw;
 
         // ------------------------------------------------------------------
         [MenuItem("FireSafety/VR 播放态探针（虚拟头显 · 玩家视角）")]
@@ -60,7 +69,7 @@ namespace FireSafety.EditorTools
         public static void RunFromBatch()
         {
             Directory.CreateDirectory(ShotDir);
-            Log.Clear(); Fails.Clear();
+            Log.Clear(); Fails.Clear(); _failSeen.Clear();
             EditorSceneManager.OpenScene(ScenePath);
             _clock0 = Time.realtimeSinceStartup;
             _started = false;
@@ -79,10 +88,9 @@ namespace FireSafety.EditorTools
 
         static void Fail(string s)
         {
-            if (!_failSeen.Add(s)) return;          // 同一断言只记一次，避免高帧率刷屏
+            if (!_failSeen.Add(s)) return;
             Debug.LogError("[VRPROBE] ✘ " + s); Log.Add("✘ " + s); Fails.Add(s);
         }
-        static readonly HashSet<string> _failSeen = new HashSet<string>();
 
         static void Finish(int code)
         {
@@ -98,32 +106,12 @@ namespace FireSafety.EditorTools
             _phase++;
             _phaseT = Time.realtimeSinceStartup;
             _lastProgress = -1f;
-        }
-
-        static void Teleport(Vector3 p, string why)
-        {
-            _loco.SetVirtualInput(Vector2.zero, 0f);
-            Vector3 cam = CamPos();
-            Vector3 d = new Vector3(p.x - cam.x, 0f, p.z - cam.z);
-
-            // 落点先对地：把 rig 的 Y 直接压到目标处地板高度上。
-            // 否则 rig 的 Y 会继承之前的下坠（实测能掉到 -452 米，喷嘴跟着一路远离火源）。
-            RaycastHit hit;
-            float groundY = _rigRoot.position.y;
-            if (Physics.Raycast(new Vector3(p.x, p.y + 3f, p.z), Vector3.down, out hit, 30f, ~0,
-                                 QueryTriggerInteraction.Ignore))
-                groundY = hit.point.y + 0.02f;
-
-            // XRDrillLocomotion 每帧用 CharacterController.Move 推进（含重力），直接改 transform
-            // 会被它的内部位置状态顶回去，瞬移期间先关掉，落地后再开。
-            var ccs = _rigRoot.GetComponentsInChildren<CharacterController>(true);
-            foreach (var c in ccs) c.enabled = false;
-            _rigRoot.position = new Vector3(_rigRoot.position.x + d.x, groundY, _rigRoot.position.z + d.z);
-            Physics.SyncTransforms();
-            foreach (var c in ccs) c.enabled = true;
-
-            Say("机位安置到" + why + "（办公场景隔墙，直线推杆会被挡住，就近站位）· 眼高 "
-                + (_cam.transform.position.y - groundY).ToString("F2") + " 米");
+            _sub = 0;
+            _subInit = false;
+            _shotAt = 0f;
+            _vr.vTrigger = false;
+            _vr.vPrimary = false;
+            _vr.vStickClick = false;
         }
 
         static Vector3 CamPos() => _cam != null ? _cam.transform.position : _rigRoot.position;
@@ -151,35 +139,34 @@ namespace FireSafety.EditorTools
                 return;
             }
 
-            if (Time.realtimeSinceStartup - _phaseT > HardTimeout) { Fail("阶段 " + _phase + " 超时"); Finish(1); return; }
+            if (Time.realtimeSinceStartup - _phaseT > PhaseTimeout) { Fail("阶段 " + _phase + " 超时"); Finish(1); return; }
 
             PoseHand();
 
             switch (_phase)
             {
                 case 1: P1_Start(); break;
-                case 2: P2_Locomotion(); break;
-                case 3: P3_Quiz(); break;
-                case 4: P4_GrabAndPress(); break;
-                case 5: P5_SprayOne(); break;
-                case 6: P6_Continue(); break;
-                case 7: P7_CrouchLobby(); break;
-                case 8: P8_StageThree(); break;
+                case 2: P2_CeilingAndMove(); break;
+                case 3: P3_TutorialUnit(); break;
+                case 4: P4_EnterFormal(); break;
+                case 5: P5_DeviceLook(); break;
+                case 6: P6_Stage1Unit(); break;
+                case 7: P7_Stage2(); break;
+                case 8: P8_ExitUnit(); break;
                 case 9: P9_Exit(); break;
                 default: Finish(Fails.Count == 0 ? 0 : 1); break;
             }
         }
 
-        /// <summary>
-        /// 无真机时手柄停在默认位姿（正前方偏中），手里那瓶灭火器会正好盖住视线中心，
-        /// 问答面板/火焰全被挡。这里按真人握持习惯把右手摆到右前下方，喷口仍然朝前。
-        /// </summary>
+        /// <summary>无真机时把右手摆在右前下方，避免手持灭火器盖住视线中心。</summary>
+        static float _handDrop;
         static void PoseHand()
         {
             if (_rightHand == null || _cam == null) return;
             Transform ct = _cam.transform;
-            // 右前下方 0.26 m / 0.48 m：仍在 60° FOV 内（下偏 26.6°），手柄代理模型能出现在画面里
-            _rightHand.position = ct.position + ct.rotation * new Vector3(0.26f, -0.24f, 0.48f);
+            _rightHand.position = ct.position + ct.rotation * new Vector3(0.26f, -0.24f - _handDrop, 0.48f);
+            if (_leftHand != null)
+                _leftHand.position = ct.position + ct.rotation * new Vector3(-0.26f, -0.24f - _handDrop, 0.48f);
         }
 
         static bool Resolve()
@@ -192,15 +179,29 @@ namespace FireSafety.EditorTools
 
             _vr = UnityEngine.Object.FindFirstObjectByType<VRDrillInput>(FindObjectsInactive.Include);
             _loco = UnityEngine.Object.FindFirstObjectByType<XRDrillLocomotion>(FindObjectsInactive.Include);
+            _sc = DrillScenario.Instance != null ? DrillScenario.Instance
+                : UnityEngine.Object.FindFirstObjectByType<DrillScenario>(FindObjectsInactive.Include);
             _flow = UnityEngine.Object.FindFirstObjectByType<StageTwoFlow>(FindObjectsInactive.Include);
             _panel = UnityEngine.Object.FindFirstObjectByType<StageOneCompletePanel>(FindObjectsInactive.Include);
             _ending = UnityEngine.Object.FindFirstObjectByType<EndingScreen>(FindObjectsInactive.Include);
             _door = ExitDoor.Instance;
+            if (_sc != null)
+            {
+                _start = _sc.startScreen;
+                _power = _sc.powerSwitch;
+                _tutFire = _sc.tutorialFire;
+                _deviceFire = _sc.deviceFire;
+                _ext1 = _sc.tutorialExtinguisher;
+                _ext2 = _sc.deviceExtinguisher;
+                _ext3 = _sc.exitExtinguisher;
+            }
+            if (_start == null) _start = UnityEngine.Object.FindFirstObjectByType<StartScreen>(FindObjectsInactive.Include);
 
             foreach (var e in UnityEngine.Object.FindObjectsByType<Extinguisher>(FindObjectsSortMode.None))
-                if (!e.name.Contains("02") && _ext1 == null) _ext1 = e;
-            foreach (var f in UnityEngine.Object.FindObjectsByType<FireSource>(FindObjectsSortMode.None))
-                if (f.isActiveAndEnabled) { _fire1 = f; break; }
+            {
+                if (_ext2 == null && e.name.Contains("02")) _ext2 = e;
+                if (_ext3 == null && e.name.Contains("03")) _ext3 = e;
+            }
 
             foreach (var tr in UnityEngine.Object.FindObjectsByType<Transform>(FindObjectsSortMode.None))
                 if (tr.name == "RightHand Controller") _rightHand = tr;
@@ -209,153 +210,645 @@ namespace FireSafety.EditorTools
             foreach (var v in UnityEngine.Object.FindObjectsByType<VRControllerVisual>(FindObjectsSortMode.None))
                 if (v.side == HandSide.Left) _visLeft = v; else _visRight = v;
 
-            Debug.Log("[VRPROBE] 诊断：_rig.Camera=" + (_rig.Camera != null ? _rig.Camera.name : "null")
-                + " Camera.main=" + (Camera.main != null ? Camera.main.name : "null")
-                + " locoRoot=" + (_loco.rigRoot != null ? _loco.rigRoot.name : _loco.name)
-                + " camInOrigin=" + _cam.transform.IsChildOf(_rigRoot)
-                + " camInLoco=" + _cam.transform.IsChildOf(_loco.transform)
-                + " flowPlayer=" + (_flow.player != null ? _flow.player.name : "null")
-                + " lobby=" + (_flow.arrows != null && _flow.arrows.lobbyTarget != null
-                    ? _flow.arrows.lobbyTarget.position.ToString("F2") : "null"));
+            if (_deviceFire != null)
+                foreach (var b in UnityEngine.Object.FindObjectsByType<FireHealthBar>(FindObjectsSortMode.None))
+                    if (b.fire == _deviceFire) _hpDevice = b;
 
-            return _vr != null && _loco != null && _ext1 != null && _flow != null && _fire1 != null && _rightHand != null;
+            Debug.Log("[VRPROBE] 诊断：scenario=" + (_sc != null)
+                + " spawnPoints=" + (_sc != null ? _sc.SpawnCount.ToString() : "null")
+                + " deviceFire=" + (_deviceFire != null)
+                + " powerSwitch=" + (_power != null)
+                + " ext1/2/3=" + (_ext1 != null) + "/" + (_ext2 != null) + "/" + (_ext3 != null)
+                + " hpBar=" + (_hpDevice != null)
+                + " flow=" + (_flow != null));
+
+            return _vr != null && _loco != null && _sc != null && _deviceFire != null
+                && _ext1 != null && _ext2 != null && _ext3 != null && _rightHand != null && _cam != null;
         }
 
+        // ------------------------------------------------------------------
+        // 1. 开始页：三个入口（不按 A，改点「操作演练」）
         // ------------------------------------------------------------------
         static void P1_Start()
         {
             _vr.virtualMode = true;
-            _vr.vTrigger = false; _vr.vStickClick = false;
+            _vr.vTrigger = false; _vr.vStickClick = false; _vr.vPrimary = false;
             _loco.SetVirtualInput(Vector2.zero, 0f);
-            PoseHand();       // 手柄摆在身前，开始面板/提示条才会像真人举在眼前
-            if (_leftHand != null && _cam != null)
-                _leftHand.position = _cam.transform.position
-                    + _cam.transform.rotation * new Vector3(-0.26f, -0.24f, 0.48f);
+            PoseHand();
 
             float t = Time.realtimeSinceStartup - _phaseT;
-            if (!_shotStart && t > 1.3f)
+            if (!_shotStart && t > 1.2f)
             {
                 Shot("vr0_hud_start.png");
-                Say("头显提示条：可见=" + _vr.hud.Visible + "，内容=" + _vr.hud.CurrentHint);
+                _shotStart = true;
 
-                // 手柄代理模型：真机里「看得见自己的手」是操作前提
                 bool handsOk = _visLeft != null && _visRight != null &&
                                _visLeft.Built && _visRight.Built &&
                                _visLeft.Visible && _visRight.Visible;
-                Say("双手柄模型：左手 Built=" + (_visLeft != null && _visLeft.Built)
+                Say("双手柄模型：左 Built=" + (_visLeft != null && _visLeft.Built)
                     + " 可见=" + (_visLeft != null && _visLeft.Visible)
-                    + " / 右手 Built=" + (_visRight != null && _visRight.Built)
-                    + " 可见=" + (_visRight != null && _visRight.Visible)
-                    + "（各 " + (_visRight != null ? _visRight.PartCount : 0) + " 个几何体）");
+                    + " / 右 Built=" + (_visRight != null && _visRight.Built)
+                    + " 可见=" + (_visRight != null && _visRight.Visible));
                 if (!handsOk) Fail("头显接管时双手柄模型未生成或不可见");
 
-                _shotStart = true;
+                Say("开始页入口：主按钮「" + (_start != null ? _start.buttonLabel : "?")
+                    + "」· 教学「" + (_start != null ? _start.onboardingLabel : "?")
+                    + "」· 操作演练「" + (_start != null ? _start.tutorialLabel : "?")
+                    + "」（显示=" + (_start != null && _start.showTutorialButton) + "）");
+                if (_start == null || !_start.showTutorialButton) Fail("开始页没有「操作演练」入口");
+
+                // 出生点随机性：候选 2~3 个，连取 12 次应出现 ≥2 个不同下标
+                var seen = new HashSet<int>();
+                for (int i = 0; i < 12; i++) seen.Add(_sc.PickSpawnIndex());
+                Say("出生点候选 " + _sc.SpawnCount + " 个，随机取样出现 " + seen.Count + " 种下标（" + seen + "）");
+                if (_sc.SpawnCount < 2 || _sc.SpawnCount > 3) Fail("出生点数量不是 2~3 个：" + _sc.SpawnCount);
+                if (seen.Count < 2) Fail("随机出生点没有随机效果（只出现 " + seen.Count + " 种）");
             }
             if (t < 1.6f) return;
 
-            // 按 A：真人也会按一两下（开始面板后面可能还压着一层引导页），这里发 4 次短脉冲
-            const float kPulse = 0.45f;           // 0.20 s 按下 + 0.25 s 松开
-            float local = t - 1.6f;
-            int idx = Mathf.FloorToInt(local / kPulse);
-            bool started = _vr.startScreen != null && _vr.startScreen.Started;
-            if (idx < 4 && !started)
-            {
-                float phase = local - idx * kPulse;
-                _vr.vPrimary = phase < 0.20f;
-                if (phase < 0.20f) Say("第 " + (idx + 1) + " 次按 A …");
-                return;
-            }
-            _vr.vPrimary = false;
-            if (t < 1.6f + kPulse * 4f + 0.1f) return;
-
-            started = _vr.startScreen != null && _vr.startScreen.Started;
-            Say("A 键开始演练：Started=" + started
-                + "（startScreen=" + (_vr.startScreen != null) + "，引导页打开="
-                + (_vr.onboarding != null && _vr.onboarding.IsOpen) + "）");
-            if (!started) Fail("按 A 之后演练没有开始");
-            _walkStart = CamPos();
-            _dirStart = _walkStart;
-            _dirIndex = 0;
-            _dirTimes[0] = _dirTimes[1] = _dirTimes[2] = _dirTimes[3] = 0f;
-            _walkYaw = float.NaN;
+            Say("点「操作演练」：进入原第一阶段的实操流程（只练流程，不计成绩）");
+            _start.OpenTutorial();
             NextPhase();
         }
 
-        // 摇杆四向各推 1 秒，取最大位移（起始朝向可能正对隔墙/桌子）
-        static readonly float[] _dirTimes = new float[4];
-        static Vector3 _dirStart;
-        static int _dirIndex;
-
-        static void P2_Locomotion()
+        // ------------------------------------------------------------------
+        // 2. 天花板 + 移动/瞬转（既有玩法不退化）
+        // ------------------------------------------------------------------
+        static void P2_CeilingAndMove()
         {
-            _vr.vPrimary = false;
             float t = Time.realtimeSinceStartup - _phaseT;
 
-            // 每次批处理的起始朝向都不保证一致（场景根可能带旋转），先把 rig 摆正朝主火源，
-            // 否则四向位移与后面的站位换算每次都会不同。
-            if (!_oriented)
+            if (_sub == 0)
             {
-                _oriented = true;
-                Vector3 d = _fire1.transform.position - _rigRoot.position; d.y = 0f;
-                if (d.sqrMagnitude > 0.01f) _rigRoot.rotation = Quaternion.LookRotation(d.normalized, Vector3.up);
-                _dirStart = CamPos();
+                // 抬头 55°：天花板必须出现在玩家视角里
+                _cam.transform.localRotation = Quaternion.Euler(-55f, 0f, 0f);
+                if (!_shotCeiling && t > 0.5f)
+                {
+                    Shot("vr1_ceiling.png"); _shotCeiling = true;
+
+                    // 天花板是纯视觉件（无碰撞体，避免挡光），不能用射线判断；
+                    // 改为校验：顶面 MeshRenderer 存在、包围盒覆盖玩家站位、顶面高度≈3.0，
+                    // 且抬头时该点确实落在相机画面内（真的是「玩家视角看得见」）。
+                    var ceilGo = GameObject.Find("Ceiling");
+                    var ceilMr = ceilGo != null ? ceilGo.GetComponent<MeshRenderer>() : null;
+                    bool covers = false, onScreen = false;
+                    float topY = 0f;
+                    if (ceilMr != null)
+                    {
+                        Bounds b = ceilMr.bounds;
+                        Vector3 cam = _cam.transform.position;
+                        covers = cam.x >= b.min.x && cam.x <= b.max.x && cam.z >= b.min.z && cam.z <= b.max.z;
+                        topY = b.min.y;
+                        // 头顶正上方的点抬高 55° 后本来就超出 60° FOV，不能拿它判「在不在画面里」；
+                        // 改成：沿相机实际视线与天花板平面求交，交点落回天花板范围内 → 玩家抬头真的看得见。
+                        Vector3 dir = _cam.transform.forward;
+                        if (dir.y > 0.02f)
+                        {
+                            float tHit = (b.min.y - cam.y) / dir.y;
+                            float dis = dir.magnitude * tHit;
+                            Vector3 hit = cam + dir.normalized * dis;
+                            onScreen = dis > 0.5f && dis < 12f
+                                && hit.x >= b.min.x && hit.x <= b.max.x
+                                && hit.z >= b.min.z && hit.z <= b.max.z;
+                            Debug.Log("[VRPROBE] 视线与天花板交点 (" + hit.x.ToString("F2") + ", " + hit.y.ToString("F2")
+                                + ", " + hit.z.ToString("F2") + ")，距离 " + dis.ToString("F2") + " 米");
+                        }
+                    }
+                    Say("抬头视角：天花板渲染体=" + (ceilMr != null)
+                        + "，内表面 y=" + topY.ToString("F2") + " 米，覆盖玩家站位=" + covers
+                        + "，抬头时在画面内=" + onScreen);
+                    if (ceilMr == null) Fail("场景里没有天花板（找不到 Ceiling 的渲染体）");
+                    else if (!covers) Fail("天花板没有覆盖玩家所处位置");
+                    else if (Mathf.Abs(topY - 3.0f) > 0.1f) Fail("天花板内表面高度不是 3.0 米，实测 " + topY.ToString("F2"));
+                    else if (!onScreen) Fail("抬头看不到天花板（不在相机画面内）");
+                }
+                if (t < 1.3f) return;
+                _cam.transform.localRotation = Quaternion.identity;
+                AimCameraAt(_tutFire != null ? _tutFire.transform.position : CamPos() + _cam.transform.forward);
+                if (!_shotTutorial && t > 1.6f)
+                {
+                    Shot("vr1b_tutorial_view.png"); _shotTutorial = true;
+                    Say("操作演练视角：地板火已点燃=" + (_tutFire != null && _tutFire.IsBurning)
+                        + "，HUD=" + (_vr.hud != null ? _vr.hud.CurrentHint : "null"));
+                    if (_tutFire == null || !_tutFire.IsBurning) Fail("操作演练开始后火焰没有点燃");
+                }
+                if (t < 2.1f) return;
+                _sub = 1; _subT = Time.realtimeSinceStartup; _subInit = false;
+                return;
             }
 
-            if (t < 4.0f)
+            if (_sub == 1)
             {
-                int i = Mathf.FloorToInt(t);                 // 0..3
-                if (i > _dirIndex) { _dirIndex = i; _dirStart = CamPos(); }
-                Vector2 input = Vector2.zero;
-                switch (_dirIndex)
+                // 左摇杆前推 0.9 秒，检查位移仍在（改了输入逻辑也不能推不动）
+                _loco.SetVirtualInput(new Vector2(0f, 1f), 0f);
+                if (Time.realtimeSinceStartup - _subT > 0.9f)
                 {
-                    case 0: input = new Vector2(0f, 1f); break;
-                    case 1: input = new Vector2(0f, -1f); break;
-                    case 2: input = new Vector2(1f, 0f); break;
-                    case 3: input = new Vector2(-1f, 0f); break;
-                }
-                _loco.SetVirtualInput(input, 0f);
-
-                float seg = t - _dirIndex;
-                if (seg > 0.9f && _dirTimes[_dirIndex] == 0f)
-                {
-                    float d = Flat(CamPos(), _dirStart);
-                    _dirTimes[_dirIndex] = d;
-                    Say("左摇杆推" + (_dirIndex == 0 ? "前" : _dirIndex == 1 ? "后" : _dirIndex == 2 ? "右" : "左")
-                        + " 0.9 秒：位移 " + d.ToString("F2") + " 米");
-                    if (_dirIndex == 0)
-                        Say("推满摇杆小跑：IsSprinting=" + _loco.IsSprinting
-                            + "，当前速度 " + _loco.CurrentSpeed.ToString("F2") + " 米/秒（基础 2.2 × 倍率 1.6）");
+                    _loco.SetVirtualInput(Vector2.zero, 0f);
+                    Say("左摇杆前推 0.9 秒：速度 " + _loco.CurrentSpeed.ToString("F2") + " 米/秒（配置 2.2）");
+                    _sub = 2; _subT = Time.realtimeSinceStartup; _subInit = false;
                 }
                 return;
             }
 
-            _loco.SetVirtualInput(Vector2.zero, 0f);
-            float best = 0f;
-            foreach (var v in _dirTimes) best = Mathf.Max(best, v);
-            Say("摇杆移动实测：三向最大位移 " + best.ToString("F2") + " 米/0.9 秒（约 " + (best / 0.9f).ToString("F1")
-                + " 米/秒，配置 moveSpeed 2.2）");
-            if (best < 0.8f) Fail("四向推杆都被挡住，最大位移 " + best.ToString("F2") + " 米");
-
-            // 右摇杆瞬转（以相机 yaw 为准）
-            if (t < 4.3f)
+            if (_sub == 2)
             {
-                if (float.IsNaN(_walkYaw)) _walkYaw = _cam.transform.eulerAngles.y;
+                // 基准只在进入本段的第一帧取一次：之前每帧刷新会把已转过的角度「吃掉」，永远测成 0°
+                if (!_subInit)
+                {
+                    _walkYaw = _cam.transform.eulerAngles.y;
+                    _subInit = true;
+                    _subT = Time.realtimeSinceStartup;
+                }
                 _loco.SetVirtualInput(Vector2.zero, 1f);
+                if (Time.realtimeSinceStartup - _subT > 0.35f)
+                {
+                    _loco.SetVirtualInput(Vector2.zero, 0f);
+                    float yaw = Mathf.DeltaAngle(_walkYaw, _cam.transform.eulerAngles.y);
+                    Say("右摇杆瞬转：相机 Y 轴 " + yaw.ToString("F1") + "°（配置 45°）");
+                    if (Mathf.Abs(Mathf.Abs(yaw) - 45f) > 4f) Fail("瞬转不是 45°，实测 " + yaw.ToString("F1") + "°");
+                    _sub = 3; _subT = Time.realtimeSinceStartup;
+                }
                 return;
             }
 
-            _loco.SetVirtualInput(Vector2.zero, 0f);
-            float yaw = Mathf.DeltaAngle(_walkYaw, _cam.transform.eulerAngles.y);
-            Say("右摇杆瞬转：相机 Y 轴 " + yaw.ToString("F1") + "°（配置 snapAngle 45°）");
-            if (Mathf.Abs(Mathf.Abs(yaw) - 45f) > 3f) Fail("瞬转不是 45°，实测 " + yaw.ToString("F1") + "°");
-
-            TeleportNear(_ext1.transform.position, _fire1.transform.position, 0.9f, "主灭火器旁");
             NextPhase();
         }
 
-        static bool _oriented;
+        // ------------------------------------------------------------------
+        // 3. 操作演练：拿瓶 → 5 题问答 → 拔销 → 压把 → 喷射灭火 → 完成面板
+        // ------------------------------------------------------------------
+        static void P3_TutorialUnit()
+        {
+            if (_sub == 0)
+            {
+                BeginUnit();
+                _sub = 1;
+            }
+            if (_sub == 1)
+            {
+                if (!RunUnit(_ext1, _tutFire, "操作演练", false, "vr1c_tutorial_quiz.png",
+                             null, null, null, out _held)) return;
+                Say("操作演练火焰已扑灭；完成面板=" + (_panel != null && _panel.IsOpen)
+                    + "（文案：操作演练完成 / 进入正式演练）");
+                _sub = 2; _subT = Time.realtimeSinceStartup;
+                return;
+            }
+            if (!_shotPanel && _panel != null && _panel.IsOpen && Time.realtimeSinceStartup - _subT > 0.5f)
+            {
+                AimCameraAt(_panel.transform.position);
+                Shot("vr1d_tutorial_done.png"); _shotPanel = true;
+            }
+            if (Time.realtimeSinceStartup - _subT < 1.2f) return;
+            NextPhase();
+        }
 
-        /// <summary>站到 from 点旁 0.9 米，并且是背对 awayTo 的一侧。</summary>
+        // ------------------------------------------------------------------
+        // 4. 进入正式演练（随机出生点）
+        // ------------------------------------------------------------------
+        static void P4_EnterFormal()
+        {
+            float t = Time.realtimeSinceStartup - _phaseT;
+            if (_sub == 0)
+            {
+                _sc.BeginFormal();          // 等价于点完成面板上的「进入正式演练」
+                _sub = 1; _subT = Time.realtimeSinceStartup;
+                Say("正式演练第 1 阶段开始：出生点 index=" + _sc.LastSpawnIndex + "/" + _sc.SpawnCount
+                    + "，位置 " + _rigRoot.position.ToString("F2")
+                    + "，烟雾=" + (_sc.stage1Smoke != null && _sc.stage1Smoke.Active)
+                    + "，设备火燃烧=" + (_deviceFire != null && _deviceFire.IsBurning)
+                    + "，断电锁定=" + (_deviceFire != null && _deviceFire.extinguishLocked));
+                if (_sc.LastSpawnIndex < 0 || _sc.LastSpawnIndex >= _sc.SpawnCount) Fail("出生点下标非法");
+                if (_sc.stage1Smoke == null || !_sc.stage1Smoke.Active) Fail("点击开始后没有立即出现烟雾");
+                if (_deviceFire == null || !_deviceFire.IsBurning) Fail("点击开始后设备没有起火");
+                if (!_deviceFire.extinguishLocked) Fail("电气火灾没有默认锁定（应先断电才可灭）");
+                if (_sc.arrows == null || !_sc.arrows.Active) Fail("开始后引导箭头未启动");
+                return;
+            }
+            if (t < 0.8f) return;
+            if (!_shotSpawn)
+            {
+                AimCameraAt(_deviceFire.transform.position + Vector3.up * 0.8f);
+                Shot("vr2_spawn_view.png"); _shotSpawn = true;
+                Say("出生点玩家视角：设备柜/火焰/烟雾同框（截图 vr2_spawn_view.png）");
+            }
+            if (t < 1.4f) return;
+            NextPhase();
+        }
+
+        // ------------------------------------------------------------------
+        // 5. 设备火近景 + 火焰血量条
+        // ------------------------------------------------------------------
+        static void P5_DeviceLook()
+        {
+            float t = Time.realtimeSinceStartup - _phaseT;
+            if (_sub == 0)
+            {
+                PlaceOnPlayerSide(_deviceFire.transform.position, 1.9f, "设备火前 1.9 米");
+                _sub = 1; _subT = Time.realtimeSinceStartup;
+                return;
+            }
+            if (t < 0.9f) return;
+            if (!_shotDevice)
+            {
+                LookAtPoint(_deviceFire.AimPoint + Vector3.up * 0.85f);
+                Shot("vr2b_device_fire_hp.png"); _shotDevice = true;
+                Say("火焰血量条：存在=" + (_hpDevice != null) + "，可见=" + (_hpDevice != null && _hpDevice.Visible)
+                    + "，当前 HP=" + (_hpDevice != null ? _hpDevice.CurrentHp : -1)
+                    + " / " + (_hpDevice != null ? _hpDevice.MaxHp : -1));
+                if (_hpDevice == null) Fail("设备火焰上方没有血量条");
+                else if (!_hpDevice.Visible) Fail("火焰血量条不可见");
+                else if (_hpDevice.CurrentHp < 95) Fail("未灭火时血量条不是满值");
+            }
+            if (t < 1.5f) return;
+            NextPhase();
+        }
+
+        // ------------------------------------------------------------------
+        // 6. 正式第 1 阶段：先喷（锁定）→ 断电 → 问答 → 拔销 → 压把 → 灭火
+        // ------------------------------------------------------------------
+        static void P6_Stage1Unit()
+        {
+            if (_sub == 0)
+            {
+                BeginUnit();
+                _sub = 1;
+            }
+            if (_sub == 1)
+            {
+                if (!RunUnit(_ext2, _deviceFire, "第 1 阶段设备火", true, "vr3_stage1_quiz.png",
+                             "vr3b_stage1_hp_mid.png", "vr2d_locked_spray.png", "vr2c_power_off.png", out _held)) return;
+                Say("设备火扑灭：HP 已归零=" + (_hpDevice == null || _hpDevice.CurrentHp <= 5)
+                    + "，stage1Smoke 运行中=" + (_sc.stage1Smoke != null && _sc.stage1Smoke.Active)
+                    + "，flow=" + (_flow != null ? _flow.CurrentStage.ToString() : "null"));
+                if (_sc.stage1Smoke != null && _sc.stage1Smoke.Active) Fail("灭火后阶段一烟雾没有停");
+                if (_flow == null || _flow.CurrentStage == StageTwoFlow.Stage.Idle)
+                    Fail("设备火扑灭后没有进入第 2 阶段（flow=" + (_flow != null ? _flow.CurrentStage.ToString() : "null") + "）");
+                _sub = 2; _subT = Time.realtimeSinceStartup;
+                return;
+            }
+            if (Time.realtimeSinceStartup - _subT < 1.0f) return;
+            NextPhase();
+        }
+
+        // ------------------------------------------------------------------
+        // 7. 第 2 阶段：安全标识 / 箭头 → 大厅 → 出口火
+        // ------------------------------------------------------------------
+        static void P7_Stage2()
+        {
+            if (_sub == 0)
+            {
+                Transform lobby = _flow.arrows != null ? _flow.arrows.lobbyTarget : null;
+                if (lobby != null)
+                {
+                    AimCameraAt(lobby.position);
+                    Shot("vr4_stage2_arrows.png");
+                    Say("第 2 阶段玩家视角：地面「安全出口 →」标识 + 引导箭头（截图 vr4_stage2_arrows.png）");
+                    Teleport(lobby.position, "大厅检查点（第 2 阶段终点）");
+                }
+                _sub = 1; _subT = Time.realtimeSinceStartup;
+                return;
+            }
+            if (_flow.CurrentStage != StageTwoFlow.Stage.StageThree &&
+                _flow.CurrentStage != StageTwoFlow.Stage.ExitOpen &&
+                _flow.CurrentStage != StageTwoFlow.Stage.Done)
+            {
+                if (Time.realtimeSinceStartup - _subT > 8f)
+                {
+                    Fail("走到大厅后没有进入出口火情阶段，flow=" + _flow.CurrentStage);
+                    NextPhase();
+                }
+                return;
+            }
+            _exitFire = _flow.stageTwoFire;
+            Say("到达大厅 → 出口门附近升起火焰：" + (_exitFire != null)
+                + "，位置 " + (_exitFire != null ? _exitFire.transform.position.ToString("F2") : "null")
+                + "，门解锁=" + (_door != null && _door.IsUnlocked));
+            if (_exitFire == null) { Fail("出口附近没有升起火焰"); NextPhase(); return; }
+
+            AimCameraAt(_exitFire.transform.position + Vector3.up * 0.6f);
+            if (Time.realtimeSinceStartup - _subT > 1.2f)
+            {
+                Shot("vr4b_exit_fire.png");
+                Say("出口火情玩家视角（截图 vr4b_exit_fire.png）");
+                NextPhase();
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // 8. 出口火：疏散问答 → 灭火 → 门解锁
+        // ------------------------------------------------------------------
+        static void P8_ExitUnit()
+        {
+            if (_sub == 0)
+            {
+                BeginUnit();
+                _sub = 1;
+            }
+            if (_sub == 1)
+            {
+                if (!RunUnit(_ext3, _exitFire, "第 2 阶段出口火", false, "vr5_exit_quiz.png",
+                             "vr5b_exit_hp_mid.png", null, null, out _held)) return;
+                Say("出口火扑灭：门解锁=" + (_door != null && _door.IsUnlocked) + "，flow=" + _flow.CurrentStage);
+                if (_door == null || !_door.IsUnlocked) Fail("灭火后安全出口门没有解锁");
+                _sub = 2; _subT = Time.realtimeSinceStartup;
+                return;
+            }
+            if (Time.realtimeSinceStartup - _subT < 0.8f) return;
+            NextPhase();
+        }
+
+        // ------------------------------------------------------------------
+        // 9. 开门 → 走进出口 → 结束页
+        // ------------------------------------------------------------------
+        static void P9_Exit()
+        {
+            _vr.vTrigger = false;
+            float t = Time.realtimeSinceStartup - _phaseT;
+
+            if (!_shotDoor)
+            {
+                if (_shotAt == 0f) { _shotAt = Time.realtimeSinceStartup; AimCameraAt(_door.transform.position + Vector3.up * 1.0f); }
+                if (Time.realtimeSinceStartup - _shotAt > 0.9f)
+                {
+                    Shot("vr6_door_open.png");
+                    Say("玩家视角：门扇摆开、走廊可见、EXIT 灯牌亮（截图 vr6_door_open.png）");
+                    _shotDoor = true;
+                }
+                return;
+            }
+
+            if (_flow.CurrentStage == StageTwoFlow.Stage.Done && _ending != null && _ending.IsOpen)
+            {
+                if (!_shotEnd)
+                {
+                    if (_shotAt == 0f) _shotAt = Time.realtimeSinceStartup;
+                    if (Time.realtimeSinceStartup - _shotAt > 0.6f)
+                    {
+                        // 成绩单是「通关瞬间相机前方 1.2 米」的世界画布（Canvas_Ending 独立根物体）；
+                        // 对着 EndingScreen 脚本根的位置转会把镜头拧到别处，拍出一张没有面板的图。
+                        var endCanvas = GameObject.Find("Canvas_Ending");
+                        if (endCanvas != null) LookAtPoint(endCanvas.transform.position);
+                        else AimCameraAt(_ending.transform.position);
+                        Shot("vr7_ending.png"); _shotEnd = true;
+                        Say("结束页：用时/答对/火源/步骤与重开按钮（截图 vr7_ending.png）");
+                    }
+                    return;
+                }
+                Say("通关：Stage=Done，用时约 " + (Time.realtimeSinceStartup - _clock0).ToString("F0") + " 秒");
+                NextPhase();
+                return;
+            }
+
+            if (t < 0.5f) return;
+            _door.TryEnter();            // 等价于走进 0.9 米判定圈
+            if (t > 10f) { Fail("走到门口仍未通关，Stage=" + _flow.CurrentStage); NextPhase(); }
+        }
+
+        // ==================================================================
+        // 通用「灭火单元」：站到瓶旁 → 5 题问答 → 抓取 → 拔销 → 压把 →
+        //                （可选）未断电喷射验证 + 断电 → 喷射灭火
+        // 返回 true 表示本单元结束（灭火成功或已判失败）
+        // ==================================================================
+        static void BeginUnit()
+        {
+            _uStep = 0; _uSub = 0;
+            _uStepT = _uSubT = Time.realtimeSinceStartup;
+            _progA = -1f;
+            _unitShotQuiz = _unitShotMid = _unitShotLocked = false;
+            _vr.vTrigger = false;
+            _lastProgress = -1f;
+        }
+
+        static bool RunUnit(Extinguisher ext, FireSource fire, string tag, bool powerGate,
+                            string shotQuiz, string shotMid, string shotLocked, string shotPower, out Extinguisher held)
+        {
+            held = _held;
+            float now = Time.realtimeSinceStartup;
+            if (ext == null || fire == null) { Fail(tag + "：灭火器或火源缺失"); return true; }
+
+            switch (_uStep)
+            {
+                case 0:
+                    TeleportNear(ext.transform.position, fire.transform.position, 0.9f, tag + "：灭火器旁");
+                    _uStep = 1; _uStepT = now;
+                    return false;
+
+                case 1:   // ---- 5 题问答：10 秒/题、60% 通过 ----
+                    {
+                        var q = ext.quizPanel;
+                        if (q == null) { _uStep = 2; _uStepT = now; return false; }
+                        if (!q.IsOpen && !q.Passed && !q.Failed && now - _uStepT < 1.2f)
+                        {
+                            q.Open(_rightHand);
+                            Say(tag + "：右手点开灭火器 → 5 题情景问答（每题 10 秒、60% 通过）· " + q.questionSetIndex + " 组");
+                            return false;
+                        }
+                        if (q.IsOpen && !_unitShotQuiz && now - _uStepT > 0.5f)
+                        {
+                            if (shotQuiz != null) Shot(shotQuiz);
+                            _unitShotQuiz = true;
+                            Say(tag + " 问答面板：第 " + (q.QuestionIndex + 1) + "/" + q.QuestionCount
+                                + " 题，剩余 " + q.TimeLeft.ToString("F1") + " 秒，已答对 " + q.CorrectCount);
+                        }
+                        if (q.IsOpen && !q.IsAnsweredThisQuestion && q.QuestionIndex < q.QuestionCount)
+                        {
+                            int c = q.questions[q.QuestionIndex].correctIndex;
+                            q.AnswerOption(c);
+                            Say(tag + " 第 " + (q.QuestionIndex + 1) + " 题选 " + (char)('A' + c)
+                                + "（正确答案），累计答对 " + q.CorrectCount);
+                            return false;
+                        }
+                        if (q.Passed)
+                        {
+                            Say(tag + "：问答通过 " + q.CorrectCount + "/" + q.QuestionCount
+                                + "（阈值 60%）→ 可拔销");
+                            _uStep = 2; _uStepT = now;
+                            return false;
+                        }
+                        if (q.Failed)
+                        {
+                            Fail(tag + "：问答未通过（答对 " + q.CorrectCount + "）");
+                            _uStep = 2; _uStepT = now;
+                        }
+                        if (now - _uStepT > 45f) { Fail(tag + "：问答 45 秒未结束"); _uStep = 2; _uStepT = now; }
+                        return false;
+                    }
+
+                case 2:   // ---- 抓取 ----
+                    if (!ext.grab.IsHeld)
+                    {
+                        ext.grab.GrabExternal(_rightHand, HandSide.Right);
+                        held = ext;
+                        Say(tag + "：Grip 抓取 → IsHeld=" + ext.grab.IsHeld);
+                    }
+                    _uStep = 3; _uStepT = now;
+                    return false;
+
+                case 3:   // ---- 第一下扳机：拔销 ----
+                    if (now - _uStepT < 0.4f) { _vr.vTrigger = true; return false; }
+                    _vr.vTrigger = false;
+                    if (now - _uStepT < 0.7f) return false;
+                    Say(tag + "：扳机一下 → 保险销 PinPulled=" + ext.PinPulled);
+                    if (!ext.PinPulled) Fail(tag + "：扳机未拔出保险销");
+                    _uStep = 4; _uStepT = now;
+                    return false;
+
+                case 4:   // ---- 第二下扳机：压把并保持喷射 ----
+                    if (now - _uStepT < 0.3f) { _vr.vTrigger = false; return false; }
+                    _vr.vTrigger = true;
+                    if (now - _uStepT < 0.9f) return false;
+                    Say(tag + "：压把 PressedOnce=" + (ext.handleLever != null && ext.handleLever.PressedOnce)
+                        + "，IsSpraying=" + ext.IsSpraying);
+                    if (!ext.IsSpraying) Fail(tag + "：压下压把后没有喷射");
+                    _uStep = powerGate ? 5 : 6; _uStepT = now; _uSub = 0;
+                    return false;
+
+                case 5:   // ---- 电气火灾：未断电喷射无效 → 断电 ----
+                    if (fire.extinguishLocked)
+                    {
+                        switch (_uSub)
+                        {
+                            case 0:
+                                _vr.vTrigger = false;
+                                PlaceForSpray(fire, 2.0f, tag + "：火前 2.0 米（未断电）");
+                                _uSub = 1; _uSubT = now;
+                                return false;
+
+                            case 1:
+                                if (now - _uSubT < 0.4f) return false;
+                                _vr.vTrigger = true; AimAt(ext, fire.AimPoint);
+                                if (_progA < 0f) { _progA = fire.progress01; _uSubT = now; }
+                                if (now - _uSubT < 1.4f) return false;
+                                {
+                                    float progB = fire.progress01;
+                                    Say(tag + "：未断电喷射 1.4 秒，火焰进度 " + _progA.ToString("F3")
+                                        + " → " + progB.ToString("F3") + "（锁定=" + fire.extinguishLocked + "）");
+                                    if (shotLocked != null) Shot(shotLocked);
+                                    if (Mathf.Abs(progB - _progA) > 0.05f)
+                                        Fail(tag + "：未断电时火焰进度仍在下降（应锁定）");
+                                    _uSub = 2; _uSubT = now;
+                                }
+                                return false;
+
+                            case 2:
+                                _vr.vTrigger = false;
+                                _handDrop = 0.34f;   // 低头看闸门时手自然放下，别让灭火器瓶身糊住整个画面
+                                PlaceOnPlayerSide(_power.transform.position, 1.7f, tag + "：电源箱前 1.7 米");
+                                _uSub = 3; _uSubT = now;
+                                return false;
+
+                            case 3:
+                                if (now - _uSubT < 0.4f) return false;
+                                // 直接连俯仰一起对准电源箱（AimCameraAt 只转水平，相机若带俯仰会拍到天花板）
+                                LookAtPoint(_power.transform.position + Vector3.up * 0.10f);
+                                bool ok = _sc.TryCutPower();
+                                Say(tag + "：点电源箱 → IsCut=" + _power.IsCut + "（调用结果 " + ok
+                                    + "），火焰锁定=" + fire.extinguishLocked);
+                                LookAtPoint(_power.transform.position + Vector3.up * 0.10f);
+                                if (shotPower != null) Shot(shotPower);
+                                if (!_power.IsCut) Fail(tag + "：切断电源失败");
+                                if (fire.extinguishLocked) Fail(tag + "：断电后火焰仍处于锁定状态");
+                                _uSub = 4; _uSubT = now;
+                                return false;
+
+                            case 4:
+                                _handDrop = 0f;
+                                PlaceForSpray(fire, 2.0f, tag + "：断电后回到火前");
+                                _uStep = 6; _uStepT = now; _uSub = 0; _vr.vTrigger = false;
+                                return false;
+                        }
+                        return false;
+                    }
+                    _uStep = 6; _uStepT = now;
+                    return false;
+
+                case 6:   // ---- 持续喷射灭火：血量条随进度下降 ----
+                    _vr.vTrigger = true;
+                    if (!ext.grab.IsHeld)
+                    {
+                        ext.grab.GrabExternal(_rightHand, HandSide.Right);
+                        held = ext;
+                        Say(tag + "：手持物脱手，已重新抓回");
+                        return false;
+                    }
+                    AimAt(ext, fire.AimPoint);
+
+                    float nd = DistanceNozzle(ext, fire.AimPoint);
+                    if (nd > 2.6f && now - _uStepT < 8f)
+                    {
+                        PlaceForSpray(fire, 1.9f, tag + "：火前 1.9 米（重摆）");
+                        return false;
+                    }
+                    if (!_unitShotMid && fire.progress01 >= 0.30f)
+                    {
+                        LookAtPoint(fire.AimPoint + Vector3.up * 0.55f);
+                        if (shotMid != null) Shot(shotMid);
+                        _unitShotMid = true;
+                        Say(tag + "：喷射进度 " + fire.progress01.ToString("F3")
+                            + "（喷嘴 " + nd.ToString("F2") + " 米）· 血量条 HP="
+                            + (_hpDevice != null ? _hpDevice.CurrentHp : -1));
+                    }
+                    if (_lastProgress < 0f || Mathf.Abs(fire.progress01 - _lastProgress) > 0.1f)
+                    {
+                        _lastProgress = fire.progress01;
+                        Say(tag + " 灭火进度 " + fire.progress01.ToString("F3"));
+                    }
+                    if (fire.IsExtinguished)
+                    {
+                        _vr.vTrigger = false;
+                        Say(tag + "：火焰熄灭（progress=" + fire.progress01.ToString("F3") + "）");
+                        return true;
+                    }
+                    if (now - _uStepT > 45f)
+                    {
+                        // 排障用：把「为什么喷不到」写进结果，免得只看到一句进度停滞
+                        string block = "none";
+                        if (ext.nozzle != null)
+                        {
+                            Vector3 a = ext.nozzle.position;
+                            Vector3 t = fire.AimPoint - a;
+                            RaycastHit h2;
+                            if (Physics.Raycast(a, t.normalized, out h2, t.magnitude, ~0, QueryTriggerInteraction.Ignore))
+                                block = h2.collider.name + " @" + h2.distance.ToString("F2") + " 米";
+                        }
+                        Say(tag + "：诊断 喷射中=" + ext.IsSpraying + " 已拔销=" + ext.PinPulled
+                            + " 持握=" + ext.grab.IsHeld + " 火在燃烧=" + fire.IsBurning
+                            + " 喷嘴到火=" + DistanceNozzle(ext, fire.AimPoint).ToString("F2")
+                            + " 前方遮挡=" + block);
+                        Fail(tag + "：45 秒未灭火，进度 " + fire.progress01.ToString("F3")
+                             + "，喷嘴距离 " + nd.ToString("F2"));
+                        return true;
+                    }
+                    return false;
+            }
+            return true;
+        }
+
+        // ==================================================================
+        // 站位 / 取景工具
+        // ==================================================================
+        static void Teleport(Vector3 p, string why)
+        {
+            _loco.SetVirtualInput(Vector2.zero, 0f);
+            Vector3 cam = CamPos();
+            Vector3 d = new Vector3(p.x - cam.x, 0f, p.z - cam.z);
+
+            RaycastHit hit;
+            float groundY = _rigRoot.position.y;
+            if (Physics.Raycast(new Vector3(p.x, p.y + 3f, p.z), Vector3.down, out hit, 30f, ~0,
+                                 QueryTriggerInteraction.Ignore))
+                groundY = hit.point.y + 0.02f;
+
+            var ccs = _rigRoot.GetComponentsInChildren<CharacterController>(true);
+            foreach (var c in ccs) c.enabled = false;
+            _rigRoot.position = new Vector3(_rigRoot.position.x + d.x, groundY, _rigRoot.position.z + d.z);
+            Physics.SyncTransforms();
+            foreach (var c in ccs) c.enabled = true;
+
+            Say("机位安置到" + why + "（办公场景隔墙，直线推杆会被挡住，就近站位）· 眼高 "
+                + (_cam.transform.position.y - groundY).ToString("F2") + " 米");
+        }
+
         static void TeleportNear(Vector3 from, Vector3 awayTo, float dist, string why)
         {
             Vector3 dir = from - awayTo;
@@ -364,8 +857,6 @@ namespace FireSafety.EditorTools
             dir.y = 0f;
             Vector3 baseDir = dir.normalized;
 
-            // 与 PlaceOnPlayerSide 同样的采样：只落在脚下有地板、身体不卡进墙/家具的位置。
-            // 直接按"离物体 dist 米"落位会站到桌子/墙里面（实测整屏发黑，只能看到 HUD）。
             for (int i = 0; i < 16; i++)
             {
                 float ang = (i % 2 == 0 ? 1f : -1f) * ((i + 1) / 2) * 22.5f;
@@ -379,7 +870,33 @@ namespace FireSafety.EditorTools
             Fail("找不到能站人的落点：" + why);
         }
 
-        /// <summary>站到 obj 旁 dist 米，并且落在玩家当前这一侧（不会穿到火源背后去）。</summary>
+        /// <summary>灭火站位：绕火源 12 个方位挑一个「能站人 + 喷嘴到火焰根部没有遮挡」的落点。</summary>
+        static void PlaceForSpray(FireSource fire, float dist, string why)
+        {
+            if (fire == null) return;
+            Vector3 aim = fire.AimPoint;
+            const float floorY = 0.02f;
+
+            for (int k = 0; k < 12; k++)
+            {
+                Vector3 dir = Quaternion.Euler(0f, k * 30f, 0f) * Vector3.back;
+                Vector3 cand = new Vector3(aim.x + dir.x * dist, floorY, aim.z + dir.z * dist);
+                if (!Standable(cand, floorY)) continue;
+
+                Vector3 eye = new Vector3(cand.x, floorY + 1.35f, cand.z);
+                Vector3 d = aim - eye;
+                RaycastHit hit;
+                bool clear = true;
+                if (Physics.Raycast(eye, d.normalized, out hit, d.magnitude, ~0, QueryTriggerInteraction.Ignore))
+                    clear = hit.distance >= d.magnitude - 0.35f;   // 命中点落在火焰之后 = 中间没挡东西
+                if (!clear) continue;
+
+                Teleport(cand, why + "（方位 " + (k * 30) + "°，无遮挡）");
+                return;
+            }
+            PlaceOnPlayerSide(fire.transform.position, dist, why + "·无合格站位");
+        }
+
         static void PlaceOnPlayerSide(Vector3 obj, float dist, string why)
         {
             Vector3 dir = _rigRoot.position - obj;
@@ -388,8 +905,6 @@ namespace FireSafety.EditorTools
             dir.y = 0f;
             Vector3 baseDir = dir.normalized;
 
-            // 只在"脚下确实有地板、身体没卡进墙/家具"的位置落位，否则会站到房间外，
-            // 手持物掉落并一路下坠（实测能把喷嘴甩到 1.5 km 外）。
             for (int k = 0; k < 16; k++)
             {
                 float ang = k == 0 ? 0f : ((k % 2 == 1) ? 1 : -1) * ((k + 1) / 2) * 22.5f;
@@ -401,7 +916,6 @@ namespace FireSafety.EditorTools
             Teleport(obj + baseDir * dist, why + "·无合适落点");
         }
 
-        /// <summary>该点是否踩在地板上且身体没被墙/家具占住。</summary>
         static bool Standable(Vector3 p, float floorY)
         {
             RaycastHit hit;
@@ -412,415 +926,6 @@ namespace FireSafety.EditorTools
                                         QueryTriggerInteraction.Ignore);
         }
 
-        /// <summary>诊断问答面板的实际世界尺寸（判图看到文字跑到面板外时用来定位）。</summary>
-        static void DumpQuiz(ExtinguisherQuizPanel q)
-        {
-            var canvas = q.transform.Find("Canvas_Quiz") as RectTransform;
-            if (canvas == null) { Say("问答面板：找不到 Canvas_Quiz"); return; }
-            var panel = canvas.Find("QuizPanel") as RectTransform;
-            if (panel == null) { Say("问答面板：找不到 QuizPanel"); return; }
-            panelForDebug = panel;
-            var pimg = panel.GetComponent<UnityEngine.UI.Image>();
-            if (pimg != null)
-                Say("面板 Image：sprite=" + (pimg.sprite == null ? "null" : pimg.sprite.name)
-                    + " type=" + pimg.type + " preserveAspect=" + pimg.preserveAspect
-                    + " rect=" + pimg.rectTransform.rect.ToString("F0")
-                    + " anchoredPos=" + pimg.rectTransform.anchoredPosition.ToString("F0")
-                    + " 本地scale=" + pimg.rectTransform.localScale.ToString("F4")
-                    + " canvasRect=" + canvas.rect.ToString("F0")
-                    + " canvasWorldScale=" + canvas.lossyScale.ToString("F5"));
-
-            foreach (var cv in UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsSortMode.None))
-            {
-                if (cv.gameObject.name != "Canvas_Quiz") continue;
-                Say("Canvas_Quiz 实例：active=" + cv.gameObject.activeInHierarchy
-                    + " lossyScale=" + cv.transform.lossyScale.ToString("F5")
-                    + " 父=" + (cv.transform.parent != null ? cv.transform.parent.name : "root")
-                    + " 父lossy=" + (cv.transform.parent != null ? cv.transform.parent.lossyScale.ToString("F3") : "-"));
-            }
-            var corners = new Vector3[4];
-            panel.GetWorldCorners(corners);
-            float minX = float.MaxValue, maxX = float.MinValue, minY = float.MaxValue, maxY = float.MinValue;
-            foreach (var c in corners)
-            {
-                Vector3 sp = _cam.WorldToScreenPoint(c);
-                minX = Mathf.Min(minX, sp.x); maxX = Mathf.Max(maxX, sp.x);
-                minY = Mathf.Min(minY, sp.y); maxY = Mathf.Max(maxY, sp.y);
-            }
-            Say("面板实测：canvasScale=" + canvas.localScale.ToString("F4")
-                + " panelRect=" + panel.rect.size.ToString("F0")
-                + " 世界宽=" + (corners[3] - corners[0]).magnitude.ToString("F2") + " 米"
-                + " 世界高=" + (corners[1] - corners[0]).magnitude.ToString("F2") + " 米"
-                + " 距相机=" + (panel.position - _cam.transform.position).magnitude.ToString("F2") + " 米"
-                + " 屏幕=(" + minX.ToString("F0") + ".." + maxX.ToString("F0") + ", "
-                + minY.ToString("F0") + ".." + maxY.ToString("F0") + ")");
-            foreach (var tx in panel.GetComponentsInChildren<UnityEngine.UI.Text>(true))
-            {
-                var rt = tx.GetComponent<RectTransform>();
-                Vector3[] tc = new Vector3[4];
-                rt.GetWorldCorners(tc);
-                string s = tx.text == null ? "" : tx.text.Replace("\n", " ");
-                if (s.Length > 14) s = s.Substring(0, 14);
-                Vector3 spo = _cam.WorldToScreenPoint(tc[0]);
-                Say("  文本[" + s + "] 世界宽=" + (tc[3] - tc[0]).magnitude.ToString("F2")
-                    + " 父=" + rt.parent.name
-                    + " 屏幕左=" + spo.x.ToString("F0") + " 屏幕y=" + spo.y.ToString("F0"));
-            }
-        }
-
-        static void P3_Quiz()
-        {
-            var q = _ext1.quizPanel;
-            if (q == null) { Fail("灭火器缺问答面板"); NextPhase(); return; }
-            float t = Time.realtimeSinceStartup - _phaseT;
-
-            if (!q.IsOpen && !q.Passed && t < 2f) { q.Open(_rightHand); Say("右手射线点选灭火器 → 问答面板打开"); return; }
-            if (q.IsOpen && _quizOpenT < 0f) _quizOpenT = Time.realtimeSinceStartup;
-            if (!_shotQuiz && q.IsOpen && Time.realtimeSinceStartup - _quizOpenT > 0.45f)
-            {
-                Shot("vr2_quiz_panel.png"); _shotQuiz = true;
-                DumpQuiz(q);
-
-                // 调试用：把面板底色临时改成亮绿，确认背景矩形到底在哪（不进交付物）
-                var bg = panelForDebug != null ? panelForDebug.GetComponent<UnityEngine.UI.Image>() : null;
-                if (bg != null)
-                {
-                    var keep = bg.color;
-                    bg.color = new Color(0f, 1f, 0f, 1f);
-                    Canvas.ForceUpdateCanvases();
-                    Shot("_quiz_bg_debug.png");
-
-                    // 再看一遍：强制重建布局后拍一张，判断是不是布局/网格没跟上 rect
-                    UnityEngine.UI.LayoutRebuilder.ForceRebuildLayoutImmediate(panelForDebug);
-                    Canvas.ForceUpdateCanvases();
-                    Shot("_quiz_rebuild.png");
-
-                    // 再验一次：把面板拉近到 0.72 米重放，判断左边被挡是不是墙壁遮住了面板
-                    q.distanceFromCamera = 0.72f;
-                    q.PlaceInFrontOfCamera();
-                    Canvas.ForceUpdateCanvases();
-                    Shot("_quiz_near.png");
-                    bg.color = keep;
-                }
-                _shotQuizFrame = Time.frameCount;
-            }
-
-            if (_shotQuizFrame > 0 && Time.frameCount == _shotQuizFrame + 10)
-            {
-                Shot("vr2b_quiz_late.png");
-                Say("问答面板 10 帧后再拍一张（排查是否单帧批处理滞后）");
-            }
-
-            if (q.IsOpen && _shotQuiz && !q.IsAnsweredThisQuestion && q.QuestionIndex < q.questions.Count)
-            {
-                int c = q.questions[q.QuestionIndex].correctIndex;
-                q.AnswerOption(c);
-                Say("第 " + (q.QuestionIndex + 1) + " 题按 " + (char)('A' + c) + "，累计答对 " + q.CorrectCount);
-            }
-
-            if (_ext1.QuizPassed)
-            {
-                Say("问答通过（" + q.CorrectCount + "/5 = " + (q.CorrectCount / 5f * 100f).ToString("F0") + "%，阈值 60%）");
-                NextPhase();
-                return;
-            }
-            if (t > 30f) { Fail("问答未通过，答对 " + q.CorrectCount); NextPhase(); }
-        }
-
-        static void P4_GrabAndPress()
-        {
-            float t = Time.realtimeSinceStartup - _phaseT;
-            if (!_ext1.grab.IsHeld)
-            {
-                _ext1.grab.GrabExternal(_rightHand, HandSide.Right);
-                _held = _ext1;
-                Say("Grip 抓取（XRI Select）→ IsHeld=" + _ext1.grab.IsHeld);
-                _phaseT = Time.realtimeSinceStartup;
-                return;
-            }
-            if (t < 0.5f) { _vr.vTrigger = true; return; }
-            if (t < 0.9f) { _vr.vTrigger = false; return; }
-            if (t < 1.4f) return;
-            _vr.vTrigger = true;                 // 第二下压把并保持 → 持续喷射
-            if (t < 2.0f) return;
-
-            Say("扳机：第一下 PinPulled=" + _ext1.PinPulled
-                + "，第二下压把=" + (_ext1.handleLever != null && _ext1.handleLever.PressedOnce)
-                + "，IsSpraying=" + _ext1.IsSpraying);
-            if (!_ext1.PinPulled) Fail("扳机未拔出保险销");
-            if (!_ext1.IsSpraying) Fail("扳机压下压把后未开始喷射");
-
-            PlaceOnPlayerSide(_fire1.transform.position, 1.9f, "火焰根部前 1.9 米");
-            NextPhase();
-        }
-
-        static void P5_SprayOne()
-        {
-            _vr.vTrigger = true;
-            if (!_held.grab.IsHeld)                  // 传送等异常导致脱手时先抓回，否则喷嘴会一路下坠
-            {
-                _held.grab.GrabExternal(_rightHand, HandSide.Right);
-                Say("手持物脱手，已重新抓回：IsHeld=" + _held.grab.IsHeld);
-                return;
-            }
-            AimAt(_held, _fire1.AimPoint);
-
-            float prog = _fire1.progress01;
-            float nd = DistanceNozzle(_held, _fire1.AimPoint);
-            if (nd > 2.6f && !_diagDone)
-            {
-                _diagDone = true;
-                Say("诊断：火源 " + _fire1.transform.position.ToString("F2")
-                    + "，瞄准点 " + _fire1.AimPoint.ToString("F2")
-                    + "，喷嘴 " + (_held.nozzle != null ? _held.nozzle.position.ToString("F2") : "null")
-                    + "，灭火器 " + _held.transform.position.ToString("F2")
-                    + "，相机 " + CamPos().ToString("F2")
-                    + "，rig " + _rigRoot.position.ToString("F2")
-                    + "，距离 " + nd.ToString("F2"));
-            }
-            // 传送被家具/墙挤开时（喷嘴离得太远），重摆一次再喷，避免"站位不达标"造成假失败
-            if (nd > 2.6f && Time.realtimeSinceStartup - _phaseT < 8f)
-            {
-                PlaceOnPlayerSide(_fire1.transform.position, 1.6f, "火焰根部前 1.6 米（重摆）");
-                return;
-            }
-            if (!_shotSpray && prog > 0.25f)
-            {
-                LookAtPoint(_fire1.AimPoint + Vector3.up * 0.15f);
-                Shot("vr3_spray_at_fire.png");
-                Say("玩家视角：白雾喷向火焰根部，进度 " + prog.ToString("F3") + "，喷嘴距离 " + nd.ToString("F2") + " 米");
-                _shotSpray = true;
-            }
-            // 手柄模型 + 手持灭火器同框：验证「手上看得见东西」
-            if (_shotSpray && !_shotHands && prog > 0.3f)
-            {
-                Shot("vr3b_hands_hold.png");
-                Say("玩家视角：右手柄代理模型与手持灭火器同框（模型 " +
-                    (_visRight != null ? _visRight.PartCount.ToString() : "0") + " 个几何体，可见=" +
-                    (_visRight != null && _visRight.Visible) + "）");
-                Say("触觉反馈：调用 " + VRHaptics.AttemptCount + " 次，实际下发 " + VRHaptics.SendCount
-                    + " 次，无设备跳过 " + VRHaptics.SkipCount + " 次（" + VRHaptics.LastInfo + "）");
-                if (_visRight == null || !_visRight.Visible) Fail("手持灭火器时右手柄模型不可见");
-                if (VRHaptics.AttemptCount <= 0) Fail("抓取/拔销/压把没有触发任何触觉调用");
-                _shotHands = true;
-            }
-            if (_lastProgress < 0f || Mathf.Abs(prog - _lastProgress) > 0.1f)
-            {
-                Say("灭火进度 " + prog.ToString("F3") + "（喷嘴 " + nd.ToString("F2") + " 米）");
-                _lastProgress = prog;
-            }
-
-            if (_fire1.IsExtinguished)
-            {
-                _vr.vTrigger = false;
-                Say("火焰熄灭（Progress=" + _fire1.progress01.ToString("F3") + "），阶段一完成面板=" + (_panel != null && _panel.IsOpen));
-                NextPhase();
-                return;
-            }
-            if (Time.realtimeSinceStartup - _phaseT > 40f) { Fail("喷射 40 秒未灭火，进度 " + prog.ToString("F3") + "，喷嘴距离 " + nd.ToString("F2")); NextPhase(); }
-        }
-
-        static void P6_Continue()
-        {
-            _vr.vTrigger = false;
-            float t = Time.realtimeSinceStartup - _phaseT;
-            _vr.vPrimary = t < 0.5f;
-            if (t < 1.2f) return;
-            Say("A 键继续往下：Stage=" + _flow.CurrentStage);
-            if (_flow.CurrentStage != StageTwoFlow.Stage.Evacuating) Fail("未进入第二阶段，当前 " + _flow.CurrentStage);
-            NextPhase();
-        }
-
-        static void P7_CrouchLobby()
-        {
-            _vr.vPrimary = false;
-            float t = Time.realtimeSinceStartup - _phaseT;
-
-            if (t < 0.3f) { _vr.vStickClick = true; return; }
-            if (t < 1.0f) { _vr.vStickClick = false; return; }
-            if (t >= 1.1f && !_lobbyDone)
-            {
-                _lobbyDone = true;
-                Say("左摇杆按下切蹲姿：DesktopCrouch=" + _flow.DesktopCrouch + "，IsCrouched=" + _flow.IsCrouched);
-                if (!_flow.DesktopCrouch) Fail("左摇杆按下未切换蹲姿");
-                Transform lobby = _flow.arrows != null ? _flow.arrows.lobbyTarget : null;
-                if (lobby == null) { Fail("找不到大厅指引目标"); NextPhase(); return; }
-                Teleport(lobby.position, "大厅入口（蹲行终点）");
-                _lobbyT = Time.realtimeSinceStartup;
-                _lobbyNext = 0f;
-                Say("到位后相机距大厅 " + Flat(CamPos(), lobby.position).ToString("F2")
-                    + " 米，flow.player 距大厅 " + (_flow.player != null ? Flat(_flow.player.position, lobby.position).ToString("F2") : "null")
-                    + " 米，判定阈值 " + _flow.lobbyEnterDistance.ToString("F2"));
-            }
-
-            if (_flow.CurrentStage == StageTwoFlow.Stage.StageThree ||
-                _flow.CurrentStage == StageTwoFlow.Stage.ExitOpen || _flow.CurrentStage == StageTwoFlow.Stage.Done)
-            {
-                Say("蹲行到达大厅 → 进入第三阶段（Stage=" + _flow.CurrentStage + "），大厅复燃");
-                NextPhase();
-                return;
-            }
-            if (Time.realtimeSinceStartup - _phaseT > 12f) { Fail("蹲行到大厅后未进入第三阶段，Stage=" + _flow.CurrentStage); NextPhase(); }
-            else if (_lobbyDone && Time.realtimeSinceStartup - _lobbyT > _lobbyNext)
-            {
-                _lobbyNext += 1f;
-                Transform lb = _flow.arrows != null ? _flow.arrows.lobbyTarget : null;
-                Say("等阶段三：Stage=" + _flow.CurrentStage + "，DesktopCrouch=" + _flow.DesktopCrouch
-                    + "，IsCrouched=" + _flow.IsCrouched
-                    + "，player 距大厅=" + (_flow.player != null && lb != null
-                        ? Flat(_flow.player.position, lb.position).ToString("F2") : "null"));
-            }
-        }
-
-        static int _s3; static float _s3T; static float _s3Prog = -1f; static bool _lobbyDone; static bool _diagDone;
-        static float _lobbyT, _lobbyNext;
-
-        static void P8_StageThree()
-        {
-            if (_s3 >= 7 || _flow.CurrentStage == StageTwoFlow.Stage.ExitOpen || _flow.CurrentStage == StageTwoFlow.Stage.Done)
-            {
-                _vr.vTrigger = false;
-                Say("安全出口已解锁=" + (_door != null && _door.IsUnlocked) + "，Stage=" + _flow.CurrentStage);
-                NextPhase();
-                return;
-            }
-            if (_flow.CurrentStage != StageTwoFlow.Stage.StageThree)
-            {
-                if (Time.realtimeSinceStartup - _phaseT > 12f) { Fail("未进入第三阶段，当前 " + _flow.CurrentStage); NextPhase(); }
-                return;
-            }
-
-            var spare = _flow.spareExtinguisher;
-            _fire2 = _flow.stageTwoFire;
-            if (spare == null || _fire2 == null) { Fail("第三阶段火源或备用灭火器缺失"); NextPhase(); return; }
-
-            switch (_s3)
-            {
-                case 0:
-                    TeleportNear(spare.transform.position, _fire2.transform.position, 0.7f, "大厅备用灭火器旁");
-                    _s3 = 1; _s3T = Time.realtimeSinceStartup;
-                    return;
-
-                case 1:
-                    {
-                        var qp = spare.quizPanel;
-                        if (qp == null) { _s3 = 2; return; }
-                        if (!qp.IsOpen && !qp.Passed) { qp.Open(_rightHand); Say("备用灭火器问答面板打开"); return; }
-                        if (qp.IsOpen && !qp.IsAnsweredThisQuestion && qp.QuestionIndex < qp.questions.Count)
-                        {
-                            int c = qp.questions[qp.QuestionIndex].correctIndex;
-                            qp.AnswerOption(c);
-                            return;
-                        }
-                        if (spare.QuizPassed) { Say("备用灭火器问答通过 → 可拔销"); _s3 = 2; _s3T = Time.realtimeSinceStartup; return; }
-                        if (Time.realtimeSinceStartup - _s3T > 30f)
-                        {
-                            Fail("备用灭火器问答未通过，答对 " + qp.CorrectCount);
-                            _s3 = 7;
-                        }
-                    }
-                    return;
-
-                case 2:
-                    spare.grab.GrabExternal(_rightHand, HandSide.Right);
-                    _held = spare;
-                    Say("Grip 抓取备用灭火器：IsHeld=" + spare.grab.IsHeld);
-                    _s3 = 3; _s3T = Time.realtimeSinceStartup;
-                    return;
-
-                case 3:   // 第一下：拔销
-                    _vr.vTrigger = true;
-                    if (Time.realtimeSinceStartup - _s3T > 0.5f) { _vr.vTrigger = false; _s3 = 4; _s3T = Time.realtimeSinceStartup; }
-                    return;
-
-                case 4:   // 第二下：压把并保持
-                    if (Time.realtimeSinceStartup - _s3T < 0.5f) return;
-                    _vr.vTrigger = true;
-                    _s3 = 5; _s3T = Time.realtimeSinceStartup;
-                    return;
-
-                case 5:
-                    if (Time.realtimeSinceStartup - _s3T < 0.6f) return;
-                    Say("备用灭火器扳机：PinPulled=" + spare.PinPulled
-                        + "，压把=" + (spare.handleLever != null && spare.handleLever.PressedOnce)
-                        + "，IsSpraying=" + spare.IsSpraying);
-                    if (!spare.PinPulled) Fail("备用灭火器未拔销");
-                    if (!spare.IsSpraying) Fail("备用灭火器未喷射");
-                    PlaceOnPlayerSide(_fire2.transform.position, 1.9f, "复燃火前 1.9 米");
-                    _s3 = 6; _s3T = Time.realtimeSinceStartup;
-                    return;
-
-                case 6:
-                    _vr.vTrigger = true;
-                    AimAt(spare, _fire2.AimPoint);
-                    if (DistanceNozzle(spare, _fire2.AimPoint) > 2.6f && Time.realtimeSinceStartup - _s3T < 8f)
-                    {
-                        PlaceOnPlayerSide(_fire2.transform.position, 1.6f, "复燃火前 1.6 米（重摆）");
-                        return;
-                    }
-                    if (_s3Prog < 0f || Mathf.Abs(_fire2.progress01 - _s3Prog) > 0.1f)
-                    {
-                        _s3Prog = _fire2.progress01;
-                        Say("复燃火进度 " + _fire2.progress01.ToString("F3") + "（喷嘴 " + DistanceNozzle(spare, _fire2.AimPoint).ToString("F2") + " 米）");
-                    }
-                    if (_fire2.IsExtinguished || _flow.CurrentStage != StageTwoFlow.Stage.StageThree)
-                    {
-                        _vr.vTrigger = false;
-                        Say("复燃火扑灭，安全出口开启");
-                        _s3 = 7; _s3T = Time.realtimeSinceStartup;
-                        return;
-                    }
-                    if (Time.realtimeSinceStartup - _s3T > 40f) { Fail("复燃火未灭，进度 " + _fire2.progress01.ToString("F3")); _s3 = 7; }
-                    return;
-            }
-        }
-
-        static void P9_Exit()
-        {
-            _vr.vTrigger = false;
-            float t = Time.realtimeSinceStartup - _phaseT;
-
-            // 门开之后等门扇摆到位再出图（此时玩家正对着门站），出完图才走进门
-            if (!_shotDoor)
-            {
-                if (_doorOpenAt < 0f) { _doorOpenAt = Time.realtimeSinceStartup; AimCameraAt(_door.transform.position + Vector3.up * 1.0f); }
-                if (Time.realtimeSinceStartup - _doorOpenAt > 0.9f)
-                {
-                    Shot("vr4_door_open.png");
-                    Say("玩家视角截图 vr4_door_open.png（门已开启，Stage=" + _flow.CurrentStage + "）");
-                    _shotDoor = true;
-                }
-                return;
-            }
-
-            if (_flow.CurrentStage == StageTwoFlow.Stage.Done)
-            {
-                if (!_shotEnd && _ending != null && _ending.IsOpen)
-                {
-                    if (_endingAt < 0f) _endingAt = Time.realtimeSinceStartup;
-                    if (Time.realtimeSinceStartup - _endingAt > 0.5f) { Shot("vr5_ending.png"); _shotEnd = true; }
-                    return;
-                }
-                Say("走进安全出口 → 演练完成：Stage=Done，结束页=" + (_ending != null && _ending.IsOpen));
-                NextPhase();
-                return;
-            }
-
-            if (t < 0.4f)
-            {
-                return;
-            }
-            _door.TryEnter();   // 等价于走进 0.9 米判定圈
-            if (_flow.CurrentStage != StageTwoFlow.Stage.ExitOpen)
-                Say("出口尚未开启，Stage=" + _flow.CurrentStage);
-            if (t > 10f)
-            {
-                Fail("走到门口仍未通关，Stage=" + _flow.CurrentStage);
-                NextPhase();
-            }
-        }
-
-        // ------------------------------------------------------------------
         static float DistanceNozzle(Extinguisher e, Vector3 aim)
         {
             if (e == null || e.nozzle == null) return -1f;
@@ -837,7 +942,7 @@ namespace FireSafety.EditorTools
             _rightHand.rotation = d * _rightHand.rotation;
         }
 
-        /// <summary>只转水平朝向，让玩家视角正对某个点（用于出图取景），并把俯仰拉回水平。</summary>
+        /// <summary>只转水平朝向，让玩家视角正对某个点（出图取景），并把俯仰拉回水平。</summary>
         static void AimCameraAt(Vector3 p)
         {
             Vector3 cam = CamPos();
@@ -847,21 +952,32 @@ namespace FireSafety.EditorTools
             float want = Quaternion.LookRotation(d.normalized, Vector3.up).eulerAngles.y;
             _rigRoot.rotation = Quaternion.Euler(0f, want - cur, 0f) * _rigRoot.rotation;
             _cam.transform.localRotation = Quaternion.identity;
+            // 相机上还有一层 Camera Offset，鼠标视角/上一段抬头会把它的 X 轴压翘起来；
+            // 只清相机自身的话画面仍然朝天（实测「断电」截图拍成了天花板 + 天空盒），必须连它一起放平。
+            var camOffset = _cam.transform.parent;
+            if (camOffset != null && camOffset != _rigRoot)
+                camOffset.localRotation = Quaternion.identity;   // 清掉鼠标视角留下的俯仰/横滚
         }
 
-        /// <summary>连俯仰一起对准（模拟玩家低头/抬头看目标）。</summary>
+        /// <summary>连俯仰一起对准（模拟玩家抬头/低头看目标）。</summary>
         static void LookAtPoint(Vector3 p)
         {
-            Vector3 d = p - _cam.transform.position;
-            if (d.sqrMagnitude < 0.01f) return;
+            Vector3 cam = CamPos();
+            Vector3 d = p - cam;
             Vector3 flat = d; flat.y = 0f;
-            if (flat.sqrMagnitude > 0.01f)
-            {
-                _rigRoot.rotation = Quaternion.Euler(0f,
-                    Quaternion.LookRotation(flat.normalized, Vector3.up).eulerAngles.y - _cam.transform.eulerAngles.y, 0f)
-                    * _rigRoot.rotation;
-            }
-            _cam.transform.rotation = Quaternion.LookRotation(d.normalized, Vector3.up);
+            if (flat.sqrMagnitude < 0.01f) return;
+
+            // 只对「rig 的 yaw + Camera Offset 的 pitch」下手，不给相机写世界旋转：
+            // 相机是 rig 的子物体，任何一次 rig 转向都会把世界旋转带走（实测断电取景几帧后偏了 90°）。
+            float wantYaw = Quaternion.LookRotation(flat.normalized, Vector3.up).eulerAngles.y;
+            float curYaw = _cam.transform.eulerAngles.y;
+            _rigRoot.rotation = Quaternion.Euler(0f, wantYaw - curYaw, 0f) * _rigRoot.rotation;
+
+            float pitch = -Mathf.Asin(Mathf.Clamp(d.normalized.y, -1f, 1f)) * Mathf.Rad2Deg;
+            var camOffset = _cam.transform.parent;
+            if (camOffset != null && camOffset != _rigRoot)
+                camOffset.localRotation = Quaternion.Euler(pitch, 0f, 0f);   // 横滚归零，画面不歪
+            _cam.transform.localRotation = Quaternion.identity;
         }
 
         static void Shot(string name)

@@ -102,13 +102,15 @@ namespace FireSafety
 
         // ---------------- 题库 ----------------
 
-        [Header("题库组（共 10 题，两台灭火器各 5 题，互不重复）")]
-        [Tooltip("0 = A 组（Extinguisher01），1 = B 组（Extinguisher02）")]
-        [Range(0, 1)] public int questionSetIndex = 0;
+        [Header("题库组（共 20 题，四组各 5 题，互不重复）")]
+        [Tooltip("0 = A 组（Extinguisher01 基础），1 = B 组（Extinguisher02 进阶），" +
+                 "2 = C 组（电气设备起火 · 先断电），3 = D 组（出口疏散情景）")]
+        [Range(0, 3)] public int questionSetIndex = 0;
 
         /// <summary>
-        /// 题库池，共 10 道：0~4 为 A 组（干粉灭火器基础），5~9 为 B 组（火灾处置进阶）。
-        /// 两台的题面完全不重复，正确答案也分散在 A/B/C 三个位置。
+        /// 题库池，共 20 道：0~4 = A 组（干粉灭火器基础）、5~9 = B 组（火灾处置进阶）、
+        /// 10~14 = C 组（电气设备起火 / 先断电）、15~19 = D 组（安全出口 / 疏散情景）。
+        /// 各组题面不重复，正确答案分散在 A/B/C 三个位置。
         /// </summary>
         public static List<QuizQuestion> BuildAllQuestions()
         {
@@ -186,15 +188,89 @@ namespace FireSafety
                     options = new[] { "握住压把准备按下", "握住喷管、对准火焰根部", "双手握住瓶身" },
                     correctIndex = 1,
                     explanation = "「握」是握住喷管并瞄准火焰根部，「压」才是压下压把喷射。"
+                },
+
+                // ---------- C 组（Extinguisher02：电气设备起火 · 必须先断电） ----------
+                new QuizQuestion
+                {
+                    question = "办公室电脑机箱冒烟起火，第一步应该做什么？",
+                    options = new[] { "先切断电源", "直接对着机箱喷射干粉", "先打开机箱看看哪里烧了" },
+                    correctIndex = 0,
+                    explanation = "带电设备起火先断电：既切断持续发热的源头，也避免灭火时触电。"
+                },
+                new QuizQuestion
+                {
+                    question = "扑救带电设备火灾，适合用哪种灭火器？",
+                    options = new[] { "清水灭火器", "泡沫灭火器", "干粉或二氧化碳灭火器" },
+                    correctIndex = 2,
+                    explanation = "水和泡沫导电，带电灭火会造成触电；干粉、二氧化碳不导电，适合电气火灾。"
+                },
+                new QuizQuestion
+                {
+                    question = "配电箱冒烟起火时，靠近之前要注意什么？",
+                    options = new[] { "直接用湿毛巾捂住配电箱", "确认已断电，并保持身体与带电体距离", "先把配电箱门全部打开散热" },
+                    correctIndex = 1,
+                    explanation = "未断电时靠近配电箱有触电和电弧灼伤风险，必须先断闸确认无电。"
+                },
+                new QuizQuestion
+                {
+                    question = "在办公室扑救设备火时，正确站位是？",
+                    options = new[] { "站在上风或侧上风方向", "站在设备正下方", "紧贴设备正面" },
+                    correctIndex = 0,
+                    explanation = "上风或侧上风方向能避免火焰、高温烟气和干粉回扑到脸上。"
+                },
+                new QuizQuestion
+                {
+                    question = "电器火灾扑灭后，还应该做什么？",
+                    options = new[] { "马上把设备重新通电继续用", "原地观察防止复燃，并联系电工检修", "用水冲洗设备降温" },
+                    correctIndex = 1,
+                    explanation = "电气火灾易复燃，扑灭后要持续观察，设备必须由电工检查后才能再通电。"
+                },
+
+                // ---------- D 组（Extinguisher03：安全出口 / 疏散情景） ----------
+                new QuizQuestion
+                {
+                    question = "疏散时「安全出口」标识通常是什么颜色？",
+                    options = new[] { "绿色", "红色", "黄色" },
+                    correctIndex = 0,
+                    explanation = "安全出口标识为绿色底白字，火灾中沿绿色标识方向撤离。"
+                },
+                new QuizQuestion
+                {
+                    question = "走廊里已经有烟，正确的撤离姿势是？",
+                    options = new[] { "直立快跑", "弯腰低姿、捂住口鼻沿墙前进", "趴在地上爬行" },
+                    correctIndex = 1,
+                    explanation = "烟气向上聚集，弯腰低姿能避开最浓的烟层，同时保持移动速度。"
+                },
+                new QuizQuestion
+                {
+                    question = "出口前被火焰封住，应该怎么做？",
+                    options = new[] { "退回房间躲起来", "直接用身体冲过去", "先扑灭出口处的火焰，再迅速撤离" },
+                    correctIndex = 2,
+                    explanation = "出口火势不大时先用灭火器打开通道，火势失控则退回房间封门待援。"
+                },
+                new QuizQuestion
+                {
+                    question = "办公楼疏散时，下列哪种做法是正确的？",
+                    options = new[] { "乘电梯快速下楼", "走安全楼梯疏散", "回工位取回贵重物品" },
+                    correctIndex = 1,
+                    explanation = "火灾时电梯可能断电困人，必须走安全楼梯；也不要折返取物。"
+                },
+                new QuizQuestion
+                {
+                    question = "打开安全出口门、撤离到室外后，应该做什么？",
+                    options = new[] { "返回楼内确认火情", "在安全区域集合、清点人数并报警", "站在门口围观拍照" },
+                    correctIndex = 1,
+                    explanation = "撤离后到指定集合点清点人数，向消防人员说明情况，不能再返回火场。"
                 }
             };
         }
 
-        /// <summary>按组取 5 题：0 = A 组，1 = B 组。</summary>
+        /// <summary>按组取 5 题：0 = A 组，1 = B 组，2 = C 组（电气），3 = D 组（疏散情景）。</summary>
         public static List<QuizQuestion> BuildQuestionSet(int setIndex)
         {
             var all = BuildAllQuestions();
-            int start = Mathf.Clamp(setIndex, 0, 1) * 5;
+            int start = Mathf.Clamp(setIndex, 0, 3) * 5;
             var set = new List<QuizQuestion>();
             for (int i = 0; i < 5; i++) set.Add(all[start + i]);
             return set;

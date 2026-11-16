@@ -146,6 +146,10 @@ namespace FireSafety
                         Hint("压把已按下 · 对准火焰根部持续喷射，松开扳机停止");
                     }
                 }
+                else if (TryCutPowerByRay())
+                {
+                    // 未持灭火器时，扳机 = 指电源箱切断电源（电气火灾硬规则）
+                }
             }
             else if (!trigger && _prevTrigger)
             {
@@ -188,7 +192,7 @@ namespace FireSafety
             if (startScreen != null && !startScreen.Started)
             {
                 startScreen.StartGame();
-                Hint("演练开始 · 先用 Grip 抓起红色灭火器");
+                Hint("正式演练开始 · 先切断电源，再拿灭火器答题、拔销、压把、喷射");
                 return;
             }
             if (stagePanel != null && stagePanel.IsOpen)
@@ -233,15 +237,43 @@ namespace FireSafety
         {
             if (Time.time - _lastHint < hintRefresh) return;
 
+            var scenario = DrillScenario.Instance;
             string hint;
             if (onboarding != null && onboarding.IsOpen) hint = "A 键翻页 · 右手射线可直接点「下一页 / 开始演练」";
             else if (startScreen != null && !startScreen.Started) hint = "按 A 开始演练 · 右手射线点「开始演练」也可以";
             else if (AnyQuizOpen()) hint = "问答中：A / B / X 选 A / B / C（也可用右手射线点选项）";
+            else if (scenario != null && scenario.CurrentMode == DrillScenario.Mode.Formal
+                     && scenario.CurrentPhase == DrillScenario.Phase.Stage1 && !scenario.PowerCut)
+                hint = "设备起火：先走到电源箱旁，右手射线指向它按 Trigger 切断电源";
+            else if (scenario != null && scenario.CurrentMode == DrillScenario.Mode.Formal
+                     && scenario.CurrentPhase == DrillScenario.Phase.Stage2)
+                hint = "沿安全出口标识撤离 · 出口前有火情，用出口旁灭火器灭火开门";
             else if (_held != null && !_held.PinPulled) hint = "已拿起灭火器 · 按 Trigger 拔保险销";
             else if (_held != null && _held.IsSpraying) hint = "正在喷射 · 对准火焰根部，松开扳机即停";
             else if (_held != null) hint = "按 Trigger 压下压把喷射 · Grip 松开可放下灭火器";
-            else hint = "左摇杆移动 · 右摇杆瞬转 · 靠近红色灭火器后按 Grip 抓取";
+            else hint = "左摇杆移动 · 右摇杆瞬转 · 靠近红色灭火器按 Grip 抓取 · 电源箱按 Trigger 断电";
             Hint(hint);
+        }
+
+        /// <summary>未持灭火器时，右手射线指向配电箱 → 切断电源。</summary>
+        bool TryCutPowerByRay()
+        {
+            var scenario = DrillScenario.Instance;
+            if (scenario == null) return false;
+            if (scenario.PowerCut) return false;
+
+            Transform src = rightHand != null ? rightHand : (Camera.main != null ? Camera.main.transform : null);
+            if (src == null) return false;
+
+            if (!Physics.Raycast(src.position, src.forward, out var hit, 4.5f, ~0, QueryTriggerInteraction.Collide))
+                return false;
+            if (hit.collider == null) return false;
+
+            var power = hit.collider.GetComponentInParent<PowerSwitch>();
+            if (power == null) return false;
+
+            scenario.TryCutPower();
+            return true;
         }
 
         bool AnyQuizOpen()

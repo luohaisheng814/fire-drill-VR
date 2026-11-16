@@ -28,6 +28,11 @@ namespace FireSafety
 
         public string buttonLabel = "开始演练";
 
+        [Header("操作演练入口（原第一阶段：拿瓶→答题→拔销→压把→喷射）")]
+        [Tooltip("开始面板上的第三个按钮：进入可实操的操作演练")]
+        public string tutorialLabel = "操作演练";
+        public bool showTutorialButton = true;
+
         [Header("位置与比例")]
         public Vector3 worldPosition = new Vector3(0f, 1.3f, 1.8f);
         public float canvasScale = 0.001f;
@@ -192,7 +197,8 @@ namespace FireSafety
             UIFX.Pulse(this, _titleText.transform, 1f, titlePulseAmplitude, titlePulseFrequency);
 
             // 玩法说明文本框（可在 Inspector 的 Instructions 里修改）
-            _instText = MakeText(panel.transform, instructions, 20, Color.white, 470f);
+            // 面板总高 880：标题 110 + 说明 400 + 三个按钮（100/62/62）+ 间距，留出余量不压字
+            _instText = MakeText(panel.transform, instructions, 20, Color.white, 400f);
             _instText.horizontalOverflow = HorizontalWrapMode.Wrap;
             _instText.verticalOverflow = VerticalWrapMode.Truncate;
             _instText.lineSpacing = 1.15f;
@@ -204,6 +210,14 @@ namespace FireSafety
             _startLabel = _startButton.GetComponentInChildren<Text>();
             UIFX.Pulse(this, _startButton.transform, 1f, buttonPulseAmplitude, buttonPulseFrequency);
             _startButton.onClick.AddListener(StartGame);
+
+            // 操作演练入口：原第一阶段的完整流程，玩家可先练熟再进正式演练
+            if (showTutorialButton)
+            {
+                var tutorialBtn = MakeButton(panel.transform, tutorialLabel, 30,
+                    new Color(0.78f, 0.42f, 0.12f, 1f), 62f);
+                tutorialBtn.onClick.AddListener(OpenTutorial);
+            }
 
             // 引导页入口（온보딩）：分页教学
             var onboardBtn = MakeButton(panel.transform, onboardingLabel, 30,
@@ -295,6 +309,22 @@ namespace FireSafety
             onboarding.Show();
         }
 
+        /// <summary>「操作演练」按钮：原第一阶段的完整实操流程（拿瓶 → 答题 → 拔销 → 压把 → 喷射）。</summary>
+        public void OpenTutorial()
+        {
+            PlayClick();
+            var scenario = DrillScenario.Instance != null ? DrillScenario.Instance : FindObjectOfType<DrillScenario>();
+            if (scenario == null)
+            {
+                Debug.LogWarning("[StartScreen] 场景中没有 DrillScenario，操作演练退化为开始演练。");
+                StartGame();
+                return;
+            }
+            Started = true;
+            scenario.BeginTutorial();
+            StartCoroutine(ExitRoutine());
+        }
+
         /// <summary>「开始演练」按钮回调。</summary>
         public void StartGame()
         {
@@ -308,6 +338,10 @@ namespace FireSafety
 
             if (FireDrillManager.Instance != null)
                 FireDrillManager.Instance.ForceCompleteUpTo(DrillStep.AlarmRinging);
+
+            // 新流程：正式开始由 DrillScenario 负责（随机出生点 + 烟雾 + 设备起火 + 断电 + 灭火 → 出口）
+            var scenario = DrillScenario.Instance != null ? DrillScenario.Instance : FindObjectOfType<DrillScenario>();
+            if (scenario != null) scenario.BeginFormal();
 
             // 退出动画后隐藏
             StartCoroutine(ExitRoutine());
@@ -396,7 +430,11 @@ namespace FireSafety
             var fires = FindObjectsOfType<FireSource>();
             if (fires.Length == 0) return;
             foreach (var fire in fires)
+            {
+                // 设备火 / 出口火由 DrillScenario 在对应阶段显式点燃，不跟着开始按钮一起烧
+                if (fire == null || !fire.igniteFromStartScreen) continue;
                 StartCoroutine(IgniteRoutine(fire));
+            }
         }
 
         IEnumerator IgniteRoutine(FireSource fire)

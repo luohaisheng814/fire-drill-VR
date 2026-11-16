@@ -35,8 +35,10 @@ namespace FireSafety
 
         private void Awake()
         {
-            if (Instance != null && Instance != this) { Destroy(this); return; }
-            Instance = this;
+            // 场景里有两条烟雾区（撤离通道 SmokeZone + 第一阶段设备旁 Stage1Smoke）：
+            // 这里只登记第一个实例，不能 Destroy 另一个 —— 否则第二个的组件会在运行时被销毁，
+            // 流程脚本持有的引用变成 fake-null，Begin() 永远不会执行（开始后看不见烟雾）。
+            if (Instance == null) Instance = this;
         }
 
         private void OnDestroy()

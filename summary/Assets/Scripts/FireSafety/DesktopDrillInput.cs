@@ -314,12 +314,22 @@ namespace FireSafety
             if (startScreen != null && !startScreen.Started)
             {
                 startScreen.StartGame();
-                Hint("演练开始：找灭火器 → 右键单击灭火器 → 答题 → 拿起 → 拔销 → 压把 → 喷射");
+                Hint("正式演练开始：先切断电源箱 → 拿灭火器答题 → 拔销 → 压把 → 喷射灭火");
             }
         }
 
         private void OnRightClick()
         {
+            // 先看是不是点在电源接口上：正式第 1 阶段必须先断电才能灭火
+            var power = PickPowerSwitchUnderMouse();
+            if (power != null)
+            {
+                var scenario = DrillScenario.Instance != null ? DrillScenario.Instance : FindObjectOfType<DrillScenario>();
+                if (scenario != null) scenario.TryCutPower();
+                else if (!power.Cut()) Hint("电源已切断");
+                return;
+            }
+
             if (Held)
             {
                 Hint("已手持灭火器：左键单击拔销 / 左键双击压把 / 右键双击喷射 / P 放下");
@@ -486,6 +496,25 @@ namespace FireSafety
             return PickNearestInView();
         }
 
+        /// <summary>鼠标射线选中电源接口（配电箱总闸）。</summary>
+        private PowerSwitch PickPowerSwitchUnderMouse()
+        {
+            var mouse = Mouse.current;
+            var cam = GetCamera();
+            if (cam == null || mouse == null) return null;
+
+            Ray ray = cam.ScreenPointToRay(mouse.position.ReadValue());
+            var hits = Physics.RaycastAll(ray, 30f, ~0, QueryTriggerInteraction.Collide);
+            Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+            foreach (var h in hits)
+            {
+                if (h.collider == null) continue;
+                var p = h.collider.GetComponentInParent<PowerSwitch>();
+                if (p != null) return p;
+            }
+            return null;
+        }
+
         /// <summary>任一台灭火器的答题面板当前是否打开（用于临时隐藏 HUD）。</summary>
         private bool QuizIsOpen()
         {
@@ -637,8 +666,8 @@ namespace FireSafety
 
             const string controls =
                 "【视角/移动】移动鼠标转头　｜　W/A/S/D 平移　｜　Q/E 转身　｜　Shift 加速　｜　C 蹲下　" +
-                "【鼠标操作】右键单击灭火器：答题/拿起　｜　左键单击：拔出保险销　｜　左键双击：按下压把　" +
-                "｜　右键双击：喷射（再双击停止）　｜　P：放下";
+                "【鼠标操作】右键单击灭火器：答题/拿起　｜　右键单击电源箱：切断电源　｜　左键单击：拔销　" +
+                "｜　左键双击：压把　｜　右键双击：喷射（再双击停止）　｜　P：放下";
 
             string status = Time.unscaledTime < _statusUntil ? _status : "";
             string line = controls + "\n" + StateText();
@@ -648,6 +677,16 @@ namespace FireSafety
 
         private string StateText()
         {
+            // 新流程（操作演练 / 正式第 1 阶段 / 第 2 阶段）的状态优先
+            var scenario = DrillScenario.Instance != null ? DrillScenario.Instance : FindObjectOfType<DrillScenario>();
+            if (scenario != null && scenario.CurrentMode != DrillScenario.Mode.None)
+            {
+                string s = scenario.StateText();
+                if (scenario.CurrentMode == DrillScenario.Mode.Tutorial && stagePanel != null && stagePanel.IsOpen)
+                    return "状态：操作演练完成 → 在面板中选择「进入正式演练」或「重新演练」";
+                return s;
+            }
+
             var mgr = FireDrillManager.Instance;
             if (mgr != null && mgr.IsCompleted)
             {
