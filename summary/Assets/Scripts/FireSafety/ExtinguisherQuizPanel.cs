@@ -102,14 +102,15 @@ namespace FireSafety
 
         // ---------------- 题库 ----------------
 
-        [Header("题库组（共 20 题，四组各 5 题，互不重复）")]
-        [Tooltip("0 = A 组（Extinguisher01 基础），1 = B 组（Extinguisher02 进阶），" +
-                 "2 = C 组（电气设备起火 · 先断电），3 = D 组（出口疏散情景）")]
-        [Range(0, 3)] public int questionSetIndex = 0;
+        [Header("题库组（共 30 题，六组各 5 题，互不重复）")]
+        [Tooltip("0 = A 组（基础）、1 = B 组（进阶）、2 = C 组（电气设备起火 · 先断电）、" +
+                 "3 = D 组（出口疏散情景）、4 = E 组（纸张 / 固体可燃物）、5 = F 组（茶水间小家电 / 油类）")]
+        [Range(0, 5)] public int questionSetIndex = 0;
 
         /// <summary>
-        /// 题库池，共 20 道：0~4 = A 组（干粉灭火器基础）、5~9 = B 组（火灾处置进阶）、
-        /// 10~14 = C 组（电气设备起火 / 先断电）、15~19 = D 组（安全出口 / 疏散情景）。
+        /// 题库池，共 30 道：0~4 = A 组（干粉灭火器基础）、5~9 = B 组（火灾处置进阶）、
+        /// 10~14 = C 组（电气设备起火 / 先断电）、15~19 = D 组（安全出口 / 疏散情景）、
+        /// 20~24 = E 组（纸张等固体可燃物）、25~29 = F 组（茶水间小家电 / 油类）。
         /// 各组题面不重复，正确答案分散在 A/B/C 三个位置。
         /// </summary>
         public static List<QuizQuestion> BuildAllQuestions()
@@ -262,15 +263,89 @@ namespace FireSafety
                     options = new[] { "返回楼内确认火情", "在安全区域集合、清点人数并报警", "站在门口围观拍照" },
                     correctIndex = 1,
                     explanation = "撤离后到指定集合点清点人数，向消防人员说明情况，不能再返回火场。"
+                },
+
+                // ---------- E 组（纸张 / 纸箱等固体可燃物起火，A 类） ----------
+                new QuizQuestion
+                {
+                    question = "办公桌上的一摞纸张、文件开始燃烧，属于哪类火灾？",
+                    options = new[] { "A 类（固体可燃物）", "B 类（液体火灾）", "D 类（金属火灾）" },
+                    correctIndex = 0,
+                    explanation = "纸张、木材、织物等固体可燃物属于 A 类火灾，用水基或 ABC 干粉灭火器最有效。"
+                },
+                new QuizQuestion
+                {
+                    question = "扑救纸张、纸箱起火，最适合用哪种灭火器？",
+                    options = new[] { "二氧化碳灭火器（只适合精密设备）", "ABC 干粉（或水基型）灭火器", "直接端一盆水泼上去" },
+                    correctIndex = 1,
+                    explanation = "A 类火灾最有效的是水基型或 ABC 干粉灭火器；二氧化碳对固体火灾容易复燃，整盆泼水又会把燃烧物冲散。"
+                },
+                new QuizQuestion
+                {
+                    question = "桌上纸箱、文件堆正在燃烧，正确的处置顺序是？",
+                    options = new[] { "先把燃烧的纸箱搬到走廊再处理", "先灭火，不要搬动正在燃烧的纸箱", "用嘴把火苗吹灭" },
+                    correctIndex = 1,
+                    explanation = "搬动燃烧物会让火星和燃烧碎片沿途掉落、扩大火场，应先就地扑灭再清理。"
+                },
+                new QuizQuestion
+                {
+                    question = "固体可燃物火灾扑灭后，最需要注意什么？",
+                    options = new[] { "防止阴燃复燃，翻开纸堆检查内部", "马上把废纸堆回抽屉", "打开所有门窗让空气流通" },
+                    correctIndex = 0,
+                    explanation = "纸堆内部容易阴燃，表面看不见火也可能复燃，必须翻开检查并持续观察。"
+                },
+                new QuizQuestion
+                {
+                    question = "办公室纸张起火初期，门窗应该怎么处理？",
+                    options = new[] { "全部打开，加速排烟", "关上以减缓火势蔓延，撤离时再打开出口", "完全不用管" },
+                    correctIndex = 1,
+                    explanation = "初期关闭门窗可减少空气流通、减缓蔓延；人员撤离时再打开出口门，切勿为排烟把火引向走廊。"
+                },
+
+                // ---------- F 组（茶水间小家电 / 插座起火） ----------
+                new QuizQuestion
+                {
+                    question = "茶水间微波炉冒烟起火，第一步应该做什么？",
+                    options = new[] { "先拔掉插头 / 切断该区域电源", "直接对着微波炉喷射干粉", "打开炉门看看里面" },
+                    correctIndex = 0,
+                    explanation = "小家电起火先断电，既切断持续加热的源头，也避免灭火时触电；打开炉门会让大量空气进入、火焰瞬间变大。"
+                },
+                new QuizQuestion
+                {
+                    question = "插座面板冒火花并伴有焦糊味，应该怎么做？",
+                    options = new[] { "继续用，等它自己好", "立即停止使用、断电报修", "用湿毛巾把插座捂住" },
+                    correctIndex = 1,
+                    explanation = "打火与焦糊味是线路过载或接触不良的前兆，必须断电并报修，湿毛巾捂插座有触电危险。"
+                },
+                new QuizQuestion
+                {
+                    question = "小家电起火时，为什么不能用水或泡沫灭火器？",
+                    options = new[] { "水会损坏设备外观", "设备可能带电，水和泡沫导电会触电", "水会让火变小，没必要用" },
+                    correctIndex = 1,
+                    explanation = "未确认断电时设备带电，水和泡沫导电会造成触电，应使用干粉或二氧化碳灭火器。"
+                },
+                new QuizQuestion
+                {
+                    question = "茶水间油锅（食用油）起火，正确的做法是？",
+                    options = new[] { "盖锅盖或灭火毯隔绝空气", "立刻端锅往外跑", "往锅里倒水降温" },
+                    correctIndex = 0,
+                    explanation = "油火不能用水：水瞬间汽化会把燃烧的油溅开。应先关火源、盖锅盖或用灭火毯隔绝空气。"
+                },
+                new QuizQuestion
+                {
+                    question = "电器火灾扑灭后，插座和设备应该怎么处理？",
+                    options = new[] { "擦干净就直接通电继续用", "由电工检查线路后再通电", "用水冲洗降温后通电" },
+                    correctIndex = 1,
+                    explanation = "电气火灾易复燃，且线路可能已受损，必须由电工检查合格后再恢复供电。"
                 }
             };
         }
 
-        /// <summary>按组取 5 题：0 = A 组，1 = B 组，2 = C 组（电气），3 = D 组（疏散情景）。</summary>
+        /// <summary>按组取 5 题：0 = A 组，1 = B 组，2 = C 组（电气），3 = D 组（疏散），4 = E 组（纸张），5 = F 组（小家电/油类）。</summary>
         public static List<QuizQuestion> BuildQuestionSet(int setIndex)
         {
             var all = BuildAllQuestions();
-            int start = Mathf.Clamp(setIndex, 0, 3) * 5;
+            int start = Mathf.Clamp(setIndex, 0, 5) * 5;
             var set = new List<QuizQuestion>();
             for (int i = 0; i < 5; i++) set.Add(all[start + i]);
             return set;

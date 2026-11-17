@@ -104,6 +104,9 @@ namespace FireSafety.EditorTools
             // 5.7 天花板（办公室原来只有地板，抬头能直接看到天空盒）
             SetupCeiling();
 
+            // 5.8 补墙：封住南侧 / 南翼东侧 / 大厅南边 / 东端四处敞开的天空盒缺口
+            SetupWalls();
+
             // 6. 灭火器（01 = 操作演练 / 02 = 正式第 1 阶段设备火 / 03 = 第 2 阶段出口火）
             SetupExtinguisher("Extinguisher01", rig, leftHand, rightHand);
             SetupExtinguisher("Extinguisher02", rig, leftHand, rightHand);
@@ -750,6 +753,86 @@ namespace FireSafety.EditorTools
             Debug.Log("[Setup] ✔ 天花板：14×12 米封顶（内表面 y=3.0，阴影投射已关闭）+ 4 盏吸顶灯");
         }
 
+        /// <summary>
+        /// 补墙：办公室的围合原本全靠美术拼件（wall_standard 3 米 / wall_medium 2.5 米 /
+        /// wall_small 1.75 米），实际有四处边界是敞开的，玩家走过去就是空的天空盒（地板也到边为止）。
+        /// 这里按实测包围盒补四段 3 米高的墙板，凑成完整房间：
+        ///   ① 南翼南墙 z=-8.0（x -6.75~-0.75）
+        ///   ② 南翼东墙 x=-0.75（z -8~-4，地板在这一段以东并不存在）
+        ///   ③ 大厅 + 走廊南墙 z=-4.0（x -0.85~7.25）
+        ///   ④ 东端墙 x=7.25（z -4~4）
+        /// 墙板带 BoxCollider，玩家不能穿出去；外侧再压一条踢脚线，避免"凭空一块灰片"的观感。
+        /// </summary>
+        static void SetupWalls()
+        {
+            var root = GameObject.Find("OfficeWalls");
+            if (root == null) root = new GameObject("OfficeWalls");
+            root.transform.position = Vector3.zero;
+            root.transform.rotation = Quaternion.identity;
+            root.transform.localScale = Vector3.one;
+
+            var wallMat = EnsureSetupMaterial("Assets/Materials/OfficeWallMat.mat",
+                new Color(0.855f, 0.845f, 0.805f), 0.10f);
+            var skirtMat = EnsureSetupMaterial("Assets/Materials/OfficeWallSkirtingMat.mat",
+                new Color(0.40f, 0.40f, 0.39f), 0.22f);
+
+            // 名称 / 中心点 / 尺寸（单位：米）
+            var defs = new[]
+            {
+                new { name = "Wall_SouthWing",   pos = new Vector3(-3.75f, 1.50f, -8.10f), size = new Vector3(6.00f, 3.00f, 0.20f) },
+                new { name = "Wall_WingEast",    pos = new Vector3(-0.85f, 1.50f, -6.00f), size = new Vector3(0.20f, 3.00f, 4.00f) },
+                new { name = "Wall_LobbySouth",  pos = new Vector3(3.15f, 1.50f, -4.10f), size = new Vector3(8.20f, 3.00f, 0.20f) },
+                new { name = "Wall_CorridorEast",pos = new Vector3(7.15f, 1.50f, 0.00f),  size = new Vector3(0.20f, 3.00f, 8.00f) },
+            };
+
+            foreach (var d in defs)
+            {
+                Transform t = root.transform.Find(d.name);
+                if (t == null)
+                {
+                    var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                    go.name = d.name;
+                    t = go.transform;
+                    t.SetParent(root.transform, false);
+                }
+                t.localPosition = d.pos;
+                t.localRotation = Quaternion.identity;
+                t.localScale = d.size;
+
+                var mr = t.GetComponent<MeshRenderer>();
+                if (mr != null)
+                {
+                    mr.sharedMaterial = wallMat;
+                    mr.shadowCastingMode = ShadowCastingMode.On;
+                    mr.receiveShadows = true;
+                }
+                var col = t.GetComponent<Collider>();
+                if (col == null) t.gameObject.AddComponent<BoxCollider>();
+                col = t.GetComponent<Collider>();
+                if (col != null) col.enabled = true;
+
+                // 踢脚线：底边 0.12 米高、比墙厚 4 厘米
+                Transform skirt = root.transform.Find(d.name + "_Skirt");
+                if (skirt == null)
+                {
+                    var s = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                    s.name = d.name + "_Skirt";
+                    var sc = s.GetComponent<Collider>();
+                    if (sc != null) UnityEngine.Object.DestroyImmediate(sc);
+                    skirt = s.transform;
+                    skirt.SetParent(root.transform, false);
+                }
+                skirt.localPosition = new Vector3(d.pos.x, 0.06f, d.pos.z);
+                skirt.localRotation = Quaternion.identity;
+                skirt.localScale = new Vector3(d.size.x + 0.04f, 0.12f, d.size.z + 0.04f);
+                var smr = skirt.GetComponent<MeshRenderer>();
+                if (smr != null) smr.sharedMaterial = skirtMat;
+            }
+
+            Debug.Log("[Setup] ✔ 补墙：" + defs.Length + " 段 3 米高墙板（南翼南墙 z=-8 / 南翼东墙 x=-0.75 / "
+                      + "大厅南墙 z=-4 / 东端墙 x=7.25），带 BoxCollider + 踢脚线");
+        }
+
         /// <summary>取/建一个 URP Lit 材质资产（场景保存后引用不会丢）。</summary>
         static Material EnsureSetupMaterial(string assetPath, Color color, float smoothness, Color? emission = null)
         {
@@ -785,13 +868,43 @@ namespace FireSafety.EditorTools
         {
             Vector3 devicePos = new Vector3(-2.40f, 0f, 2.90f);   // desk_5 西侧、北墙前 0.9 米的开阔地
 
-            // ---------------- 出生点：3 个候选，随机取一个 ----------------
+            // ============================================================
+            // 三套起火情景：起火点不同 / 灭火器不同 / 题库不同 / 出生点不同，
+            // 但终点相同（都沿「安全出口」标识撤到同一扇出口门）。
+            // ============================================================
+            Vector3 ext01Pos = new Vector3(-3.60f, 0.16f, 0.60f);    // 情景一 电气（兼操作演练取瓶）
+            Vector3 ext02Pos = new Vector3(1.60f, 0.16f, -1.60f);    // 情景二 纸张 / 档案起火
+            Vector3 ext03Pos = new Vector3(6.00f, 0.16f, -3.20f);    // 情景三 茶水间小家电起火
+
+            // ---------------- 出生点：每套情景 3 个候选（随机取一个，尽量避开上一次） ----------------
             var spawnRoot = GameObject.Find("DrillSpawnPoints");
             if (spawnRoot == null) spawnRoot = new GameObject("DrillSpawnPoints");
             var deviceLook = new Vector3(devicePos.x, 1.0f, devicePos.z);
-            var spawn0 = EnsureSpawn(spawnRoot.transform, "Spawn01", new Vector3(-2.20f, 0f, 0.75f), deviceLook);
-            var spawn1 = EnsureSpawn(spawnRoot.transform, "Spawn02", new Vector3(1.60f, 0f, 1.30f), deviceLook);
-            var spawn2 = EnsureSpawn(spawnRoot.transform, "Spawn03", new Vector3(0.90f, 0f, 2.90f), deviceLook);
+
+            var g1 = EnsureGroup(spawnRoot.transform, "SpawnGroup01");
+            var g2 = EnsureGroup(spawnRoot.transform, "SpawnGroup02");
+            var g3 = EnsureGroup(spawnRoot.transform, "SpawnGroup03");
+
+            // 情景一（电气）：北侧办公区，站在设备柜东南方向看设备
+            var spawn0 = EnsureSpawn(g1, "Spawn01", new Vector3(2.90f, 0f, 1.10f), deviceLook);
+            var spawn1 = EnsureSpawn(g1, "Spawn02", new Vector3(1.00f, 0f, 1.60f), deviceLook);
+            var spawn2 = EnsureSpawn(g1, "Spawn03", new Vector3(4.30f, 0f, 1.20f), deviceLook);
+
+            // 情景二（纸张 / 档案）：中部房间，站在南侧工位北面看向燃烧的办公桌
+            // 起火点必须避开这台打印机（printer 包围盒 x[0.20,0.96] z[-3.85,-2.89]）：
+            // 玩家视角实测放在桌子正中会被打印机整个挡住，只看得见一张浮在机器上方的血量条。
+            var paperFirePos = new Vector3(1.42f, 1.06f, -3.45f);
+            var paperLook = new Vector3(paperFirePos.x, 1.0f, paperFirePos.z);
+            var spawnP0 = EnsureSpawn(g2, "Spawn01", new Vector3(3.30f, 0f, -1.20f), paperLook);
+            var spawnP1 = EnsureSpawn(g2, "Spawn02", new Vector3(4.20f, 0f, -1.40f), paperLook);
+            var spawnP2 = EnsureSpawn(g2, "Spawn03", new Vector3(2.60f, 0f, -1.60f), paperLook);
+
+            // 情景三（茶水间）：东南侧，站在茶水台西/南面看向台面火
+            var pantryFirePos = new Vector3(6.30f, 1.06f, -0.74f);
+            var pantryLook = new Vector3(pantryFirePos.x, 1.0f, pantryFirePos.z);
+            var spawnK0 = EnsureSpawn(g3, "Spawn01", new Vector3(5.00f, 0f, -2.60f), pantryLook);
+            var spawnK1 = EnsureSpawn(g3, "Spawn02", new Vector3(4.60f, 0f, -2.20f), pantryLook);
+            var spawnK2 = EnsureSpawn(g3, "Spawn03", new Vector3(3.60f, 0f, -2.60f), pantryLook);
 
             // ---------------- 起火的电气设备（配电柜） ----------------
             var device = GameObject.Find("DeviceCabinet");
@@ -884,12 +997,37 @@ namespace FireSafety.EditorTools
             s1.particleSize = 1.00f;
             s1.ratePerSecond = 18f;
 
-            // ---------------- 三台灭火器的落位与题库组 ----------------
+            // ---------------- 情景二 / 三的起火点（克隆 BaseFire000，不继承模板的进度与事件） ----------------
+            var paperFire = EnsureScenarioFire("PaperFire", paperFirePos, template, 0.50f,
+                "桌面纸张、档案正在燃烧！这属于 A 类固体火灾");
+            var paperSmoke = EnsureScenarioSmoke("PaperSmoke",
+                new Vector3(paperFirePos.x, 1.55f, paperFirePos.z), new Color(0.30f, 0.30f, 0.32f, 0.55f), 18f);
+            var paperZone = EnsureRoomSmoke("Stage1Smoke_Paper",
+                new Vector3(2.40f, 1.55f, -2.10f), new Vector3(1.40f, 1.55f, -3.40f), 4, 15f);
+
+            var pantryFire = EnsureScenarioFire("PantryFire", pantryFirePos, template, 0.50f,
+                "茶水间台面起火！先断电、再灭火，油类火灾不能用水");
+            var pantrySmoke = EnsureScenarioSmoke("PantrySmoke",
+                new Vector3(pantryFirePos.x, 1.50f, pantryFirePos.z), new Color(0.34f, 0.33f, 0.31f, 0.55f), 18f);
+            var pantryZone = EnsureRoomSmoke("Stage1Smoke_Pantry",
+                new Vector3(5.60f, 1.55f, 0.40f), new Vector3(6.35f, 1.55f, -1.60f), 4, 15f);
+
+            // ---------------- 三台灭火器等间距落位 ----------------
+            // 原来 01 在西墙 (-6.26,0.83)、02 在 (-3.10,1.15)，两台只隔 3.2 米；03 在 (3.70,1.60)，
+            // 与 02 隔 6.9 米 —— 一台挤在角落、一台孤零零。现在改成沿房间对角均匀铺开：
+            // 01 ↔ 02 = 5.65 米，02 ↔ 03 = 4.68 米，且每台都在自己情景的起火点 2~2.6 米内。
             var ext01 = GameObject.Find("Extinguisher01");
             var ext02 = GameObject.Find("Extinguisher02");
             var ext03 = GameObject.Find("Extinguisher03");
-            if (ext02 != null) PlaceExtinguisher(ext02.transform, new Vector3(-3.10f, 0.16f, 1.15f));
-            if (ext03 != null) PlaceExtinguisher(ext03.transform, new Vector3(3.70f, 0.16f, 1.60f));
+            if (ext01 != null) PlaceExtinguisher(ext01.transform, ext01Pos);
+            if (ext02 != null) PlaceExtinguisher(ext02.transform, ext02Pos);
+            if (ext03 != null) PlaceExtinguisher(ext03.transform, ext03Pos);
+
+            float d12 = Vector3.Distance(new Vector3(ext01Pos.x, 0f, ext01Pos.z), new Vector3(ext02Pos.x, 0f, ext02Pos.z));
+            float d23 = Vector3.Distance(new Vector3(ext02Pos.x, 0f, ext02Pos.z), new Vector3(ext03Pos.x, 0f, ext03Pos.z));
+            Debug.Log("[Setup] ✔ 灭火器落位：01" + ext01Pos.ToString("F2") + " / 02" + ext02Pos.ToString("F2")
+                      + " / 03" + ext03Pos.ToString("F2")
+                      + "；间距 01↔02=" + d12.ToString("F2") + " 米，02↔03=" + d23.ToString("F2") + " 米");
 
             // ---------------- 操作演练用的原地板火 ----------------
             if (template != null)
@@ -917,15 +1055,73 @@ namespace FireSafety.EditorTools
             sc.hud = UnityEngine.Object.FindObjectOfType<VRDrillHud>();
             sc.tutorialFire = template != null ? template.GetComponent<FireSource>() : null;
             sc.tutorialExtinguisher = ext01 != null ? ext01.GetComponent<Extinguisher>() : null;
-            sc.tutorialExtinguisherHome = new Vector3(-6.26f, 0.16f, 0.83f);
+            sc.tutorialExtinguisherHome = ext01Pos;
             sc.deviceFire = fireSource;
             sc.deviceSmoke = smokePs;
             sc.powerSwitch = powerSwitch;
-            sc.deviceExtinguisher = ext02 != null ? ext02.GetComponent<Extinguisher>() : null;
+            sc.deviceExtinguisher = ext01 != null ? ext01.GetComponent<Extinguisher>() : null;
             sc.stage1Smoke = s1;
             sc.rigRoot = rig != null ? rig.transform : null;
+
+            var e1 = ext01 != null ? ext01.GetComponent<Extinguisher>() : null;
+            var e2 = ext02 != null ? ext02.GetComponent<Extinguisher>() : null;
+            var e3 = ext03 != null ? ext03.GetComponent<Extinguisher>() : null;
+            sc.allExtinguishers = new[] { e1, e2, e3 };
+
+            // ---------------- 三套情景：起火点 / 灭火器 / 题库组 / 出生点 ----------------
+            sc.scenarios = new[]
+            {
+                new DrillScenario.FireScenario
+                {
+                    title = "情景一 · 电气设备起火（配电柜）",
+                    shortName = "电气",
+                    intro = "配电柜短路冒烟起火，火焰带电——必须先切断总闸，再用旁边的干粉灭火器扑灭。",
+                    fire = fireSource,
+                    smoke = smokePs,
+                    roomSmoke = s1,
+                    extinguisher = e1,
+                    extinguisherHome = ext01Pos,
+                    quizSetIndex = 2,                 // C 组：电气设备起火 · 先断电
+                    powerSwitch = powerSwitch,
+                    requirePowerCut = true,
+                    spawnPoints = new[] { spawn0, spawn1, spawn2 }
+                },
+                new DrillScenario.FireScenario
+                {
+                    title = "情景二 · 办公桌纸张起火",
+                    shortName = "纸张",
+                    intro = "南侧工位上一摞打印纸和档案袋被引燃，属于 A 类固体火灾——用干粉灭火器对准火焰根部，灭后翻开纸堆防复燃。",
+                    fire = paperFire,
+                    smoke = paperSmoke,
+                    roomSmoke = paperZone,
+                    extinguisher = e2,
+                    extinguisherHome = ext02Pos,
+                    quizSetIndex = 4,                 // E 组：纸张 / 固体可燃物
+                    powerSwitch = null,
+                    requirePowerCut = false,
+                    spawnPoints = new[] { spawnP0, spawnP1, spawnP2 }
+                },
+                new DrillScenario.FireScenario
+                {
+                    title = "情景三 · 茶水间小家电起火",
+                    shortName = "茶水间",
+                    intro = "茶水间的电水壶/微波炉插排过载起火，台面油污被引燃——先断开该区域电源，再用灭火器从侧面近距离扑灭，不能用水。",
+                    fire = pantryFire,
+                    smoke = pantrySmoke,
+                    roomSmoke = pantryZone,
+                    extinguisher = e3,
+                    extinguisherHome = ext03Pos,
+                    quizSetIndex = 5,                 // F 组：茶水间小家电 / 油类
+                    powerSwitch = null,
+                    requirePowerCut = false,
+                    spawnPoints = new[] { spawnK0, spawnK1, spawnK2 }
+                }
+            };
+            sc.randomScenario = true;
+
+            // 兼容字段：默认情景 = 第 1 套
             sc.spawnPoints = new[] { spawn0, spawn1, spawn2 };
-            sc.exitExtinguisher = ext03 != null ? ext03.GetComponent<Extinguisher>() : null;
+            sc.exitExtinguisher = e3;                 // 离安全出口最近的一台（第 2 阶段备用瓶）
             sc.randomSpawn = true;
             sc.requirePowerCutBeforeExtinguish = true;
 
@@ -947,10 +1143,96 @@ namespace FireSafety.EditorTools
                 flow.requireCrouch = false;
                 flow.spareQuizSetIndex = 3;
                 if (ext03 != null) flow.spareExtinguisher = ext03.GetComponent<Extinguisher>();
+                // 三台灭火器现在铺开到房间各处，最近的一台离出口门也有 4.3 米；
+                // 第 2 阶段开始时把备用瓶搬到门旁空位，玩家到大厅就能顺手拿到。
+                flow.autoMoveSpareExtinguisher = true;
+                flow.spareExtinguisherSpot = new Vector3(3.70f, 0f, 1.60f);
             }
 
             Debug.Log("[Setup] ✔ 新流程：操作演练 + 正式第 1 阶段（3 个随机出生点 / 设备火 / 电源箱 / 独立烟雾 / 火焰血量条）"
                       + " + 第 2 阶段（安全标识 → 出口火 → Extinguisher03 疏散题 → 开门）");
+        }
+
+        /// <summary>出生点分组（每套情景一个父物体）。</summary>
+        static Transform EnsureGroup(Transform parent, string name)
+        {
+            var t = parent.Find(name);
+            if (t == null)
+            {
+                var go = new GameObject(name);
+                t = go.transform;
+                t.SetParent(parent, false);
+            }
+            t.localPosition = Vector3.zero;
+            t.localRotation = Quaternion.identity;
+            t.localScale = Vector3.one;
+            return t;
+        }
+
+        /// <summary>情景火源：克隆 BaseFire000，清进度与事件表、去碰撞体、补瞄准点与血量条。</summary>
+        static FireSource EnsureScenarioFire(string name, Vector3 pos, GameObject template, float scale, string lockHint)
+        {
+            var go = GameObject.Find(name);
+            if (go == null)
+            {
+                if (template != null)
+                {
+                    go = UnityEngine.Object.Instantiate(template);
+                    go.name = name;
+                }
+                else go = new GameObject(name);
+            }
+            go.transform.SetParent(null, true);
+            go.transform.position = pos;
+            go.transform.rotation = Quaternion.identity;
+            float ts = template != null ? template.transform.localScale.x : 1f;
+            go.transform.localScale = Vector3.one * (ts * scale);
+
+            var fire = PrepareFireClone(go, locked: false, startUnlit: true);
+            if (fire != null) fire.lockHint = lockHint;
+
+            var aim = go.transform.Find("Aim");
+            if (aim == null)
+            {
+                var aimGo = new GameObject("Aim").transform;
+                aimGo.SetParent(go.transform, false);
+                aimGo.localPosition = new Vector3(0f, 0.30f, 0f);
+                aim = aimGo;
+            }
+            if (fire != null) fire.aimTarget = aim;
+            if (go.GetComponent<FireHealthBar>() == null) go.AddComponent<FireHealthBar>();
+            Debug.Log("[Setup] ✔ 情景火源 " + name + " @ " + pos.ToString("F2") + "（scale×" + scale + "，含血量条）");
+            return fire;
+        }
+
+        /// <summary>情景起火点的冒烟粒子（开始演练即播放）。</summary>
+        static ParticleSystem EnsureScenarioSmoke(string name, Vector3 pos, Color color, float rate)
+        {
+            var go = GameObject.Find(name);
+            if (go == null) go = new GameObject(name);
+            go.transform.SetParent(null, true);
+            go.transform.position = pos;
+            var ps = go.GetComponent<ParticleSystem>();
+            if (ps == null) ps = go.AddComponent<ParticleSystem>();
+            ConfigureSmoke(ps, color, rate: rate, speed: 0.55f, size: 1.05f, life: 3.2f, additive: false, radius: 0.16f);
+            ps.name = name;
+            return ps;
+        }
+
+        /// <summary>每套情景一条独立的房间烟雾区（SmokeZone 一旦 Build 过就复用旧发射点，不能共用）。</summary>
+        static SmokeZone EnsureRoomSmoke(string name, Vector3 start, Vector3 end, int emitters, float rate)
+        {
+            var go = GameObject.Find(name);
+            if (go == null) go = new GameObject(name);
+            var zone = go.GetComponent<SmokeZone>();
+            if (zone == null) zone = go.AddComponent<SmokeZone>();
+            zone.emitterCount = emitters;
+            zone.start = start;
+            zone.end = end;
+            zone.floorClearance = 1.00f;
+            zone.particleSize = 0.90f;
+            zone.ratePerSecond = rate;
+            return zone;
         }
 
         /// <summary>出生点：位置 + 朝向设备（yaw 取水平朝向）。</summary>
@@ -1396,10 +1678,11 @@ namespace FireSafety.EditorTools
 
             // 常识问答面板（挂在灭火器根上）
             var quiz = root.GetComponent<ExtinguisherQuizPanel>() ?? root.AddComponent<ExtinguisherQuizPanel>();
-            // 三台灭火器各 5 题，共 20 道且互不重复：
-            // Extinguisher01 → A 组（0）基础；Extinguisher02 → C 组（2）电气设备起火·先断电；
-            // Extinguisher03 → D 组（3）安全出口 / 疏散情景
-            quiz.questionSetIndex = root.name.Contains("03") ? 3 : (root.name.Contains("02") ? 2 : 0);
+            // 三台灭火器各 5 题，共 30 道（六组）且互不重复，按「情景」绑定题库组：
+            // Extinguisher01 → C 组（2）电气设备起火·先断电（同时兼任操作演练的取瓶，运行时切 A 组）
+            // Extinguisher02 → E 组（4）纸张 / 固体可燃物起火
+            // Extinguisher03 → F 组（5）茶水间小家电 / 油类起火（第 2 阶段再切 D 组疏散）
+            quiz.questionSetIndex = root.name.Contains("03") ? 5 : (root.name.Contains("02") ? 4 : 2);
             quiz.ResetToDefaultQuestions();                 // 只刷本组 5 题，A/B/C 三选项
             quiz.timePerQuestion = 10f;                     // 每题 10 秒
             quiz.passRatio = 0.6f;                          // 答对 60%（3/5）才可通过

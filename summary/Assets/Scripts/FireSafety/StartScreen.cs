@@ -197,19 +197,22 @@ namespace FireSafety
             UIFX.Pulse(this, _titleText.transform, 1f, titlePulseAmplitude, titlePulseFrequency);
 
             // 玩法说明文本框（可在 Inspector 的 Instructions 里修改）
-            // 面板总高 880：标题 110 + 说明 400 + 三个按钮（100/62/62）+ 间距，留出余量不压字
-            _instText = MakeText(panel.transform, instructions, 20, Color.white, 400f);
+            // 面板总高 880：标题 110 + 说明 320 + 开始 100 + 情景行 54 + 演练 62 + 教学 62 + 间距 60 + 内边距 56
+            _instText = MakeText(panel.transform, instructions, 20, Color.white, 320f);
             _instText.horizontalOverflow = HorizontalWrapMode.Wrap;
             _instText.verticalOverflow = VerticalWrapMode.Truncate;
             _instText.lineSpacing = 1.15f;
             _instText.alignment = TextAnchor.UpperLeft;
 
-            // 开始按钮（带呼吸动画）
+            // 开始按钮（带呼吸动画）：随机挑一套起火情景（终点相同，只是起点与起火点不同）
             _startButton = MakeButton(panel.transform, buttonLabel, 40,
                 new Color(0.12f, 0.55f, 0.30f, 1f), 100f);
             _startLabel = _startButton.GetComponentInChildren<Text>();
             UIFX.Pulse(this, _startButton.transform, 1f, buttonPulseAmplitude, buttonPulseFrequency);
             _startButton.onClick.AddListener(StartGame);
+
+            // 三套起火情景的快选行：随机 / 电气 / 纸张 / 茶水间
+            BuildScenarioRow(panel.transform);
 
             // 操作演练入口：原第一阶段的完整流程，玩家可先练熟再进正式演练
             if (showTutorialButton)
@@ -223,6 +226,65 @@ namespace FireSafety
             var onboardBtn = MakeButton(panel.transform, onboardingLabel, 30,
                 new Color(0.2f, 0.34f, 0.62f, 1f), 62f);
             onboardBtn.onClick.AddListener(OpenOnboarding);
+        }
+
+        /// <summary>
+        /// 三套起火情景的快选行。文案直接读 DrillScenario.scenarios，避免界面与场景配置写两份对不上。
+        /// </summary>
+        void BuildScenarioRow(Transform parent)
+        {
+            var row = new GameObject("ScenarioRow", typeof(RectTransform), typeof(HorizontalLayoutGroup), typeof(LayoutElement));
+            row.transform.SetParent(parent, false);
+            var h = row.GetComponent<HorizontalLayoutGroup>();
+            h.spacing = 10f;
+            h.padding = new RectOffset(0, 0, 0, 0);
+            h.childAlignment = TextAnchor.MiddleCenter;
+            h.childControlWidth = true;
+            h.childControlHeight = true;
+            h.childForceExpandWidth = true;
+            h.childForceExpandHeight = true;
+            var rle = row.GetComponent<LayoutElement>();
+            rle.preferredHeight = 54f;
+            var rrt = row.GetComponent<RectTransform>();
+            rrt.sizeDelta = new Vector2(rrt.sizeDelta.x, 54f);
+
+            var colors = new[]
+            {
+                new Color(0.72f, 0.26f, 0.20f, 1f),   // 电气
+                new Color(0.66f, 0.48f, 0.16f, 1f),   // 纸张
+                new Color(0.20f, 0.42f, 0.55f, 1f)    // 茶水间
+            };
+            var names = new[] { "电气", "纸张", "茶水间" };
+            var dr = DrillScenario.Instance != null ? DrillScenario.Instance : FindObjectOfType<DrillScenario>();
+            for (int i = 0; i < 3; i++)
+            {
+                string label = "情景" + (i + 1) + " · " + names[i];
+                if (dr != null && dr.scenarios != null && i < dr.scenarios.Length && dr.scenarios[i] != null
+                    && !string.IsNullOrEmpty(dr.scenarios[i].shortName))
+                    label = "情景" + (i + 1) + " · " + dr.scenarios[i].shortName;
+                int idx = i;
+                var b = MakeButton(row.transform, label, 24, colors[i], 54f);
+                var le = b.GetComponent<LayoutElement>();
+                if (le != null) { le.flexibleWidth = 1f; le.minWidth = 120f; }
+                b.onClick.AddListener(() => StartScenario(idx));
+            }
+        }
+
+        /// <summary>直接进入指定情景（起点与起火点由该情景决定，终点仍是同一扇安全出口）。</summary>
+        public void StartScenario(int index)
+        {
+            PlayClick();
+            var scenario = DrillScenario.Instance != null ? DrillScenario.Instance : FindObjectOfType<DrillScenario>();
+            if (scenario == null)
+            {
+                Debug.LogWarning("[StartScreen] 场景中没有 DrillScenario，无法开始演练。");
+                return;
+            }
+            if (scenario.ScenarioCount > 0)
+                scenario.StartFormal(-1, Mathf.Clamp(index, 0, scenario.ScenarioCount - 1));
+            else
+                scenario.StartFormal(-1);
+            StartCoroutine(ExitRoutine());
         }
 
         Text MakeText(Transform parent, string content, int size, Color color, float height)

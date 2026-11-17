@@ -60,7 +60,7 @@ namespace FireSafety
         [Tooltip("是否必须在浓烟中蹲下才能推进：新流程不强制潜行，默认关")]
         public bool requireCrouch = false;
         [Tooltip("第 2 阶段备用灭火器的题库组：0=A 1=B 2=C(电气) 3=D(疏散情景)")]
-        [Range(0, 3)] public int spareQuizSetIndex = 3;
+        [Range(0, 5)] public int spareQuizSetIndex = 3;
         [Tooltip("头显提示条（留空自动查找）")]
         public VRDrillHud hud;
 

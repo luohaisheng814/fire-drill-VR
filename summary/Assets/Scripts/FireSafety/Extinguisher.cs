@@ -134,6 +134,21 @@ namespace FireSafety
         public void MarkQuizFailed() => QuizPassed = false;
 
         /// <summary>
+        /// 按情景切换这台灭火器的题库组（0=A 基础 / 1=B 进阶 / 2=C 电气 / 3=D 疏散 / 4=E 纸张 / 5=F 小家电），
+        /// 同时清空答题状态：换情景后玩家必须重新答题才能拔销喷射。
+        /// </summary>
+        public void SetQuizSet(int setIndex, bool resetPassed = true)
+        {
+            if (resetPassed) QuizPassed = false;
+            if (quizPanel == null) quizPanel = GetComponentInChildren<ExtinguisherQuizPanel>(true);
+            if (quizPanel == null) return;
+            quizPanel.questionSetIndex = Mathf.Clamp(setIndex, 0, 5);
+            quizPanel.ResetQuiz();
+            quizPanel.ResetToDefaultQuestions();
+            Debug.Log("[Extinguisher] " + name + " 题库切到第 " + quizPanel.questionSetIndex + " 组（" + quizPanel.QuestionCount + " 题）");
+        }
+
+        /// <summary>
         /// 第二 / 第三阶段重复灭火流程：清空问答状态并刷成最新 5 题，
         /// 玩家重新右键拿起这台灭火器时会再答一遍题。
         /// </summary>

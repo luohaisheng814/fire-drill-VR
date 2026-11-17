@@ -55,6 +55,14 @@ namespace FireSafety
             _spottedClip = Resources.Load<AudioClip>("Sounds/SFX/ui_click");
         }
 
+        /// <summary>运行时兜底：脚本事后挂载 / 组件被重新启用时 Awake 可能没跑过，这里补一次。</summary>
+        private void EnsureBuffers()
+        {
+            if (_mpb == null) _mpb = new MaterialPropertyBlock();
+            if (_renderers == null || _renderers.Length == 0)
+                _renderers = GetComponentsInChildren<Renderer>();
+        }
+
         private void Start()
         {
             if (!xrCamera) xrCamera = Camera.main;
@@ -128,6 +136,7 @@ namespace FireSafety
         private void PulseHighlight()
         {
             if (!_visualOn) return;
+            EnsureBuffers();
 
             float k = 0.55f + 0.45f * (Mathf.Sin(Time.time * Mathf.PI * 2f * pulseHz) * 0.5f + 0.5f);
             Color emission = highlightColor * k;
@@ -162,6 +171,7 @@ namespace FireSafety
 
         private void SetHighlightVisual(bool on)
         {
+            EnsureBuffers();
             _visualOn = on;
             if (_ring != null) _ring.SetActive(on);
             if (_beam != null) _beam.SetActive(on);
