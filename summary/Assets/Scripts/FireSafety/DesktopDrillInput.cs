@@ -240,7 +240,7 @@ namespace FireSafety
                 {
                     Hint("请先在面板中选择（鼠标点击面板上的按钮）");
                 }
-                else if (startScreen != null && !startScreen.Started)
+                else if (startScreen != null && !startScreen.DrillStarted)
                 {
                     Hint("请先用鼠标点击屏幕中的「开始演练」按钮（或按 回车 / 空格）");
                 }
@@ -311,7 +311,7 @@ namespace FireSafety
                 return;
             }
             if (endingScreen != null && endingScreen.IsOpen) return;
-            if (startScreen != null && !startScreen.Started)
+            if (startScreen != null && !startScreen.DrillStarted)
             {
                 startScreen.StartGame();
                 Hint("正式演练开始：先切断电源箱 → 拿灭火器答题 → 拔销 → 压把 → 喷射灭火");
@@ -339,7 +339,7 @@ namespace FireSafety
                 Hint("已手持灭火器：左键单击拔销 / 左键双击压把 / 右键双击喷射 / P 放下");
                 return;
             }
-            if (startScreen != null && !startScreen.Started)
+            if (startScreen != null && !startScreen.DrillStarted)
             {
                 Hint("请先开始演练（点击「开始演练」按钮或按 回车 / 空格）");
                 return;
@@ -372,7 +372,6 @@ namespace FireSafety
                 Hint("灭火器常识问答：5 题，每题 10 秒，答对 3 题即可拿起（点选项或按 1/2/3）");
                 return;
             }
-
             GrabActive(target);
         }
 
@@ -753,7 +752,7 @@ namespace FireSafety
                 }
             }
 
-            if (startScreen != null && !startScreen.Started)
+            if (startScreen != null && !startScreen.DrillStarted)
                 return "状态：等待开始（点击「开始演练」或按 回车 / 空格）";
 
             if (quizPanel != null && quizPanel.IsOpen && !quizPanel.Passed && !quizPanel.Failed)

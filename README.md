@@ -119,6 +119,41 @@ scenarios[3] = { 电气（DeviceFire / 需断电 / 题库 2 / 出生组 1）
 
 自检断言随之改写：三台各自 `Physics.Raycast` 四方向 0.6 米内必须有立面（贴墙）、到本情景起火点 ≤3.6 米（就近）、两两间距 ≥2.0 米（不重叠）。
 
+## 第 26 轮：情景二/三右键拾取与问答面板修复
+
+### 6.1 缺陷①：从开始页点「情景 2 / 情景 3」后，右键 / 左键 / VR A 键全部失效
+
+- **现象**：情景一（电气）正常，但情景二（纸张）、情景三（茶水间）里右击灭火器拿不起、答题面板不弹出，HUD 只回一句「请先开始演练」。
+- **根因**：`StartScreen.StartScenario(int)` 只调用 `scenario.StartFormal(-1, idx)` + `ExitRoutine()`，**从不把 `Started` 置真**。情景一走主按钮 `StartGame()`（内部会置 `Started`）所以正常；从开始页的情景按钮进入的那两条路径，`Started` 始终是 `false`。
+- **影响面**：`DesktopDrillInput.OnRightClick()` 里的「没开始演练就不理鼠标」门禁共 6 处 —— `DesktopDrillInput.cs` 4 处、`VRDrillInput.cs` 2 处，导致桌面右键、桌面左键（拔销/压把）、头显 A 键在这些情景里被整段拦掉。
+- **修复**：
+  - `StartScreen.StartScenario(int)` 补 `Started = true;` 与 `FireDrillManager.Instance?.ForceCompleteUpTo(DrillStep.AlarmRinging);`（与 `StartGame()` 一致，保证阶段推进到「警报响」而不是停在待机）；
+  - 新增 `public bool DrillStarted => Started || (DrillScenario.CurrentMode == Mode.Formal);`，6 处门禁统一改读 `DrillStarted`，避免以后再加入口时又漏一处。
+
+### 6.2 缺陷②：问答面板挂在灭火器根节点下，瓶一被拿起面板就翻转/镜像
+
+- **现象**（玩家视角截图 `vr20_deskgrab_sc3_held.png` 修复前）：答完题灭器被拿在手里时，面板文字左右镜像（看到的是画布背面），面板下半部还被瓶体压住。
+- **根因**：`ExtinguisherQuizPanel.BuildUI()` 里 `go.transform.SetParent(transform, false)` —— 世界空间画布是**灭火器根节点的子物体**。瓶子被拿上手后继承手部姿态（旋转/位移），画布随之一起转，`KeepInFrontOfCamera()` 只在「相机位移 >0.5 米或朝向点积 <0.8」时才重放，管不到这种「相机没动、道具转了」的情况。
+- **修复**：画布改为 `SetParent(null, false)` 独立世界空间；新增 `OnDestroy()` 在组件销毁时一并回收画布（播放态 `Destroy`、编辑态 `DestroyImmediate`），不留孤儿 UI。
+
+### 6.3 新增回归探针 `Assets/Editor/DesktopGrabProbe.cs`
+
+批处理入口：`RunFromBatch`（情景二）/ `RunSc2` / `RunSc3`。断言链：
+
+| 断言 | 情景二 | 情景三 |
+|---|---|---|
+| 点情景按钮后 `StartScreen.Started` / `DrillStarted` 为真 | ✔ | ✔ |
+| 视线中心射线首个命中 = 本情景目标瓶 | Ext02 | Ext03 |
+| 右键后问答面板 `IsOpen`，题库组匹配 | 4（期望 4） | 5（期望 5） |
+| 面板在正前方（1.15 米）且落在屏幕内 | ✔ | ✔ |
+| 答满 5 题（3 对 2 错）→ `Passed=True` | ✔ | ✔ |
+| 通过后 `grab.IsHeld=True`、`QuizPassed=True`、HUD「已拿起」 | ✔ | ✔ |
+| 结论行 | `FAIL_COUNT=0 PROBE_EXIT=0` | `FAIL_COUNT=0 PROBE_EXIT=0` |
+
+截图：`Logs/shots/vr20_deskgrab_sc2|sc3_before/quiz/held.png`；结论：`Logs/shots/_deskgrab.txt`。
+
+> 批处理坑（写进探针注释，避免下次重踩）：`-batchmode` 下系统鼠标每帧被真机状态覆盖，`QueueStateEvent` / `InputState.Change` / 自建 `Mouse` + `MakeCurrent()` 都留不到 `LateUpdate` 那一帧；`Keyboard.current` 初始为 `null` 会让 `LateUpdate` 整段早退。因此探针改为反射调用 `OnRightClick()`（与真实右键按下的同一入口），并保留「点情景按钮后 `DrillStarted` 必须为真」这条针对真实 bug 的断言。
+
 
 ## 主要功能
 

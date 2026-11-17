@@ -280,11 +280,33 @@ namespace FireSafety
                 Debug.LogWarning("[StartScreen] 场景中没有 DrillScenario，无法开始演练。");
                 return;
             }
+
+            // 关键：情景快选同样是「正式开始」。以前这里只调 StartFormal、没置 Started，
+            // 导致 DesktopDrillInput / VRDrillInput 的「先把鼠标对准…请先开始演练」门禁一直生效，
+            // 情景二/三的灭火器右键拿不起、问答面板也弹不出来（情景一因为走主按钮所以正常）。
+            Started = true;
+            if (FireDrillManager.Instance != null)
+                FireDrillManager.Instance.ForceCompleteUpTo(DrillStep.AlarmRinging);
+
             if (scenario.ScenarioCount > 0)
                 scenario.StartFormal(-1, Mathf.Clamp(index, 0, scenario.ScenarioCount - 1));
             else
                 scenario.StartFormal(-1);
             StartCoroutine(ExitRoutine());
+        }
+
+        /// <summary>
+        /// 演练是否真的已经开始：主按钮 / 操作演练 / 情景快选都算。
+        /// 输入层的门禁统一读这个属性，避免再出现「界面已经进演练、输入层还以为没开始」。
+        /// </summary>
+        public bool DrillStarted
+        {
+            get
+            {
+                if (Started) return true;
+                var sc = DrillScenario.Instance != null ? DrillScenario.Instance : FindObjectOfType<DrillScenario>();
+                return sc != null && sc.CurrentMode == DrillScenario.Mode.Formal;
+            }
         }
 
         Text MakeText(Transform parent, string content, int size, Color color, float height)

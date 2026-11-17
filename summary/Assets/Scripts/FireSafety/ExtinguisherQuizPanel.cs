@@ -374,6 +374,15 @@ namespace FireSafety
             AdvanceTime(Time.deltaTime);
         }
 
+        /// <summary>面板独立在世界空间后，灭掉本组件时要一并把画布收掉，避免留下孤儿 UI。</summary>
+        void OnDestroy()
+        {
+            if (_canvas == null) return;
+            if (Application.isPlaying) Destroy(_canvas.gameObject);
+            else DestroyImmediate(_canvas.gameObject);
+            _canvas = null;
+        }
+
         /// <summary>玩家走出原位 / 转头过多时，把面板重新放回正前方（否则题目跑到视野外）。</summary>
         void KeepInFrontOfCamera()
         {
@@ -516,7 +525,9 @@ namespace FireSafety
         void BuildUI()
         {
             var go = new GameObject("Canvas_Quiz");
-            go.transform.SetParent(transform, false);
+            // 面板必须独立在世界空间：挂在灭火器根下时，一旦玩家把瓶拿在手里，
+            // 面板会跟着瓶子的手部姿态一起翻转（玩家视角实测文字变成镜像、位置也跑到瓶后）。
+            go.transform.SetParent(null, false);
             _canvas = go.AddComponent<Canvas>();
             _canvas.renderMode = RenderMode.WorldSpace;
             _canvas.sortingOrder = 250;

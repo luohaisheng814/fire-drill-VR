@@ -193,7 +193,7 @@ namespace FireSafety
                 Hint("A 键：引导页下一页（共 " + onboarding.PageCount + " 页）");
                 return;
             }
-            if (startScreen != null && !startScreen.Started)
+            if (startScreen != null && !startScreen.DrillStarted)
             {
                 startScreen.StartGame();
                 Hint("正式演练开始 · 先切断电源，再拿灭火器答题、拔销、压把、喷射");
@@ -244,7 +244,7 @@ namespace FireSafety
             var scenario = DrillScenario.Instance;
             string hint;
             if (onboarding != null && onboarding.IsOpen) hint = "A 键翻页 · 右手射线可直接点「下一页 / 开始演练」";
-            else if (startScreen != null && !startScreen.Started) hint = "按 A 开始演练 · 右手射线点「开始演练」也可以";
+            else if (startScreen != null && !startScreen.DrillStarted) hint = "按 A 开始演练 · 右手射线点「开始演练」也可以";
             else if (AnyQuizOpen()) hint = "问答中：A / B / X 选 A / B / C（也可用右手射线点选项）";
             else if (scenario != null && scenario.CurrentMode == DrillScenario.Mode.Formal
                      && scenario.CurrentPhase == DrillScenario.Phase.Stage1 && !scenario.PowerCut)
