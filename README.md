@@ -244,6 +244,141 @@ scenarios[3] = { 电气（DeviceFire / 需断电 / 题库 2 / 出生组 1）
 - `FireSafetySelfTest.RunAll` → `Logs/selftest27.log`（9048 行），末尾 `[TEST] ==== 全部通过 ====`；新增 7 条 `door_b` 断言（存在 / 已挂 `RoomDoor` / 轴心用自身 / 开向 +95° / 0.8 秒 / 要求一阶段已灭 / 门扇带碰撞体）全 ✔。
 - 第 26 轮拾取回归 `DesktopGrabProbe.RunSc2` → `Logs/deskgrab27.log` / `Logs/shots/_deskgrab.txt`，`FAIL_COUNT=0 PROBE_EXIT=0`（改 `DesktopDrillInput` 没有碰坏右键拾取与问答链路）。
 
+## 第 28 轮：三情景「灭火剂对路」——粒子 / 音效 / 熄灭特效差异化 + 门外知识墙
+
+### 8.1 需求与勘察：三种灭火器此前喷的是同一套东西
+
+用户这轮提了三件事：①情景一、二、三要用**相适应的灭火剂**，粒子与音效也要跟着变；②出门的空地上写本次演练的安全知识；③以玩家视角测试后推仓库、出日志。
+
+先查代码确认这不是「调个颜色」的小活：
+
+| 现状 | 位置 | 后果 |
+|---|---|---|
+| 喷射参数全写死 `rate 280 / startSpeed 3.4 / cone 9° / lifetime 1.2 / startSize 0.05 / gravity 0.45`、颜色近白 | `ExtinguisherSpray.cs` | 三瓶喷出来一模一样 |
+| `colorOverLifetime` 的 RGB 三键是近白色 | `ExtinguisherSpray.Configure()` | 会**盖掉** `sprayColor`，改基色没用 |
+| 只有一支共用循环音 `Resources/Sounds/SFX/spray_loop.wav` | `Extinguisher.sprayLoopClip` | 三种灭火剂听起来一样 |
+| `FireSource.Extinguish()` 只停粒子、灯归零、停火声 | `FireSource.cs` | 火灭瞬间没有任何收尾表现 |
+
+### 8.2 实现：一套参数表 + 三支合成音 + 一次性收尾特效
+
+#### 8.2.1 `ExtinguisherKind.cs`（新增）
+
+`enum ExtinguisherKind { PowderABC, CO2, WetChemical }`，`ExtinguisherKindInfo` 提供 `Name()` / `SuitableFor()` / `BandColor()` / `SprayColor()` / `Profile()`，`struct SprayProfile` 九个字段。最终三套参数（经三轮「判图后加浓」定稿）：
+
+| 参数 | CO₂（情景一·电气） | 水基/湿化学（情景三·小家电） | ABC 干粉（情景二·纸张） |
+|---|---|---|---|
+| `rate` | 600 | 480 | 520 |
+| `startSpeed` | 5.6 m/s | 4.0 m/s | 3.2 m/s |
+| `coneAngle` | 11° | 10° | 16° |
+| `lifetime` | 0.90 s | 1.20 s | 1.60 s |
+| `startSize` | 0.140 m | 0.130 m | 0.165 m |
+| `sizeGrowth` | 3.2× | 4.2× | 7.0× |
+| `gravity` | 0.06（几乎不下落） | 0.95（水滴明显下坠） | 0.50 |
+| `noiseStrength` | 0.12 | 0.28 | 0.50 |
+| `SprayColor` | 蓝白 `(0.90,0.95,1.00,α0.85)` | 淡蓝 `(0.82,0.93,1.00,α0.90)` | 暖白 `(0.97,0.95,0.89,α0.95)` |
+| 瓶身色带 | 蓝 `(0.16,0.42,0.78)` | 淡蓝 `(0.34,0.68,0.86)` | 米黄 `(0.86,0.78,0.42)` |
+
+三瓶与情景绑定：`Extinguisher01 → CO₂`（电气，需先断电）、`Extinguisher02 → ABC 干粉`（纸张）、`Extinguisher03 → 水基湿化学`（小家电/油火，简介里写明「不能直接泼水」）。
+
+#### 8.2.2 `ExtinguisherSfx.cs`（新增）：三支运行时合成的循环音
+
+44100 Hz 单声道、运行时合成，不依赖 wav 资源（避免仓库里塞三个大文件）：`SprayLoop(kind)` 生成 1.0 s 循环，`CrossfadeLoop` 做 40 ms 首尾交叉淡入避免爆音；另有 `Burst(kind)` 0.9~1.2 s 的收尾声。
+
+| 类型 | 音色构成 | clip 名 |
+|---|---|---|
+| CO₂ | 一阶高通「嘶——」的窄带气流 | `SFX_Spray_CO2` / `SFX_Burst_CO2` |
+| ABC 干粉 | 低通粉噪 + 110 Hz rumble + 4.5 Hz 摆动 | `SFX_Spray_Powder` / `SFX_Burst_Powder` |
+| 水基 | 带通 + 8 Hz 抖动 + 90 Hz 水滴颗粒 | `SFX_Spray_Wet` / `SFX_Burst_Wet` |
+
+合成用的伪随机数按 `(uint)cell * 2654435761u` 打散，同一格每次结果一致。
+
+#### 8.2.3 `ExtinguishFx.cs`（新增）：火灭瞬间的一次性收尾
+
+`Play(pos, kind)` 建临时 GameObject + ParticleSystem（Sphere r=0.18、burst 70 / 80 / 100），`sizeOverLife` 增长、alpha 渐隐、带噪声，材质复用 `ExtinguisherSpray.CreateSoftMaterial("ExtinguishFxMat")`，另挂 3D 音源播 `Burst(kind)`（pitch 0.94~1.06）。
+
+| 类型 | `gravityModifier` | 观感 |
+|---|---|---|
+| CO₂ | −0.05 | 白雾向上泄压飘散 |
+| 水基 | −0.32 | 蒸汽上腾 |
+| 干粉 | +0.18 | 粉尘下落沉到桌面 |
+
+`Extinguisher.ApplySprayToFires()` 里 `fire.ApplyExtinguish()` 之后 `if (fire.IsExtinguished && _burstDone.Add(fire))` 触发，`_burstDone` 用 HashSet 保证一瓶对一堆火只播一次。
+
+#### 8.2.4 `ExtinguisherKindTag.cs`（新增）：瓶身上方的类型标签
+
+世界空间 Canvas，深色底 + 左侧同色条 + 两行文字（类型名 `fontSize 48`、适用火源 `fontSize - 14`），尺寸 **0.72 × 0.30 m**，`LateUpdate` 只绕 Y 轴朝向相机、并沿朝相机方向前移 `pushFromWall = 0.10 m` 避免插进背后墙面；拿在手上时 `hideWhenHeld` 自动隐藏。标签**不挂在瓶身下面**，而是放进场景根、每帧按瓶身锚点摆世界坐标——瓶体本身带非等比缩放，挂在下面会把文字一起压歪。
+
+#### 8.2.5 `PlazaKnowledgeBoard.cs`（新增）：门外广场知识墙 + 地面标语
+
+`SetupOutdoorPlaza()` 末尾挂载（`boardCenter (13.40,0,0)`、`facingYaw 90` 正面朝西、`floorTextCenter (10.90,0.02,1.55)`、`floorTextYaw 90`）：
+
+| 构件 | 尺寸 / 参数 | 内容 |
+|---|---|---|
+| 红标题条 | 3.60 × 0.32 m，y≈2.60 | 「办公室消防演练 · 安全知识」 |
+| 展板 ×3 | 每块 2.00 × 1.55 m，底部 0.62 m、带立柱，深青底 + 绿标题条 + 黄标题（54）+ 白正文（38） | ①灭火器要对路 ②灭火器四步 ③疏散与集合 |
+| 地面标语 | 4.40 × 0.72 m，深绿底白字，字头朝东 | 「灭火器四步：提·拔·握·压 ｜ 疏散：低姿·湿毛巾·到集合点」 |
+
+展板内容（每块 5 条）：电气→CO₂/干粉（先断电）、A 类→水基/ABC、F 类→湿化学/干粉、油火禁泼水、对准根部；提/拔/握/压 + 留守防复燃；低姿湿毛巾、绿色出口不乘电梯、集合点清点报警、先试门温、不折返取物。
+
+### 8.3 玩家视角验收（`ExtinguisherFxProbe.RunSc1 / RunSc2 / RunSc3`）
+
+探针走真实 `Play`：开始演练 →（电气情景先 `Cut()` 断电）→ 站到瓶前 1.54 m 拍标签 → `GrabExternal` 吸附 → 答题通过 → 拔销 → 压把 → 站到火前 2.23 m 起喷，0.45 s 拍喷射 → 火灭瞬间拍收尾 → 放下瓶走进广场拍知识墙总览、近距、地面字。三情景各 6 张，共 18 张。
+
+| 图 | 玩家看到什么 | 判读 |
+|---|---|---|
+| `vr28_fx_sc1_1bottle.png` | 蓝色标签「二氧化碳 CO₂ / 适用：电气设备 / 精密仪器」 | 类型一眼可辨 |
+| `vr28_fx_sc1_2spray.png` | 瓶口向火根喷出一道**白亮窄气柱** | CO₂ 细高速，区别于粉雾 |
+| `vr28_fx_sc1_3burst.png` | 火灭瞬间柜顶腾起白色气雾并向上飘 | CO₂ 泄压上飘 |
+| `vr28_fx_sc2_1bottle.png` | 米黄标签「ABC 干粉 / 纸张 / 木材（A 类）+ 电器」 | 类型可辨 |
+| `vr28_fx_sc2_2spray.png` | 瓶口到桌面一大团**宽锥白色粉雾** | 干粉宽、慢、浓 |
+| `vr28_fx_sc2_3burst.png` | 火灭瞬间桌面扬起粉尘并落下 | 干粉下沉 |
+| `vr28_fx_sc3_1bottle.png` | 淡蓝标签「水基（湿化学）/ 食用油 / 小家电（F 类）」 | 类型可辨 |
+| `vr28_fx_sc3_2spray.png` | 蓝白色**带颗粒的水雾**斜打向炉面 | 水基带水滴下坠 |
+| `vr28_fx_sc3_3burst.png` | 火灭瞬间一大片**蓝色蒸汽**沿柜体上腾 | 水基蒸汽，与干粉明显不同 |
+| `*_4wall.png` / `*_5wallclose.png` / `*_6floor.png` | 三块展板全貌（一/二/三 顺序正确）、近距可读正文、地面标语横排正读 | 知识墙与地面字可读 |
+
+断言链（`Logs/shots/_extfx.txt` + 三份副本，末两行 `FAIL_COUNT=0` / `PROBE_EXIT=0`）：
+
+| 断言 | 情景一 | 情景二 | 情景三 |
+|---|---|---|---|
+| 场景瓶 `kind` 与情景期望一致 | CO₂ ✔ | 干粉 ✔ | 水基 ✔ |
+| 手持后 `sprayLoopClip` 名字含本类型 token | `SFX_Spray_CO2` ✔ | `SFX_Spray_Powder` ✔ | `SFX_Spray_Wet` ✔ |
+| 喷射时粒子在播 / 音效在播 / HUD 含类型名与适用火源 | ✔ | ✔ | ✔ |
+| 喷射几何：粒子数 ≥ 10、喷口朝向对准火 dot ≥ 0.94 | 236 / 0.96 ✔ | ✔ | ✔ |
+| 火灭：`progress01 = 1.00`，`ExtinguishFx.SpawnCount 0→1`，`LastKind` 对应 | ✔ | ✔ | ✔ |
+| 知识墙 3 块 + 每块 ≥ 4 条 + 地面字存在 | ✔ | ✔ | ✔ |
+
+### 8.4 判图后返工的三处（都按真实缺陷处理）
+
+| 现象 | 根因 | 处理 |
+|---|---|---|
+| 第一版 `_2spray` 上**几乎看不到喷流** | 初始粒径曲线首帧只有 0.35×、alpha 首帧 0、单粒子尺寸 0.035~0.05 m，2 m 外只剩几个像素；干粉还会被火光 bloom 吃掉 | 首帧粒径 0.9×、alpha 首帧 0.55；三套 `startSize` 加大到 0.13~0.165 m、`rate` 480~600，CO₂ 提速到 5.6 m/s 让气柱穿过火面 |
+| 瓶身标签文字**被压扁、字挤在一起** | 标签挂在瓶身下面，瓶体是非等比缩放（压扁/拉高），Canvas 跟着被压 | 标签脱离父级放进场景根，每帧按瓶身锚点写世界坐标；同时放大到 0.72×0.30 m、字号 48 |
+| 同一探针两次跑，喷口朝向 dot 一次 0.97、一次 0.82 导致喷不中 | 探针直接改 `rigRoot.position`，玩家根上的 `CharacterController` 会在随后几帧把「站进桌柜体积」的相机顶开，取景悄悄退回上一个站位 | 探针 `MoveStand()` 先 `cc.enabled = false` 再摆位；顺带补 `喷射几何` 日志（粒子数 / 喷口朝向 / 对准 dot）做断言 |
+
+### 8.5 改动文件清单（第 28 轮）
+
+| 文件 | 改动 |
+|---|---|
+| `Assets/Scripts/FireSafety/ExtinguisherKind.cs` | **新增**：枚举 + Info + `SprayProfile` 九字段 |
+| `Assets/Scripts/FireSafety/ExtinguisherSfx.cs` | **新增**：三种合成循环音 + 收尾声 |
+| `Assets/Scripts/FireSafety/ExtinguishFx.cs` | **新增**：一次性熄灭粒子 + 音效，暴露 `SpawnCount` / `LastKind` |
+| `Assets/Scripts/FireSafety/ExtinguisherKindTag.cs` | **新增**：瓶身类型标签（脱离瓶体缩放、朝相机、手持隐藏） |
+| `Assets/Scripts/FireSafety/PlazaKnowledgeBoard.cs` | **新增**：知识墙三展板 + 红标题条 + 地面标语 |
+| `Assets/Scripts/FireSafety/ExtinguisherSpray.cs` | 加 `kind` / `ApplyKind()`；粒径与 alpha 首帧；`CreateSoftMaterial()` 静态化供复用 |
+| `Assets/Scripts/FireSafety/Extinguisher.cs` | 加 `kind` / `KindLabel` / `SuitableLabel` / `SetKind()`，熄灭瞬间触发 `ExtinguishFx` |
+| `Assets/Scripts/FireSafety/DrillScenario.cs` | `FireScenario.extinguisherKind`，`ApplyScenario` 里 `SetKind`，HUD 追加「灭火器：类型（适用 …）」 |
+| `Assets/Editor/FireSafetySetup.cs` | 新增 `SetupExtinguisherKind()`（01=CO₂/02=干粉/03=水基 + 标签）；情景简介改写；`SetupOutdoorPlaza()` 挂知识墙 |
+| `Assets/Editor/FireSafetySelfTest.cs` | 新增 `TestExtinguisherKindRound28()`：三套参数差异、三色互异、合成 clip 名/时长、情景 kind、标签、HUD、知识墙 |
+| `Assets/Editor/ExtinguisherFxProbe.cs` | **新增**：`RunSc1/2/3` 玩家视角探针（含喷射几何断言） |
+| `Assets/Scenes/FireSafetyOffice.unity` | 三瓶 kind / 标签组件 / 知识墙组件写回 |
+
+### 8.6 自检与回归
+
+- `FireSafetySelfTest.RunAll` → `Logs/selftest28.log`，末尾 `[TEST] ==== 全部通过 ====`；新增 `TestExtinguisherKindRound28()` 12 条断言全 ✔。
+- 三情景探针 → `Logs/extfx_RunSc1/2/3.log`、`Logs/shots/_extfx_RunSc1/2/3.txt`，全部 `FAIL_COUNT=0` / `PROBE_EXIT=0`。
+- 第 27 轮门禁、第 26 轮拾取链路未被本轮改动影响（本轮只动了灭火剂与广场装饰，未触碰 `RoomDoor` / `ToggleGrab` 逻辑）。
+
 ## 主要功能
 
 - **手柄锚定 UI**：开始界面（前 1.0 m / 上 0.15 m）、倒计时（上 0.42 m / 前 0.12 m）、引导页（前 1.0 m / 上 0.14 m）都跟随右手手柄并朝向玩家（`StartScreen.cs` / `DrillCountdown.cs` / `OnboardingScreen.cs`）
@@ -324,7 +459,8 @@ Docs/
 - PantryFire / PantrySmoke / Stage1Smoke_Pantry（情景三：茶水间小家电起火）
 - Stage1Smoke 设备旁烟雾（开始即冒烟）与 SmokeZone 撤离通道雾
 - FireHealthBar 火焰血量条（设备火 / 出口火各一条）
-- Extinguisher01 / Extinguisher02 / Extinguisher03（抓取/问答/拔销/压把/粒子喷射/手型匹配）
+- Extinguisher01 / Extinguisher02 / Extinguisher03（抓取/问答/拔销/压把/粒子喷射/手型匹配；分别绑定 CO₂ / ABC 干粉 / 水基湿化学，含瓶身类型标签）
+- OutdoorPlaza 知识墙（三块 2.00 × 1.55 m 展板 + 红标题条 + 地面标语）
 - EventSystem + XRUIInputModule（手柄射线点按 UI）
 - DesktopDrillInput（桌面鼠标完整操作链）
 

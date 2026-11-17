@@ -60,8 +60,42 @@ namespace FireSafety
         public UnityEvent onSprayStarted;
         public UnityEvent onSprayStopped;
 
+        [Header("灭火剂类型（第 28 轮）")]
+        [Tooltip("决定喷射粒子形态 / 颜色 / 喷射音效 / 熄灭收尾特效；电气=CO₂、纸张=干粉、小家电=水基")]
+        public ExtinguisherKind kind = ExtinguisherKind.PowderABC;
+
+        public string KindLabel => ExtinguisherKindInfo.Name(kind);
+        public string SuitableLabel => ExtinguisherKindInfo.SuitableFor(kind);
+
+        private readonly System.Collections.Generic.HashSet<FireSource> _burstDone =
+            new System.Collections.Generic.HashSet<FireSource>();
+
         public bool PinPulled { get; private set; }
         public bool IsSpraying { get; private set; }
+
+        /// <summary>
+        /// 切换灭火剂类型：套用对应的喷射形态、颜色与合成喷射音效。
+        /// 由装配脚本或情景切换调用（每套情景用一瓶对路的灭火器）。
+        /// </summary>
+        public void SetKind(ExtinguisherKind newKind, bool resetQuizPassed = false)
+        {
+            kind = newKind;
+            if (resetQuizPassed) QuizPassed = false;
+
+            var spray = GetComponentInChildren<ExtinguisherSpray>(true);
+            if (spray != null) spray.ApplyKind(newKind);
+
+            sprayLoopClip = ExtinguisherSfx.SprayLoop(newKind);
+            if (sprayLoopSource != null)
+            {
+                sprayLoopSource.clip = sprayLoopClip;
+                sprayLoopSource.loop = true;
+                sprayLoopSource.playOnAwake = false;
+            }
+
+            Debug.Log("[Extinguisher] " + name + " 灭火剂 = " + KindLabel
+                      + "（适用于 " + SuitableLabel + "）");
+        }
 
         private Transform _player;
         private bool _reachedReported;
@@ -118,6 +152,9 @@ namespace FireSafety
                 sprayLoopSource.loop = true;
                 sprayLoopSource.playOnAwake = false;
             }
+
+            // 第 28 轮：按灭火剂类型套用喷射形态 + 各自的合成喷射音效
+            SetKind(kind);
 
             // 无论从手柄抓取还是桌面右键进入问答，答完都要把结果记到灭火器上
             if (quizPanel != null)
@@ -451,6 +488,12 @@ namespace FireSafety
                 }
 
                 fire.ApplyExtinguish(Time.deltaTime * extinguishRate);
+
+                // 第 28 轮：火被这瓶灭掉的那一刻放一次「收尾特效」——
+                // CO₂ 白雾泄压、干粉粉尘落下、水基腾起蒸汽（每种只放一次，避免连喷重复触发）
+                if (fire.IsExtinguished && _burstDone.Add(fire))
+                    ExtinguishFx.Play(fire.AimPoint, kind);
+
                 if (fire.progress01 >= 0.999f) _putDownAt = Time.time + 0.9f;
             }
         }

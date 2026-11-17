@@ -60,6 +60,8 @@ namespace FireSafety
             public Transform[] spawnPoints = new Transform[0];
             [Tooltip("第 25 轮：该情景是否跳过第 2 阶段（撤离大厅）——纸张 / 茶水间就近直奔安全出口门")]
             public bool skipEvacuation = false;
+            [Tooltip("第 28 轮：本情景灭火器的灭火剂类型（电气=CO₂ / 纸张=ABC 干粉 / 小家电=水基）")]
+            public ExtinguisherKind extinguisherKind = ExtinguisherKind.PowderABC;
         }
 
         [Header("起火情景（不同情景 = 不同起火点 + 不同灭火器 + 不同出生点，终点相同）")]
@@ -431,7 +433,11 @@ namespace FireSafety
 
             // 本情景灭火器的题库组 + 答题状态重置（换情景必须重新答题）
             if (deviceExtinguisher != null)
+            {
                 deviceExtinguisher.SetQuizSet(sc.quizSetIndex, true);
+                // 第 28 轮：同一瓶灭火器切到本情景的灭火剂类型（喷射形态 / 颜色 / 音效随之变化）
+                deviceExtinguisher.SetKind(sc.extinguisherKind);
+            }
 
             Debug.Log("[Drill] 情景切换到 " + sc.title + "（" + sc.shortName + "）：起火点="
                       + (sc.fire != null ? sc.fire.transform.position.ToString("F2") : "null")
@@ -608,7 +614,10 @@ namespace FireSafety
                         string hp = "";
                         if (deviceFire != null)
                             hp = " · 火焰剩余 " + Mathf.RoundToInt((1f - deviceFire.progress01) * 100f) + "%";
-                        return "状态：第 1 阶段 · " + title + " → " + power + hp;
+                        string ext = deviceExtinguisher != null
+                            ? " · 灭火器：" + deviceExtinguisher.KindLabel + "（适用 " + deviceExtinguisher.SuitableLabel + "）"
+                            : "";
+                        return "状态：第 1 阶段 · " + title + " → " + power + hp + ext;
                     }
                     if (CurrentPhase == Phase.Stage2)
                         return "状态：第 2 阶段 · 沿安全出口撤离 → 灭掉门前火 → 开门通关";

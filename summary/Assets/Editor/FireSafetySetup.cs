@@ -1018,8 +1018,18 @@ namespace FireSafety.EditorTools
             Boxing(root.transform, "PlazaPlanter_1", new Vector3(8.10f, 0.28f, 3.10f), new Vector3(0.90f, 0.55f, 0.55f), lowWallMat, true);
             Boxing(root.transform, "PlazaPlanter_2", new Vector3(12.60f, 0.28f, -3.10f), new Vector3(0.90f, 0.55f, 0.55f), lowWallMat, true);
 
+            // 第 28 轮：门外广场知识墙（3 块立式展板 + 顶部标语 + 地面喷涂字），展板竖在东侧矮墙前朝西
+            var board = root.GetComponent<PlazaKnowledgeBoard>() ?? root.AddComponent<PlazaKnowledgeBoard>();
+            board.boardCenter = new Vector3(13.40f, 0f, 0f);
+            board.facingYaw = 90f;
+            board.reverseOrder = false;
+            board.panelBottom = 0.62f;
+            board.floorTextCenter = new Vector3(10.90f, 0.02f, 1.55f);
+            board.floorTextYaw = 90f;
+
             Debug.Log("[Setup] ✔ 门外开阔场地：广场 6.5×8 米（x 7.25~13.75 / z -4~4）、三面 1.1 米矮墙、"
-                      + "集合点标识 2 处、庭院灯 2 盏、花箱 2 个；走廊东端 z 0.1~3.9 开口通向广场");
+                      + "集合点标识 2 处、庭院灯 2 盏、花箱 2 个；走廊东端 z 0.1~3.9 开口通向广场；"
+                      + "另加知识墙 3 块展板（中心 x 13.40 朝西）+ 地面标语 1 条");
         }
 
         /// <summary>建/复用一个立方体装饰件（可选带 BoxCollider）。</summary>
@@ -1306,13 +1316,14 @@ namespace FireSafety.EditorTools
                 {
                     title = "情景一 · 电气设备起火（配电柜）",
                     shortName = "电气",
-                    intro = "配电柜短路冒烟起火，火焰带电——必须先切断总闸，再用旁边的干粉灭火器扑灭。",
+                    intro = "配电柜短路冒烟起火，火焰带电——必须先切断总闸，再用旁边的二氧化碳灭火器扑灭（不留残渣，不导电）。",
                     fire = fireSource,
                     smoke = smokePs,
                     roomSmoke = s1,
                     extinguisher = e1,
                     extinguisherHome = ext01Pos,
                     quizSetIndex = 2,                 // C 组：电气设备起火 · 先断电
+                    extinguisherKind = ExtinguisherKind.CO2,   // 第 28 轮：电气火配二氧化碳
                     powerSwitch = powerSwitch,
                     requirePowerCut = true,
                     spawnPoints = new[] { spawn0, spawn1, spawn2 }
@@ -1328,6 +1339,7 @@ namespace FireSafety.EditorTools
                     extinguisher = e2,
                     extinguisherHome = ext02Pos,
                     quizSetIndex = 4,                 // E 组：纸张 / 固体可燃物
+                    extinguisherKind = ExtinguisherKind.PowderABC,   // 第 28 轮：A 类固体火配 ABC 干粉
                     powerSwitch = null,
                     requirePowerCut = false,
                     skipEvacuation = true,            // 第 25 轮：就近原则，灭火后直奔安全出口门
@@ -1337,13 +1349,14 @@ namespace FireSafety.EditorTools
                 {
                     title = "情景三 · 茶水间小家电起火",
                     shortName = "茶水间",
-                    intro = "茶水间的电水壶/微波炉插排过载起火，台面油污被引燃——先断开该区域电源，再用灭火器从侧面近距离扑灭，不能用水。",
+                    intro = "茶水间的电水壶/微波炉插排过载起火，台面油污被引燃——用湿化学（水基）灭火器从侧面近距离覆盖，靠冷却和皂化压住油火，不能直接泼水。",
                     fire = pantryFire,
                     smoke = pantrySmoke,
                     roomSmoke = pantryZone,
                     extinguisher = e3,
                     extinguisherHome = ext03Pos,
                     quizSetIndex = 5,                 // F 组：茶水间小家电 / 油类
+                    extinguisherKind = ExtinguisherKind.WetChemical,  // 第 28 轮：F 类油火配水基/湿化学
                     powerSwitch = null,
                     requirePowerCut = false,
                     skipEvacuation = true,            // 第 25 轮：就近原则，灭火后直奔安全出口门
@@ -1940,7 +1953,65 @@ namespace FireSafety.EditorTools
             // 压把（按下压把 → 喷射）+ 粒子喷射效果
             SetupHandleAndSpray(root, ext, nozzle, sfx, leftHand, rightHand);
 
+            // 第 28 轮：灭火剂类型（CO₂ / ABC 干粉 / 水基）+ 瓶身上方的类型标签
+            SetupExtinguisherKind(root, ext);
+
             Debug.Log("[Setup] ✔ 灭火器：" + objName + "（抓取/问答/拔销/压把/粒子喷射/手型匹配已装配）");
+        }
+
+        /// <summary>
+        /// 第 28 轮：给这一瓶定灭火剂类型，并在瓶身上方挂一块类型标签。
+        /// 01 = 二氧化碳（情景一电气）、02 = ABC 干粉（情景二纸张）、03 = 水基/湿化学（情景三小家电油火）。
+        /// </summary>
+        static void SetupExtinguisherKind(GameObject root, Extinguisher ext)
+        {
+            ExtinguisherKind kind = root.name.Contains("03")
+                ? ExtinguisherKind.WetChemical
+                : root.name.Contains("02") ? ExtinguisherKind.PowderABC : ExtinguisherKind.CO2;
+
+            ext.kind = kind;
+            ext.sprayLoopClip = null;          // 运行期按类型合成喷射音（三瓶声音不同）
+
+            // 喷射组件也同步写好类型与整套参数，存档即一致（运行期 Awake 还会再 ApplyKind 一次）
+            var spray = root.GetComponentInChildren<ExtinguisherSpray>(true);
+            if (spray != null)
+            {
+                spray.kind = kind;
+                var p = ExtinguisherKindInfo.Profile(kind);
+                spray.rate = p.rate;
+                spray.startSpeed = p.startSpeed;
+                spray.coneAngle = p.coneAngle;
+                spray.lifetime = p.lifetime;
+                spray.startSize = p.startSize;
+                spray.sizeGrowth = p.sizeGrowth;
+                spray.gravity = p.gravity;
+                spray.noiseStrength = p.noiseStrength;
+                spray.sprayColor = ExtinguisherKindInfo.SprayColor(kind);
+            }
+
+            // 标签挂在瓶身上方：按渲染包围盒高度定位，避免不同 prefab 尺寸下悬空或穿模
+            float top = 0.5f;
+            bool has = false;
+            Bounds b = new Bounds(root.transform.position, Vector3.zero);
+            foreach (var r in root.GetComponentsInChildren<Renderer>())
+            {
+                if (r is ParticleSystemRenderer) continue;
+                if (!has) { b = r.bounds; has = true; }
+                else b.Encapsulate(r.bounds);
+            }
+            if (has) top = Mathf.Max(0f, b.max.y - root.transform.position.y);
+
+            var tag = root.GetComponent<ExtinguisherKindTag>() ?? root.AddComponent<ExtinguisherKindTag>();
+            tag.kind = kind;
+            tag.localOffset = new Vector3(0f, top + 0.20f, 0f);
+            tag.sizeMeters = new Vector2(0.72f, 0.30f);
+            tag.fontSize = 48;
+            tag.pushFromWall = 0.10f;
+            tag.hideWhenHeld = true;
+
+            Debug.Log("[Setup] ✔ 灭火剂类型：" + root.name + " → " + ExtinguisherKindInfo.Name(kind)
+                      + "（适用 " + ExtinguisherKindInfo.SuitableFor(kind) + "），标签挂在瓶身上方 "
+                      + tag.localOffset.y.ToString("F2") + " 米处");
         }
 
         /// <summary>装配压把（HandleLever）与喷射粒子（ExtinguisherSpray）。</summary>

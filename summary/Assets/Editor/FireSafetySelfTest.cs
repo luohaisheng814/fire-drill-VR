@@ -37,6 +37,7 @@ namespace FireSafety.EditorTools
             TestFlameClearAll();
             TestStepChain();
             TestSceneWiring();
+            TestExtinguisherKindRound28();
             TestDrillScenario();
             TestVrConfiguration();
 
@@ -1781,6 +1782,114 @@ namespace FireSafety.EditorTools
                 var expect = name.Contains("Left") ? HandSide.Left : HandSide.Right;
                 Check("VR：" + name + " 模型手侧 = " + expect, vis.side == expect);
                 Check("VR：" + name + " 模型不在桌面键鼠模式显示", !vis.showInDesktop);
+            }
+        }
+
+        // ------------------------------------------------------------
+        // 第 28 轮：三情景灭火剂类型 / 粒子 / 音效 / 类型标签 / 门外知识墙
+        // ------------------------------------------------------------
+        static void TestExtinguisherKindRound28()
+        {
+            // ---- 1. 三套喷射形态必须真的不一样（否则又是「三种灭火器喷一样」）----
+            var co2 = ExtinguisherKindInfo.Profile(ExtinguisherKind.CO2);
+            var powder = ExtinguisherKindInfo.Profile(ExtinguisherKind.PowderABC);
+            var wet = ExtinguisherKindInfo.Profile(ExtinguisherKind.WetChemical);
+
+            Check("第28轮：CO₂ 气柱比干粉更窄更快（锥角 " + co2.coneAngle + "° < " + powder.coneAngle + "°，速度 "
+                  + co2.startSpeed + " > " + powder.startSpeed + "）",
+                co2.coneAngle < powder.coneAngle && co2.startSpeed > powder.startSpeed);
+            Check("第28轮：干粉粒径更大、悬停更久（" + powder.startSize.ToString("F3") + " 米 / "
+                  + powder.lifetime.ToString("F2") + " 秒）",
+                powder.startSize > co2.startSize && powder.lifetime > co2.lifetime);
+            Check("第28轮：水基下坠最明显（gravity " + wet.gravity.ToString("F2") + "）",
+                wet.gravity > powder.gravity && wet.gravity > co2.gravity);
+            Check("第28轮：三种喷射颜色互不相同",
+                ExtinguisherKindInfo.SprayColor(ExtinguisherKind.CO2) != ExtinguisherKindInfo.SprayColor(ExtinguisherKind.PowderABC)
+                && ExtinguisherKindInfo.SprayColor(ExtinguisherKind.PowderABC) != ExtinguisherKindInfo.SprayColor(ExtinguisherKind.WetChemical));
+            Check("第28轮：类型名与适用范围文案齐全",
+                ExtinguisherKindInfo.Name(ExtinguisherKind.CO2).Contains("CO₂")
+                && ExtinguisherKindInfo.SuitableFor(ExtinguisherKind.WetChemical).Contains("F 类"));
+
+            // ---- 2. 音效：三种循环音各自合成、名字能对上 ----
+            string[] expectLoop = { "SFX_Spray_CO2", "SFX_Spray_Powder", "SFX_Spray_Wet" };
+            string[] expectBurst = { "SFX_Burst_CO2", "SFX_Burst_Powder", "SFX_Burst_Wet" };
+            var kinds = new[] { ExtinguisherKind.CO2, ExtinguisherKind.PowderABC, ExtinguisherKind.WetChemical };
+            for (int i = 0; i < kinds.Length; i++)
+            {
+                var loop = ExtinguisherSfx.SprayLoop(kinds[i]);
+                Check("第28轮：喷射循环音名 = " + expectLoop[i], loop != null && loop.name == expectLoop[i]);
+                Check("第28轮：喷射循环音约 1 秒（" + (loop != null ? loop.length.ToString("F2") : "null") + "s）",
+                    loop != null && loop.length > 0.9f && loop.length < 1.1f);
+                var burst = ExtinguisherSfx.Burst(kinds[i]);
+                Check("第28轮：熄灭收尾声名 = " + expectBurst[i], burst != null && burst.name == expectBurst[i]);
+            }
+            var l1 = ExtinguisherSfx.SprayLoop(ExtinguisherKind.CO2);
+            var l2 = ExtinguisherSfx.SprayLoop(ExtinguisherKind.PowderABC);
+            var l3 = ExtinguisherSfx.SprayLoop(ExtinguisherKind.WetChemical);
+            Check("第28轮：三种喷射音是三个不同 clip", l1 != l2 && l2 != l3 && l1 != l3);
+
+            // ---- 3. 场景三瓶：01→CO₂、02→干粉、03→水基，且都挂了类型标签 ----
+            var exts = UnityEngine.Object.FindObjectsByType<Extinguisher>(FindObjectsSortMode.None);
+            var expect = new Dictionary<string, ExtinguisherKind>
+            {
+                { "Extinguisher01", ExtinguisherKind.CO2 },
+                { "Extinguisher02", ExtinguisherKind.PowderABC },
+                { "Extinguisher03", ExtinguisherKind.WetChemical }
+            };
+            foreach (var e in exts)
+            {
+                if (e == null) continue;
+                ExtinguisherKind want = ExtinguisherKind.PowderABC;
+                bool known = expect.TryGetValue(e.name, out want);
+                if (known)
+                    Check("第28轮：场景 " + e.name + " 灭火剂 = " + ExtinguisherKindInfo.Name(want),
+                        e.kind == want);
+
+                var tag = e.GetComponentInChildren<ExtinguisherKindTag>(true);
+                Check("第28轮：" + e.name + " 瓶身挂了灭火剂类型标签", tag != null);
+                if (tag != null && known)
+                    Check("第28轮：" + e.name + " 标签内容与瓶一致", tag.kind == want);
+
+                var spray = e.GetComponentInChildren<ExtinguisherSpray>(true);
+                Check("第28轮：" + e.name + " 喷射组件的类型与瓶一致",
+                    spray != null && spray.kind == e.kind);
+                if (spray != null)
+                    Check("第28轮：" + e.name + " 喷射循环音按类型在运行时合成（clip="
+                          + (e.sprayLoopClip != null ? e.sprayLoopClip.name : "运行期生成")
+                          + "）",
+                        e.sprayLoopClip == null || e.sprayLoopClip.name.Contains(ExtinguisherSfx.KindToken(e.kind)));
+            }
+
+            // ---- 4. 三套情景都写明了对路的灭火剂 ----
+            var sc = UnityEngine.Object.FindObjectOfType<DrillScenario>();
+            Check("第28轮：找到 DrillScenario", sc != null);
+            if (sc != null && sc.scenarios != null && sc.scenarios.Length >= 3)
+            {
+                Check("第28轮：情景一（电气）配 CO₂",
+                    sc.scenarios[0].extinguisherKind == ExtinguisherKind.CO2);
+                Check("第28轮：情景二（纸张）配 ABC 干粉",
+                    sc.scenarios[1].extinguisherKind == ExtinguisherKind.PowderABC);
+                Check("第28轮：情景三（小家电油火）配水基",
+                    sc.scenarios[2].extinguisherKind == ExtinguisherKind.WetChemical);
+                Check("第28轮：情景简介提到对应灭火剂",
+                    sc.scenarios[0].intro.Contains("二氧化碳") && sc.scenarios[1].intro.Contains("干粉")
+                    && sc.scenarios[2].intro.Contains("湿化学"));
+            }
+
+            // ---- 5. 门外知识墙：三块展板 + 地面标语 ----
+            var board = UnityEngine.Object.FindObjectOfType<PlazaKnowledgeBoard>(true);
+            Check("第28轮：门外广场存在知识墙组件", board != null);
+            if (board != null)
+            {
+                Check("第28轮：知识墙 3 块展板", board.panelTitles != null && board.panelTitles.Length == 3);
+                var lines = board.PanelLines();
+                Check("第28轮：每块展板至少 4 条知识要点",
+                    lines != null && lines.Length == 3
+                    && lines[0].Length >= 4 && lines[1].Length >= 4 && lines[2].Length >= 4);
+                Check("第28轮：地面标语非空", !string.IsNullOrEmpty(board.floorText));
+                Check("第28轮：知识墙立在广场可走区域（x 7.25~13.75 / z -4~4）",
+                    board.boardCenter.x > 7.25f && board.boardCenter.x < 13.9f
+                    && Mathf.Abs(board.boardCenter.z) < 4f);
             }
         }
 

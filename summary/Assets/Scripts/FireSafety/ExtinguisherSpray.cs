@@ -42,9 +42,35 @@ namespace FireSafety
         [Tooltip("起喷时压力爬升时间（秒），0 = 立刻满压")]
         public float spinUpTime = 0.12f;
 
+        [Header("灭火剂类型（第 28 轮）")]
+        [Tooltip("CO₂ / ABC 干粉 / 水基，决定粒子形态、颜色与喷射节奏")]
+        public ExtinguisherKind kind = ExtinguisherKind.PowderABC;
+
         ParticleSystem _ps;
         ParticleSystemRenderer _renderer;
         float _pressure;
+
+        /// <summary>
+        /// 按灭火剂类型套用一整套喷射参数（形状 / 速度 / 粒径 / 重力 / 颜色），
+        /// 再重配粒子系统。瓶身上换一瓶就是换一种喷射形态，不再三种都是同一团白粉。
+        /// </summary>
+        public void ApplyKind(ExtinguisherKind newKind)
+        {
+            kind = newKind;
+            var p = ExtinguisherKindInfo.Profile(newKind);
+
+            rate = p.rate;
+            startSpeed = p.startSpeed;
+            coneAngle = p.coneAngle;
+            lifetime = p.lifetime;
+            startSize = p.startSize;
+            sizeGrowth = p.sizeGrowth;
+            gravity = p.gravity;
+            noiseStrength = p.noiseStrength;
+            sprayColor = ExtinguisherKindInfo.SprayColor(newKind);
+
+            Configure();
+        }
 
         public bool IsPlaying => _ps != null && _ps.isPlaying;
 
@@ -68,6 +94,7 @@ namespace FireSafety
         public void Configure()
         {
             if (_ps == null) _ps = GetComponent<ParticleSystem>();
+            if (_renderer == null) _renderer = GetComponent<ParticleSystemRenderer>();
 
             var main = _ps.main;
             main.duration = 1f;
@@ -103,28 +130,31 @@ namespace FireSafety
             var sizeOverLife = _ps.sizeOverLifetime;
             sizeOverLife.enabled = true;
             var sizeCurve = new AnimationCurve(
-                new Keyframe(0f, 0.35f),
-                new Keyframe(0.18f, 1f),
+                new Keyframe(0f, 0.9f),
+                new Keyframe(0.18f, 1.05f),
                 new Keyframe(0.55f, 1.35f),
                 new Keyframe(1f, sizeGrowth));
             sizeOverLife.size = new ParticleSystem.MinMaxCurve(1f, sizeCurve);
 
-            // 透明度从浓到淡
+            // 透明度从浓到淡；RGB 跟着灭火剂主色走，CO₂ 偏蓝白、干粉偏暖白、水基偏淡蓝
             var colorOverLife = _ps.colorOverLifetime;
             colorOverLife.enabled = true;
+            Color core = Color.Lerp(sprayColor, Color.white, 0.12f);
+            Color mid = sprayColor;
+            Color tail = new Color(sprayColor.r * 0.88f, sprayColor.g * 0.90f, sprayColor.b * 0.94f);
             var grad = new Gradient();
             grad.SetKeys(
                 new[]
                 {
-                    new GradientColorKey(new Color(0.97f, 0.98f, 1f), 0f),
-                    new GradientColorKey(new Color(0.88f, 0.91f, 0.95f), 0.5f),
-                    new GradientColorKey(new Color(0.82f, 0.86f, 0.9f), 1f)
+                    new GradientColorKey(core, 0f),
+                    new GradientColorKey(mid, 0.5f),
+                    new GradientColorKey(tail, 1f)
                 },
                 new[]
                 {
-                    new GradientAlphaKey(0f, 0f),
+                    new GradientAlphaKey(0.55f, 0f),
                     new GradientAlphaKey(1f, 0.08f),
-                    new GradientAlphaKey(0.55f, 0.5f),
+                    new GradientAlphaKey(0.62f, 0.5f),
                     new GradientAlphaKey(0f, 1f)
                 });
             colorOverLife.color = new ParticleSystem.MinMaxGradient(grad);
@@ -213,11 +243,20 @@ namespace FireSafety
 
         private Material BuildMaterial()
         {
+            return CreateSoftMaterial();
+        }
+
+        /// <summary>
+        /// 运行时生成柔和圆点粒子的透明材质（喷射与熄灭特效共用）。
+        /// 贴图是运行时画的，存不进场景 —— 存进去会变成丢失引用 → 洋红。
+        /// </summary>
+        public static Material CreateSoftMaterial(string matName = "SpraySoftMat")
+        {
             Shader shader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
             if (shader == null) shader = Shader.Find("Universal Render Pipeline/Unlit");
             if (shader == null) shader = Shader.Find("Sprites/Default");
 
-            var mat = new Material(shader) { name = "SprayPowderMat" };
+            var mat = new Material(shader) { name = matName };
             var tex = CreateSoftDotTexture();
 
             mat.SetTexture("_BaseMap", tex);
