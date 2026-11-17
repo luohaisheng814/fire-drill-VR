@@ -154,6 +154,10 @@ namespace FireSafety
                 {
                     // 扳机同时可开安全出口门（第 25 轮）
                 }
+                else if (TryOpenRoomDoorByRay())
+                {
+                    // 扳机也可开情景二/三那扇通往出口的房间门（第 27 轮）
+                }
             }
             else if (!trigger && _prevTrigger)
             {
@@ -300,6 +304,25 @@ namespace FireSafety
             }
             door.TryOpenByPlayer(6f);
             Hint("安全出口已打开 —— 走出这扇门即算撤离成功");
+            return true;
+        }
+
+        /// <summary>第 27 轮：右手射线指向「房间门」（情景二/三通往出口的那扇）→ 开门。</summary>
+        bool TryOpenRoomDoorByRay()
+        {
+            var door = RoomDoor.Instance != null ? RoomDoor.Instance : FindObjectOfType<RoomDoor>();
+            if (door == null) return false;
+
+            Transform src = rightHand != null ? rightHand : (Camera.main != null ? Camera.main.transform : null);
+            if (src == null) return false;
+
+            if (!Physics.Raycast(src.position, src.forward, out var hit, 6f, ~0, QueryTriggerInteraction.Collide))
+                return false;
+            if (hit.collider == null || !door.IsDoorPart(hit.collider)) return false;
+
+            string hint;
+            door.TryOpenByPlayer(out hint, 6f);
+            if (!string.IsNullOrEmpty(hint)) Hint(hint);
             return true;
         }
 

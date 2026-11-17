@@ -1094,6 +1094,24 @@ namespace FireSafety.EditorTools
             }
             Check("场景：没有 Missing (Mono Script) 组件（实际 " + missing + "）", missing == 0);
 
+            // 第 27 轮：情景二/三通往出口的 room door（door_b）必须挂上 RoomDoor，否则玩家灭完火走不到出口
+            var doorB = GameObject.Find("Floor 0/door_b");
+            Check("场景：找到 door_b（实际 " + (doorB != null ? doorB.name : "null") + "）", doorB != null);
+            if (doorB != null)
+            {
+                var rd = doorB.GetComponent<RoomDoor>();
+                Check("场景 door_b：已挂 RoomDoor", rd != null);
+                if (rd != null)
+                {
+                    Check("场景 door_b：门扇轴心用自身", rd.leaf == null || rd.leaf == doorB.transform);
+                    Check("场景 door_b：开向 +95°（朝疏散方向）", Mathf.Approximately(rd.openAngle, 95f));
+                    Check("场景 door_b：0.8 秒转门", Mathf.Approximately(rd.openDuration, 0.8f));
+                    Check("场景 door_b：要求第一阶段火已灭", rd.requireStageOneCleared);
+                    Check("场景 door_b：门扇带碰撞体（关着时真的挡人）",
+                        doorB.GetComponentInChildren<Collider>(true) != null);
+                }
+            }
+
             foreach (var e in exts)
             {
                 string n = e.gameObject.name;

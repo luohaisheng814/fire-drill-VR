@@ -291,6 +291,10 @@ namespace FireSafety
             CurrentMode = Mode.Formal;
             CurrentPhase = Phase.Stage1;
 
+            // 第 27 轮：重开演练时把情景二/三那扇房间门关回去（上一次演练可能已经把它打开了）
+            if (RoomDoor.Instance == null) RoomDoor.Instance = FindObjectOfType<RoomDoor>();
+            if (RoomDoor.Instance != null) RoomDoor.Instance.ResetDoor();
+
             // 从操作演练的完成面板进入时，先把面板收掉
             if (stagePanel != null)
             {

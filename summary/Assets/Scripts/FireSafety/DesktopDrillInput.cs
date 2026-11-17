@@ -334,6 +334,9 @@ namespace FireSafety
             // 解锁后点门只是把门扇转开，真正通关仍需走出门外。
             if (TryOpenExitDoorUnderMouse()) return;
 
+            // 第 27 轮：情景二/三通往安全出口的那扇房间门（第一阶段火灭后才可打开）
+            if (TryOpenRoomDoorUnderMouse()) return;
+
             if (Held)
             {
                 Hint("已手持灭火器：左键单击拔销 / 左键双击压把 / 右键双击喷射 / P 放下");
@@ -556,6 +559,39 @@ namespace FireSafety
             return true;
         }
 
+        /// <summary>
+        /// 鼠标射线打到「房间门」（情景二/三通往出口的那扇 door_b）→ 开门。
+        /// 第一阶段火未灭：提示还不能开；火灭后：门扇转开，玩家可直接穿过去撤离。
+        /// </summary>
+        private bool TryOpenRoomDoorUnderMouse()
+        {
+            var door = RoomDoor.Instance != null ? RoomDoor.Instance : FindObjectOfType<RoomDoor>();
+            if (door == null) return false;
+
+            var mouse = Mouse.current;
+            var cam = GetCamera();
+            if (cam == null || mouse == null) return false;
+
+            Ray ray = cam.ScreenPointToRay(mouse.position.ReadValue());
+            var hits = Physics.RaycastAll(ray, 30f, ~0, QueryTriggerInteraction.Collide);
+            Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+
+            bool hitDoor = false;
+            float dist = 0f;
+            foreach (var h in hits)
+            {
+                if (h.collider == null) continue;
+                if (door.IsDoorPart(h.collider)) { hitDoor = true; dist = h.distance; break; }
+                if (h.distance > 0f && !h.collider.isTrigger) break;
+            }
+            if (!hitDoor || dist > 6f) return false;
+
+            string hint;
+            door.TryOpenByPlayer(out hint, 6f);
+            if (!string.IsNullOrEmpty(hint)) Hint(hint);
+            return true;
+        }
+
         /// <summary>任一台灭火器的答题面板当前是否打开（用于临时隐藏 HUD）。</summary>
         private bool QuizIsOpen()
         {
@@ -708,7 +744,7 @@ namespace FireSafety
             const string controls =
                 "【视角/移动】移动鼠标转头　｜　W/A/S/D 平移　｜　Q/E 转身　｜　Shift 加速　｜　C 蹲下　" +
                 "【鼠标操作】右键单击灭火器：答题/拿起　｜　右键单击电源箱：切断电源　｜　左键单击：拔销　" +
-                "｜　左键双击：压把　｜　右键双击：喷射（再双击停止）　｜　P：放下";
+                "｜　左键双击：压把　｜　右键双击：喷射（再双击停止）　｜　P：放下　｜　右键单击门：开门";
 
             string status = Time.unscaledTime < _statusUntil ? _status : "";
             string line = controls + "\n" + StateText();

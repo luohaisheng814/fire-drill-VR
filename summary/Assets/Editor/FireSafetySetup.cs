@@ -101,6 +101,9 @@ namespace FireSafety.EditorTools
             SetupEndingScreen();
             SetupStageTwoFlow();
 
+            // 5.6b 情景二/三通往出口的房间门（第 27 轮）：第一阶段火灭后才能打开
+            SetupRoomDoor();
+
             // 5.7 天花板（办公室原来只有地板，抬头能直接看到天空盒）
             SetupCeiling();
 
@@ -497,6 +500,36 @@ namespace FireSafety.EditorTools
             arrows.lobbyArriveDistance = 0.6f;
             Debug.Log("[Setup] ✔ 地面引导箭头：GuidanceArrows（警报后指向灭火器；继续往下后指向大厅 Lobby）");
         }
+
+        // ================================================================
+        // 5.6b 情景二/三通往出口的房间门（第 27 轮）
+        // ================================================================
+
+        /// <summary>
+        /// 场景里 z≈0 那道隔墙上的 door_b（门后是带玻璃窗的小房间）是情景二/三去安全出口的必经之门。
+        /// 之前它是纯装饰：门扇带碰撞体、堵死整道隔墙（实测 x -0.8~7.3 全被挡），
+        /// 玩家在第 1 阶段灭完火后根本走不到出口。这里给它挂 RoomDoor，
+        /// 第一阶段的火灭掉之后即可用右键 / 扳机射线打开。
+        /// </summary>
+        public static void SetupRoomDoor()
+        {
+            var root = GameObject.Find("Floor 0/door_b");
+            if (root == null) root = GameObject.Find("door_b");
+            if (root == null)
+            {
+                Debug.LogWarning("[Setup] 找不到 door_b，房间门未装配。");
+                return;
+            }
+
+            var door = root.GetComponent<RoomDoor>() ?? root.AddComponent<RoomDoor>();
+            door.leaf = null;                 // 轴心就在 door_b 根节点（x=2.75 一侧）
+            door.openAngle = 95f;             // 朝疏散方向（北侧走廊）开：真实疏散门也是朝逃生方向开，且不会把南侧走来的玩家顶住
+            door.openDuration = 0.8f;
+            door.maxInteractDistance = 4.0f;
+            door.requireStageOneCleared = true;
+            Debug.Log("[Setup] ✔ 房间门：door_b 挂 RoomDoor（情景二/三第 1 阶段火灭后可打开）");
+        }
+
 
         // ================================================================
         // 5.6 阶段一完成面板（暂停倒计时 + 立刻结算 / 继续往下）

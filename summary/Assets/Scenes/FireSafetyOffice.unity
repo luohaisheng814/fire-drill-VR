@@ -6792,13 +6792,40 @@ PrefabInstance:
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 5925766993625676381, guid: c8aa3af8e883c6e4dbaf78236b90a9d2, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 141316032}
   m_SourcePrefab: {fileID: 100100000, guid: c8aa3af8e883c6e4dbaf78236b90a9d2, type: 3}
 --- !u!4 &141316030 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 401114962038238001, guid: c8aa3af8e883c6e4dbaf78236b90a9d2, type: 3}
   m_PrefabInstance: {fileID: 141316029}
   m_PrefabAsset: {fileID: 0}
+--- !u!1 &141316031 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 5925766993625676381, guid: c8aa3af8e883c6e4dbaf78236b90a9d2, type: 3}
+  m_PrefabInstance: {fileID: 141316029}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &141316032
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 141316031}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7b31e018f92887a4faa85eac73fee2e6, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::FireSafety.RoomDoor
+  leaf: {fileID: 0}
+  openAngle: 95
+  openDuration: 0.8
+  maxInteractDistance: 4
+  requireStageOneCleared: 1
+  lockedHint: "\u8FD9\u6247\u95E8\u8FD8\u6253\u4E0D\u5F00\uFF1A\u5148\u628A\u7B2C\u4E00\u9636\u6BB5\u7684\u706B\u706D\u6389"
+  openedHint: "\u623F\u95F4\u95E8\u5DF2\u6253\u5F00 \u2014\u2014 \u7A7F\u8FC7\u8FD9\u6247\u95E8\u53BB\u5B89\u5168\u51FA\u53E3"
 --- !u!1 &148745222
 GameObject:
   m_ObjectHideFlags: 0

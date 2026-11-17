@@ -155,6 +155,95 @@ scenarios[3] = { 电气（DeviceFire / 需断电 / 题库 2 / 出生组 1）
 > 批处理坑（写进探针注释，避免下次重踩）：`-batchmode` 下系统鼠标每帧被真机状态覆盖，`QueueStateEvent` / `InputState.Change` / 自建 `Mouse` + `MakeCurrent()` 都留不到 `LateUpdate` 那一帧；`Keyboard.current` 初始为 `null` 会让 `LateUpdate` 整段早退。因此探针改为反射调用 `OnRightClick()`（与真实右键按下的同一入口），并保留「点情景按钮后 `DrillStarted` 必须为真」这条针对真实 bug 的断言。
 
 
+## 第 27 轮：情景二/三「房间门」可打开（灭完第一阶段火才能开）
+
+### 7.1 需求与勘察：这扇门是南侧唯一的出口通路
+
+用户点名的是截图右侧那扇**没有火焰的棕色玻璃窗房间门**（场景里是 `Floor 0/door_b`，root `(2.75, 0, 0)`，门扇 MeshCollider `0.97 × 2.02 × 0.09`，把手 `Handle1/Handle2` 无碰撞体）。为了确认它不是「可有可无的装饰门」，本轮先用一次性编辑器脚本 `DoorSurvey` 做跨 `z=0` 隔墙的水平射线扫描（两条线 `y=1.0` / `y=1.5`，`x` 从 −1.0 每 0.2 m 到 7.3），结果见 `Logs/doorsurvey6.log`：整段只有 `x≈−1.0` 一格外侧可穿，`x≈−0.8` 到 `7.3` **全被挡**。也就是说门关着时，南侧没有任何其他通路。
+
+| 情景区位 | 出生点 | 与 `z=0` 隔墙关系 | 灭完火能不能走到出口 |
+|---|---|---|---|
+| 情景一（电气 · 配电柜） | (2.90, 1.00, 4.30) | 北侧，不跨墙 | 能（走 `Lobby` → `ExitDoor`） |
+| 情景二（纸张 · 办公桌） | (3.30, 4.20, 2.60) | 南侧 | **不能**，被 `z=0` 隔墙挡住 |
+| 情景三（茶水间 · 小家电） | (5.00, 4.60, 3.60) | 南侧 | **不能**，同上 |
+
+`Lobby` 检查点 `(3.35, 0.02, 1.02)` 与 `ExitDoor (5.25, 0, 1.02)` 都在北侧，所以「只点名情景二、三」并不是口味问题 —— 这两条路线本来就必须穿这扇门。这也解释了怎么会出现「火灭了却无路可走」的死局。
+
+### 7.2 实现：新增 `RoomDoor.cs`（门禁 + 转身动画 + 走近提示）
+
+| 参数 | 值 | 说明 |
+|---|---|---|
+| `openAngle` | `+95°` | 朝**北侧走廊（疏散方向）**开，符合「疏散门朝逃生方向开」；同时不会把南侧走来的玩家顶住 |
+| `openDuration` | `0.8 s` | smoothstep 缓入缓出，不是瞬移开门 |
+| `maxInteractDistance` | `4.0 m` | 超出距离不响应，避免隔墙点门 |
+| `requireStageOneCleared` | `true` | 第一阶段火未灭 → 只提示不开门 |
+
+- **门禁判定** `CanOpenNow`：没有 `DrillScenario` / 非正式演练 / `FireScenario.skipEvacuation == false`（情景一）一律放行；否则要求 `Stage1Cleared || Phase == Stage2 || Phase == Done`。
+- **拒绝提示**：`这扇门还打不开：先把第一阶段的火灭掉`，走 `DesktopDrillInput.PushHint` 进 HUD 状态行。
+- **送达提示**：`房间门已打开 —— 穿过这扇门去安全出口`。
+- **走近一次性提示**：3.2 m 内朝向门时提示一次「门可以开了，右键单击门」，避免玩家在远处点门。
+- **桌面输入**：`DesktopDrillInput.OnRightClick()` 在 `TryOpenExitDoorUnderMouse()` 之后插入 `TryOpenRoomDoorUnderMouse()` —— `ScreenPointToRay(Mouse.current)` + `RaycastAll` 按距离排序 + `RoomDoor.IsDoorPart()` 判门件 + 6 m 距离上限。
+- **头显输入**：`VRDrillInput` 扳机分支新增 `TryOpenRoomDoorByRay()`（`rightHand ?? Camera.main` 6 m 射线）。
+- **装配**：`FireSafetySetup.RunSetup()` 在 `SetupStageTwoFlow()` 之后调用新的 `SetupRoomDoor()`（`public static`，`AddComponent<RoomDoor>` 并写死 95° / 0.8 s / 4.0 m / 要求一阶段）。
+- **重开演练复位**：`DrillScenario.StartFormal()` 里 `RoomDoor.Instance.ResetDoor()`，把上一次演练开过的门关回去。
+
+> 场景里序列化的 `openAngle` 会覆盖代码默认值：本轮先设成 −95°（往房间内开，正对走来的玩家），改代码后必须重跑装配把场景值刷成 +95°，否则 `Play` 里仍是老方向。`Logs/doorpatch.log` 记录 `[PATCH] door_b=(2.75, 0.00, 0.00) RoomDoor=OK angle=95.0 leaf=self colliders=2`。
+
+### 7.3 玩家视角验收（`RoomDoorProbe.RunSc2 / RunSc3`）
+
+探针以真实 `Play` + 玩家站位（`(2.30, 0, −1.75)`，眼高 1.60 m，到门 1.81 m）逐张出图，情景二/三各 5 张：
+
+| 图 | 玩家看到什么 | 判读 |
+|---|---|---|
+| `vr27_roomdoor_sc2_0doorview.png` | 正对那扇棕色玻璃窗门，窗内可见里面的柜子/桌椅，左侧文件柜、右侧绿植 | 与用户截图的同构门，确认就是这个目标 |
+| `_1closed.png` | 门关着，只能透过门洞看到北侧走廊的「安全出口 EXIT」牌 | 死路成立：门不开就过不去 |
+| `_2locked.png` | 右键只出提示「这扇门还打不开：先把第一阶段的火灭掉」，门纹丝不动 | 门禁生效 |
+| `_3opened.png` | 一阶段灭火后右键，门扇转开、门洞通透，HUD 出绿色「安全出口 →」 | 开门与引导同时到位 |
+| `_4crossed.png` | 玩家已站到北侧，正对燃烧的出口门 + 上方「安全出口 EXIT」、左侧书架与带书椅子 | 与用户原截图构图一致，证明真走过门 |
+
+断言链（`Logs/shots/_roomdoor.txt`，末两行 `FAIL_COUNT=0` / `PROBE_EXIT=0`，情景二、三各跑一遍）：
+
+| 断言 | 情景二 | 情景三 |
+|---|---|---|
+| 一阶段未完成时 `CanOpenNow=False`，右键后 `IsOpen=False` | ✔ | ✔ |
+| 拒绝提示文案出现在 HUD | ✔ | ✔ |
+| `deviceFire.Extinguish()` 后 `Stage1Cleared=True` / `CanOpenNow=True` | ✔ | ✔ |
+| 右键后门扇 `Y` 角 `0 → 95`（Δ=95） | ✔ | ✔ |
+| 玩家从 `z=−2.00` 逐 0.1 m 前进 60 步到达 `z=1.05`（穿过门洞） | ✔ | ✔ |
+| 方法探针 `TryOpenRoomDoorUnderMouse=True` 且 `RoomDoor.Instance` 与场景同一个 | ✔ | ✔ |
+
+### 7.4 探针踩坑（写进探针注释）
+
+`-batchmode` 下**无法注入鼠标坐标**：`InputState.Change`、`QueueStateEvent`、`WarpCursorPosition`、`MakeCurrent` 全部试过，`Mouse.current.position.ReadValue()` 恒为 `(0,0)`（第 26 轮曾经成功过的那一套本轮不可复现，屏幕分辨率还会在 2560×1440 / 2007×1174 之间跳）。最终改用「反相」方案：按相机视锥左下角方向 `vLocal = normalize(−hx, −hy, 1)` 反解旋转 `R = LookRotation(dir) × Inverse(LookRotation(vLocal))`，让**屏幕 (0,0) 那条射线正好指向门中心** —— 等价于玩家把鼠标停在画面左下角点门，右键链路照样被真实验证。
+
+另两处编译坑：`TryOpenByPlayer(float maxDistance = -1f, out string hint)` 触发 `CS1737`（可选参数必须在必需参数之后）→ 改签名并同步两处调用；`DrillScenario.Phase` 没有 `StageThree`（实际是 `Idle/Tutorial/Stage1/Stage2/Done`）→ 判定改 `Phase.Stage2 || Phase.Done`。少一个 `)` 造成的 `CS1026` 会让 Unity 保留旧程序集，探针读到的是上一次结论，日志里没有任何 `DBG` 输出就是该症状。
+
+### 7.5 参考调研（外部公开资料）
+
+| 来源 | 采用的点 | 落到本项目哪里 |
+|---|---|---|
+| 抖音「VR 还原办公室火灾」（`iesdouyin.com/share/video/7076468724064210183`） | 顺绿色「安全出口」标志撤离、浓烟弯腰、通道火用灭火器清障 | 门开后 HUD 直接给「安全出口 →」；`C` 蹲下穿烟；阶段二「灭掉门前火」 |
+| 顺企网 VR 办公室火灾逃生系统（`m.11467.com/product/d33904492.htm`） | 关电源 / 湿毛巾 / 试门温 / 按报警 / 不乘电梯等 7 条知识点；办公室 + 楼梯间 + 电梯三场景 | 断电门控、报警步骤已有；本轮补上「先试门再开门」的物理动线（门关着就是走不通） |
+| Dagger Interactive《Building-Specific VR Emergency Training》（2025-11-10） | 按真实楼层复刻布局、烟雾渐进降低能见度、随机起火点避免记路线 | 三情景随机起火点/出生点、烟雾体积、按真实户型布门 |
+
+### 7.6 改动文件清单（第 27 轮）
+
+| 文件 | 改动 |
+|---|---|
+| `Assets/Scripts/FireSafety/RoomDoor.cs` | **新增**：门禁、smoothstep 转身、走近提示、`ResetDoor()`、`IsDoorPart()` |
+| `Assets/Scripts/FireSafety/DesktopDrillInput.cs` | 新增 `TryOpenRoomDoorUnderMouse()` 与右键分支；HUD 操作行补「右键单击门：开门」 |
+| `Assets/Scripts/FireSafety/VRDrillInput.cs` | 新增 `TryOpenRoomDoorByRay()` 与扳机分支 |
+| `Assets/Scripts/FireSafety/DrillScenario.cs` | `StartFormal()` 里复位房间门 |
+| `Assets/Editor/FireSafetySetup.cs` | `RunSetup()` 增 `SetupRoomDoor()` + 新的 `SetupRoomDoor()` 方法 |
+| `Assets/Editor/FireSafetySelfTest.cs` | 新增 7 条 `door_b` / `RoomDoor` 断言 |
+| `Assets/Editor/RoomDoorProbe.cs` | **新增**：`RunSc2` / `RunSc3` 玩家视角探针 |
+| `Assets/Scenes/FireSafetyOffice.unity` | `Floor 0/door_b` 挂上 `RoomDoor`（95° / 0.8 s / 4.0 m / 要求一阶段） |
+
+### 7.7 自检与回归
+
+- `FireSafetySelfTest.RunAll` → `Logs/selftest27.log`（9048 行），末尾 `[TEST] ==== 全部通过 ====`；新增 7 条 `door_b` 断言（存在 / 已挂 `RoomDoor` / 轴心用自身 / 开向 +95° / 0.8 秒 / 要求一阶段已灭 / 门扇带碰撞体）全 ✔。
+- 第 26 轮拾取回归 `DesktopGrabProbe.RunSc2` → `Logs/deskgrab27.log` / `Logs/shots/_deskgrab.txt`，`FAIL_COUNT=0 PROBE_EXIT=0`（改 `DesktopDrillInput` 没有碰坏右键拾取与问答链路）。
+
 ## 主要功能
 
 - **手柄锚定 UI**：开始界面（前 1.0 m / 上 0.15 m）、倒计时（上 0.42 m / 前 0.12 m）、引导页（前 1.0 m / 上 0.14 m）都跟随右手手柄并朝向玩家（`StartScreen.cs` / `DrillCountdown.cs` / `OnboardingScreen.cs`）
@@ -184,6 +273,7 @@ scenarios[3] = { 电气（DeviceFire / 需断电 / 题库 2 / 出生组 1）
 | 拔销 / 压把 | 左键单击 / 双击 | Trigger 第一下拔销、第二下压把并保持 |
 | 停止喷射 | 右键双击 | 松开 Trigger |
 | 开始 / 翻页 / 继续 | 回车 / 空格 | A 键 |
+| 开门（房间门 / 出口门） | 右键单击门 | 空手时 Trigger 指向门 |
 | 答题选项 | 数字 1 / 2 / 3 | B / X 键切换，A 确认 |
 | 蹲下 / 站起 | Ctrl | 左摇杆按下 |
 
