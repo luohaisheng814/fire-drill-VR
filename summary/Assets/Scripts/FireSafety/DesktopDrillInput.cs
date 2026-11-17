@@ -330,6 +330,10 @@ namespace FireSafety
                 return;
             }
 
+            // 第 25 轮：点这扇门 = 开门。门在锁着（门前还有火）时给出提示，
+            // 解锁后点门只是把门扇转开，真正通关仍需走出门外。
+            if (TryOpenExitDoorUnderMouse()) return;
+
             if (Held)
             {
                 Hint("已手持灭火器：左键单击拔销 / 左键双击压把 / 右键双击喷射 / P 放下");
@@ -513,6 +517,44 @@ namespace FireSafety
                 if (p != null) return p;
             }
             return null;
+        }
+
+        /// <summary>
+        /// 鼠标射线打到安全出口门 → 开门。
+        /// 门已解锁：把门扇转开（并提示走出去才算通关）；门还锁着：提示先灭掉门口的火。
+        /// </summary>
+        private bool TryOpenExitDoorUnderMouse()
+        {
+            var door = ExitDoor.Instance != null ? ExitDoor.Instance : FindObjectOfType<ExitDoor>();
+            if (door == null) return false;
+
+            var mouse = Mouse.current;
+            var cam = GetCamera();
+            if (cam == null || mouse == null) return false;
+
+            Ray ray = cam.ScreenPointToRay(mouse.position.ReadValue());
+            var hits = Physics.RaycastAll(ray, 30f, ~0, QueryTriggerInteraction.Collide);
+            Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+
+            bool hitDoor = false;
+            float dist = 0f;
+            foreach (var h in hits)
+            {
+                if (h.collider == null) continue;
+                if (door.IsDoorPart(h.collider)) { hitDoor = true; dist = h.distance; break; }
+                // 打到门前方的墙 / 家具就先不看后面的门
+                if (h.distance > 0f && !h.collider.isTrigger) break;
+            }
+            if (!hitDoor || dist > 6f) return false;
+
+            if (!door.IsUnlocked)
+            {
+                Hint("这扇安全出口还锁着：先把门前的火灭掉，指示牌变绿后才能开门");
+                return true;
+            }
+            door.TryOpenByPlayer(6f);
+            Hint("安全出口已打开 —— 直接走出这扇门即算撤离成功");
+            return true;
         }
 
         /// <summary>任一台灭火器的答题面板当前是否打开（用于临时隐藏 HUD）。</summary>

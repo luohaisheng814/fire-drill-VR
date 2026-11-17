@@ -26,6 +26,12 @@ namespace FireSafety
         [Tooltip("留空则用 Camera.main")]
         public Transform player;
         public bool detectByDistance = true;
+        [Tooltip("第 25 轮：必须真正走出门外才算通关（关门时站在门内侧不再通关）")]
+        public bool requireBeyond = true;
+        [Tooltip("沿门外方向越过门洞平面多少米算「走出去了」")]
+        public float beyondDepth = 0.9f;
+        [Tooltip("过门时允许的横向偏差（米），超出不算从这扇门出去")]
+        public float beyondLateral = 1.6f;
 
         [Header("复用场景里的真实门（图 3 那扇 door_b）")]
         [Tooltip("填了就用这扇真实门当出口：不再另建门框门板，解锁时门扇绕门轴转开")]
@@ -46,6 +52,8 @@ namespace FireSafety
 
         public bool IsUnlocked { get; private set; }
         public bool PlayerEntered { get; private set; }
+        /// <summary>门扇是否已经转开到最大（供探针判断「门真的开了」）。</summary>
+        public bool IsOpen { get; private set; }
 
         Canvas _signCanvas;
         Text _signText;
@@ -85,6 +93,7 @@ namespace FireSafety
             {
                 var lp = _panel.localPosition;
                 _panel.localPosition = new Vector3(lp.x, lp.y + doorHeight * 0.92f, lp.z);
+                IsOpen = true;   // 自建门板是上滑门，滑到位即可通过
             }
             else if (existingDoorRoot != null)
             {
@@ -94,6 +103,38 @@ namespace FireSafety
             onUnlocked?.Invoke();
             Debug.Log("[ExitDoor] 安全出口已解锁，门已打开。");
         }
+
+        /// <summary>
+        /// 玩家主动开门（桌面右键 / VR 扳机射线打到门扇）。
+        /// 已解锁 → 确保门扇转开并返回 true；未解锁（门前还有火）→ 返回 false，由调用方给提示。
+        /// </summary>
+        public bool TryOpenByPlayer(float maxDistance = 4.5f)
+        {
+            Transform p = player != null ? player : (Camera.main != null ? Camera.main.transform : null);
+            if (p != null)
+            {
+                Vector3 d = p.position - transform.position; d.y = 0f;
+                if (d.magnitude > maxDistance) return false;
+            }
+            if (!IsUnlocked) return false;
+            if (existingDoorRoot != null)
+            {
+                CaptureExistingDoor();
+                if (_openT < 0f && !IsOpen) _openT = 0f;
+            }
+            return true;
+        }
+
+        /// <summary>射线/点击命中的碰撞体是不是这扇门（门扇本身或门上的把手、窗）。</summary>
+        public bool IsDoorPart(Collider c)
+        {
+            if (c == null || existingDoorRoot == null) return false;
+            var t = c.transform;
+            return t == existingDoorRoot || t.IsChildOf(existingDoorRoot);
+        }
+
+        /// <summary>门是否已经「可走出去」：已解锁且门扇转开到位。</summary>
+        public bool IsPassable => IsUnlocked && (existingDoorRoot == null || IsOpen);
 
         public void Lock()
         {
@@ -110,6 +151,8 @@ namespace FireSafety
                 existingDoorRoot.localRotation = _existingBaseRot;
                 _openT = -1f;
             }
+            IsOpen = false;
+            PlayerEntered = false;
         }
 
         private void Update()
@@ -141,7 +184,7 @@ namespace FireSafety
             k = k * k * (3f - 2f * k);
             existingDoorRoot.localRotation =
                 _existingBaseRot * Quaternion.Euler(0f, existingOpenAngle * k, 0f);
-            if (k >= 1f) _openT = -1f;
+            if (k >= 1f) { _openT = -1f; IsOpen = true; }
         }
 
         private void DetectPlayerEnter()
@@ -150,14 +193,28 @@ namespace FireSafety
             Transform p = player != null ? player : (Camera.main != null ? Camera.main.transform : null);
             if (p == null) return;
 
-            Vector3 a = new Vector3(p.position.x, 0f, p.position.z);
-            Vector3 b = new Vector3(transform.position.x, 0f, transform.position.z);
-            if (Vector3.Distance(a, b) <= enterDistance)
+            // 门本地 forward = 房间内侧（door_b_variant yaw 270 → forward = -X，门外是 +X 方向）
+            Vector3 d = p.position - transform.position;
+            d.y = 0f;
+            float along = Vector3.Dot(d, transform.forward);      // 负值 = 已在门外
+            float lateral = Vector3.Dot(d, transform.right);
+
+            if (requireBeyond)
             {
-                PlayerEntered = true;
-                onEntered?.Invoke();
-                Debug.Log("[ExitDoor] 玩家进入安全出口，通关判定触发。");
+                // 第 25 轮：站在门口内侧不再算通关，必须真的跨出门洞、走够 beyondDepth
+                if (-along < beyondDepth) return;
+                if (Mathf.Abs(lateral) > beyondLateral) return;
             }
+            else
+            {
+                Vector3 a = new Vector3(p.position.x, 0f, p.position.z);
+                Vector3 b = new Vector3(transform.position.x, 0f, transform.position.z);
+                if (Vector3.Distance(a, b) > enterDistance) return;
+            }
+
+            PlayerEntered = true;
+            onEntered?.Invoke();
+            Debug.Log("[ExitDoor] 玩家已走出安全出口（门外 " + (-along).ToString("F2") + " 米），通关判定触发。");
         }
 
         /// <summary>供自检/流程图直接调用，等价于玩家走到门口。</summary>

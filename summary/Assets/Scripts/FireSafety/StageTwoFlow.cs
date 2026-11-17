@@ -61,6 +61,9 @@ namespace FireSafety
         public bool requireCrouch = false;
         [Tooltip("第 2 阶段备用灭火器的题库组：0=A 1=B 2=C(电气) 3=D(疏散情景)")]
         [Range(0, 5)] public int spareQuizSetIndex = 3;
+        [Tooltip("第 25 轮：跳过第 2 阶段（撤离到大厅），第一阶段的火一灭就直接在安全出口门前升起第三阶段的火。" +
+                 "纸张 / 茶水间两套情景用「就近原则」直接扑向出口，只有电气情景保留完整的两段式撤离。")]
+        public bool skipEvacuation = false;
         [Tooltip("头显提示条（留空自动查找）")]
         public VRDrillHud hud;
 
@@ -191,6 +194,19 @@ namespace FireSafety
             _smokeTimer = 0f;
 
             if (smoke != null && useSmoke) smoke.Begin();
+
+            // 第 25 轮：纸张 / 茶水间两套情景按「就近原则」跳过第 2 阶段——
+            // 第一阶段的火一灭，直接把火升在安全出口门前，箭头改为直指出口门。
+            if (skipEvacuation)
+            {
+                if (arrows != null) arrows.BeginExitGuidance();
+                Hint("本情景就近撤离：直接前往「安全出口」门，门前已复燃——灭掉它就能开门", true);
+                onStageTwoBegin?.Invoke();
+                EnterStageThree();
+                Debug.Log("[Stage2] 跳过第 2 阶段（就近原则）：直接进入第 3 阶段，火源在安全出口门前。");
+                return;
+            }
+
             if (arrows != null) arrows.BeginLobbyGuidance();
 
             if (requireCrouch)

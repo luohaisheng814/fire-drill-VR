@@ -59,6 +59,9 @@ namespace FireSafety.EditorTools
 
         static bool _shotStart, _shotCeiling, _shotTutorial, _shotPanel;
         static bool _shotSpawn, _shotDevice, _shotStage2, _shotExitFire, _shotDoor, _shotEnd;
+        // 第 25 轮：门内门槛 / 真正走出门外 / 门外广场 三张新增判据图
+        static bool _shotThreshold, _walkedOut, _shotPlaza;
+        static bool _scenSkipChecked;
         static float _shotAt;
         static float _walkYaw;
 
@@ -85,6 +88,8 @@ namespace FireSafety.EditorTools
             _started = false; _phase = 0; _sub = 0; _subInit = false;
             _shotStart = _shotCeiling = _shotTutorial = _shotPanel = false;
             _shotSpawn = _shotDevice = _shotStage2 = _shotExitFire = _shotDoor = _shotEnd = false;
+            _shotThreshold = _walkedOut = _shotPlaza = false;
+            _scenSkipChecked = false;
             _scenShotSpawn = _scenShotFire = false;
             _held = null; _shotAt = 0f;
             EditorSceneManager.OpenScene(ScenePath);
@@ -172,7 +177,8 @@ namespace FireSafety.EditorTools
                     case 1: S1_StartScenario(); break;
                     case 2: S2_ScenarioFireView(); break;
                     case 3: S3_ScenarioUnit(); break;
-                    case 4: S4_ScenarioDone(); break;
+                    case 4: S4_ScenarioStage3(); break;
+                    case 5: S5_ScenarioDone(); break;
                     default: Finish(Fails.Count == 0 ? 0 : 1); break;
                 }
                 return;
@@ -614,15 +620,86 @@ namespace FireSafety.EditorTools
         {
             _vr.vTrigger = false;
             float t = Time.realtimeSinceStartup - _phaseT;
+            Transform dt = _door.transform;
+            Vector3 inside = dt.position + dt.forward * 0.9f;      // forward = 房间内侧（-X）
+            Vector3 outside = dt.position - dt.forward * 1.35f;    // 门外 1.35 米，越过 beyondDepth 0.9
 
             if (!_shotDoor)
             {
-                if (_shotAt == 0f) { _shotAt = Time.realtimeSinceStartup; AimCameraAt(_door.transform.position + Vector3.up * 1.0f); }
+                if (_shotAt == 0f) { _shotAt = Time.realtimeSinceStartup; AimCameraAt(dt.position + Vector3.up * 1.0f); }
                 if (Time.realtimeSinceStartup - _shotAt > 0.9f)
                 {
                     Shot("vr6_door_open.png");
-                    Say("玩家视角：门扇摆开、走廊可见、EXIT 灯牌亮（截图 vr6_door_open.png）");
+                    Say("玩家视角：门扇摆开、门口火已灭、EXIT 灯牌变绿（截图 vr6_door_open.png）");
                     _shotDoor = true;
+                    _shotAt = 0f;
+                }
+                return;
+            }
+
+            // ① 站在门内侧：门已开但还没走出去 —— 不应该判定通关
+            if (!_shotThreshold)
+            {
+                if (_shotAt == 0f)
+                {
+                    _shotAt = Time.realtimeSinceStartup;
+                    Teleport(inside, "安全出口门内侧 0.9 米");
+                    LookAtPoint(dt.position + Vector3.up * 1.0f);
+                }
+                if (Time.realtimeSinceStartup - _shotAt > 0.8f)
+                {
+                    Shot("vr6b_door_threshold.png");
+                    Say("站在门内侧 0.9 米：门开着、人还没出门 —— PlayerEntered=" + _door.PlayerEntered
+                        + " · IsOpen=" + _door.IsOpen + "（截图 vr6b_door_threshold.png）");
+                    if (_door.PlayerEntered) Fail("站在门内侧就判通关了：没有落实「必须走出门外」");
+                    if (!_door.IsOpen) Fail("点了开门后门扇没有转开（IsOpen=false）");
+                    _shotThreshold = true;
+                    _shotAt = 0f;
+                }
+                return;
+            }
+
+            // ② 真正跨出门洞 1.35 米（> beyondDepth 0.9），由门自己的距离判定触发通关
+            if (!_walkedOut)
+            {
+                if (_shotAt == 0f)
+                {
+                    _shotAt = Time.realtimeSinceStartup;
+                    Teleport(outside, "安全出口门外 1.35 米（广场侧）");
+                    LookAtPoint(new Vector3(10.60f, 1.00f, 0.60f));
+                }
+                if (Time.realtimeSinceStartup - _shotAt > 0.5f)
+                {
+                    _walkedOut = true;
+                    _shotAt = 0f;
+                }
+                return;
+            }
+
+            // ③ 门外开阔场地取景（玩家视角看广场：矮墙 / 集合圈 / 立牌 / 庭院灯）
+            if (!_shotPlaza)
+            {
+                if (!_door.PlayerEntered)
+                {
+                    if (_shotAt == 0f) _shotAt = Time.realtimeSinceStartup;
+                    if (Time.realtimeSinceStartup - _shotAt > 6f)
+                    {
+                        Fail("走出门外 1.35 米仍未通关，Stage=" + _flow.CurrentStage);
+                        NextPhase();
+                    }
+                    return;
+                }
+                if (_shotAt == 0f)
+                {
+                    _shotAt = Time.realtimeSinceStartup;
+                    LookAtPoint(new Vector3(10.90f, 1.05f, -1.60f));
+                }
+                if (Time.realtimeSinceStartup - _shotAt > 0.6f)
+                {
+                    Shot("vr6c_outside_plaza.png");
+                    Say("门外广场玩家视角：三面矮墙围合、黄色集合圈、绿色集合点立牌、庭院灯（截图 vr6c_outside_plaza.png）");
+                    _shotPlaza = true;
+                    _shotAt = 0f;
                 }
                 return;
             }
@@ -649,9 +726,11 @@ namespace FireSafety.EditorTools
                 return;
             }
 
-            if (t < 0.5f) return;
-            _door.TryEnter();            // 等价于走进 0.9 米判定圈
-            if (t > 10f) { Fail("走到门口仍未通关，Stage=" + _flow.CurrentStage); NextPhase(); }
+            if (t > 12f && _flow.CurrentStage != StageTwoFlow.Stage.Done)
+            {
+                Fail("走出门外后 12 秒仍未结算，Stage=" + _flow.CurrentStage);
+                NextPhase();
+            }
         }
 
         // ==================================================================
@@ -1026,7 +1105,52 @@ namespace FireSafety.EditorTools
             NextPhase();
         }
 
-        static void S4_ScenarioDone() => Finish(Fails.Count == 0 ? 0 : 1);
+        /// <summary>
+        /// 第 25 轮：纸张 / 茶水间两套情景「第 1 阶段灭火 → 跳过第 2 阶段 → 直接在安全出口门前重复灭火」。
+        /// 这里站在门口用玩家视角确认「火真的升在门前、门还锁着、阶段已经是 StageThree」。
+        /// </summary>
+        static void S4_ScenarioStage3()
+        {
+            string tag = ScenName(_forceScenario);
+            float t = Time.realtimeSinceStartup - _phaseT;
+            int si = _forceScenario;
+            string shotName = si == 1 ? "vr9d_scenario2_exit_fire.png" : "vr11d_scenario3_exit_fire.png";
+
+            if (!_scenSkipChecked)
+            {
+                bool skip = _sc != null && _sc.CurrentScenario != null && _sc.CurrentScenario.skipEvacuation;
+                Say(tag + "：第 1 阶段火灭后 · skipEvacuation=" + skip
+                    + " · 当前阶段=" + (_flow != null ? _flow.CurrentStage.ToString() : "null")
+                    + "（应为 StageThree，跳过 Evacuating）");
+                if (!skip) Fail(tag + "：本情景没有开 skipEvacuation");
+                if (_flow == null || _flow.CurrentStage != StageTwoFlow.Stage.StageThree)
+                    Fail(tag + "：没有跳过第 2 阶段（当前 " + (_flow != null ? _flow.CurrentStage.ToString() : "null") + "）");
+                _scenSkipChecked = true;
+            }
+
+            if (_sub == 0)
+            {
+                var dt = _door != null ? _door.transform : null;
+                if (dt == null) { Fail(tag + "：安全出口门缺失"); NextPhase(); return; }
+                Teleport(dt.position + dt.forward * 3.2f, tag + "：安全出口门前 3.2 米");
+                LookAtPoint(dt.position + Vector3.up * 0.9f);
+                _sub = 1; _subT = Time.realtimeSinceStartup;
+                return;
+            }
+            if (t < 1.1f) return;
+
+            Shot(shotName);
+            var f = _flow != null ? _flow.stageTwoFire : null;
+            Say(tag + "：门前复燃火玩家视角 · 火位置=" + (f != null ? f.transform.position.ToString("F2") : "null")
+                + " · 燃烧=" + (f != null && f.IsBurning)
+                + " · 门解锁=" + (_door != null && _door.IsUnlocked)
+                + "（截图 " + shotName + "）");
+            if (f == null) Fail(tag + "：跳到第 3 阶段后门前没有复燃火");
+            if (_door != null && _door.IsUnlocked) Fail(tag + "：第 3 阶段火还没灭，门就已经解锁了");
+            NextPhase();
+        }
+
+        static void S5_ScenarioDone() => Finish(Fails.Count == 0 ? 0 : 1);
 
         /// <summary>灭火器/喷嘴/保险销的实测状态，用于定位「扳机没反应」「喷嘴离火 10 公里」这类问题。</summary>
         static void SayExtState(string tag, Extinguisher e, FireSource f)
@@ -1050,19 +1174,29 @@ namespace FireSafety.EditorTools
             new Vector3(-3.60f, 0f, -5.60f),
             new Vector3(-2.60f, 0f, -6.00f),
             new Vector3( 3.00f, 0f, -1.90f),
-            new Vector3( 5.20f, 0f, -3.30f)
+            new Vector3( 5.20f, 0f, -3.30f),
+            new Vector3( 6.50f, 0f,  1.30f),
+            new Vector3( 0.85f, 0f,  2.20f),
+            new Vector3( 3.45f, 0f, -2.30f),
+            new Vector3( 5.95f, 0f, -2.30f)
         };
         static readonly Vector3[] WallAim =
         {
             new Vector3(-3.60f, 1.50f, -8.10f),
             new Vector3(-0.85f, 1.50f, -6.00f),
             new Vector3( 3.15f, 1.50f, -4.10f),
-            new Vector3( 7.15f, 1.50f, -3.30f)
+            new Vector3( 7.15f, 1.50f, -3.30f),
+            new Vector3( 9.50f, 0.00f,  1.30f),
+            new Vector3( 0.85f, 0.55f,  3.45f),
+            new Vector3( 3.45f, 0.55f, -3.55f),
+            new Vector3( 5.95f, 0.55f, -3.80f)
         };
         static readonly string[] WallShotName =
-        { "vr12_wall_south.png", "vr13_wall_wing_east.png", "vr14_wall_lobby_south.png", "vr15_wall_corridor_east.png" };
+        { "vr12_wall_south.png", "vr13_wall_wing_east.png", "vr14_wall_lobby_south.png", "vr15_wall_corridor_east.png", "vr16_corridor_opening.png", "vr17_ext_mount_01.png", "vr18_ext_mount_02.png", "vr19_ext_mount_03.png" };
         static readonly string[] WallWhy =
-        { "南翼南墙 z=-8（原天空盒缺口）", "南翼东墙 x=-0.75（原天空盒缺口）", "大厅/走廊南墙 z=-4（原地板边界）", "东端墙 x=7.25（原天空盒缺口）" };
+        { "南翼南墙 z=-8（原天空盒缺口）", "南翼东墙 x=-0.75（原天空盒缺口）", "大厅/走廊南墙 z=-4（原地板边界）", "茶水间东侧墙 x=7.25（原天空盒缺口）", "走廊东端开口 x=7.25 z 0.1~3.9（应看得见门外广场，不能再被墙封死）", "灭火器贴墙 01（北墙，不占走道）", "灭火器贴墙 02（大厅南墙，不占走道）", "灭火器贴墙 03（茶水间南墙，不占走道）" };
+        // 0=墙必须封住 / 1=开口必须通透（反转判据） / 2=只看图不判（灭火器贴墙取证）
+        static readonly int[] WallMode = { 0, 0, 0, 0, 1, 2, 2, 2 };
         static bool _wallPlaced;
 
         static void WallsStep()
@@ -1095,7 +1229,25 @@ namespace FireSafety.EditorTools
             }
             Say(WallWhy[_sub] + "：玩家视角射线命中 " + (list.Count == 0 ? "（无）" : string.Join(" → ", list))
                 + "；墙板命中=" + wallHit);
-            if (!wallHit) Fail(WallWhy[_sub] + " 没被封住（射线一路没打到墙板）");
+            if (WallMode[_sub] == 0)
+            {
+                if (!wallHit) Fail(WallWhy[_sub] + " 没被封住（射线一路没打到墙板）");
+            }
+            else if (WallMode[_sub] == 1)
+            {
+                // 开口机位：朝广场方向 6 米内不该再被墙挡住，但必须能看到广场地面
+                bool blocked = false;
+                foreach (var h in hits) if (h.distance < 6f && h.collider.name.ToLower().Contains("wall")) blocked = true;
+                if (blocked) Fail(WallWhy[_sub] + " 仍被墙板挡住（走廊东端没有真正留出开口）");
+                bool seePlaza = false;
+                foreach (var h in hits) if (h.collider.name.ToLower().Contains("plaza")) seePlaza = true;
+                if (!seePlaza) Fail(WallWhy[_sub] + " 射线前方看不到门外广场（Plaza* 物体）");
+            }
+            else
+            {
+                // 灭火器贴墙取证：只出图 + 记录射线名单，不判真假
+                Say(WallWhy[_sub] + "：机位已拍到（截图 " + WallShotName[_sub] + "）");
+            }
 
             _wallPlaced = false;
             _sub++;

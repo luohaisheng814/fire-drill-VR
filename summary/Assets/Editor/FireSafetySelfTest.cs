@@ -955,11 +955,40 @@ namespace FireSafety.EditorTools
                 Check("情景：题库组分别是电气 C(2) / 纸张 E(4) / 茶水间 F(5)",
                     scs[0].quizSetIndex == 2 && scs[1].quizSetIndex == 4 && scs[2].quizSetIndex == 5);
 
-                // ---- 三台灭火器两两间距：不再一头一尾挤在一起 ----
+                // ---- 三台灭火器：贴墙布点 + 就近可取 + 不占走道（第 25 轮口径） ----
                 // 用场景里「作者摆放的原位」（sc.extinguisherHome）判断，而不是当前 transform：
                 // 前面的桌面交互测试会把灭火器拿起来走过，位置已被测试改掉。
+                var wallMisses = new List<string>();
+                var nearMisses = new List<string>();
+                for (int i = 0; i < scs.Length; i++)
+                {
+                    var home = scs[i].extinguisherHome;
+                    // 贴墙：瓶心（0.16 米高）向四个水平方向打 0.6 米，能碰到墙/家具立面即算贴边
+                    bool nearWall = false;
+                    for (int dir = 0; dir < 4; dir++)
+                    {
+                        Vector3 v = Quaternion.Euler(0f, dir * 90f, 0f) * Vector3.forward;
+                        if (Physics.Raycast(new Vector3(home.x, 0.16f, home.z), v, 0.60f, ~0, QueryTriggerInteraction.Ignore))
+                        {
+                            nearWall = true;
+                            break;
+                        }
+                    }
+                    if (!nearWall) wallMisses.Add(scs[i].shortName);
+
+                    // 就近：本台到本情景起火点的水平距离
+                    float dFire = scs[i].fire != null
+                        ? Vector3.Distance(new Vector3(home.x, 0f, home.z),
+                                           new Vector3(scs[i].fire.transform.position.x, 0f, scs[i].fire.transform.position.z))
+                        : 999f;
+                    if (dFire > 3.6f) nearMisses.Add(scs[i].shortName + "(" + dFire.ToString("F1") + "m)");
+                }
+                Check("灭火器贴墙：三台都紧贴墙面/立面 0.6 米内（未贴墙："
+                      + (wallMisses.Count == 0 ? "无" : string.Join("、", wallMisses)) + "）", wallMisses.Count == 0);
+                Check("灭火器就近：每台到本情景起火点 ≤3.6 米（超标："
+                      + (nearMisses.Count == 0 ? "无" : string.Join("、", nearMisses)) + "）", nearMisses.Count == 0);
+
                 float minD = float.MaxValue;
-                var gaps = new List<float>();
                 for (int i = 0; i < scs.Length; i++)
                     for (int j = i + 1; j < scs.Length; j++)
                     {
@@ -967,17 +996,29 @@ namespace FireSafety.EditorTools
                             new Vector3(scs[i].extinguisherHome.x, 0f, scs[i].extinguisherHome.z),
                             new Vector3(scs[j].extinguisherHome.x, 0f, scs[j].extinguisherHome.z));
                         minD = Mathf.Min(minD, d);
-                        gaps.Add(d);
                     }
-                Check("灭火器间距：最近两台 " + minD.ToString("F2") + " 米（需 ≥4.5，旧版只有 3.2）", minD >= 4.5f);
+                Check("灭火器不重叠：任意两台间距 ≥2.0 米（实际最近 " + minD.ToString("F2") + " 米）", minD >= 2.0f);
 
-                // 三台在 L 形房间里必然有一对是跨区对角线，均匀性看「相邻两段」：
-                // 取最短的两段作为沿墙布点的相邻间距，旧版是 3.2 与 6.9（相差 2.16 倍）。
-                gaps.Sort();
-                float gapA = gaps[0], gapB = gaps[1];
-                float ratio = gapB / Mathf.Max(gapA, 0.01f);
-                Check("灭火器间距：相邻两段 " + gapA.ToString("F2") + " / " + gapB.ToString("F2")
-                      + " 米，比值 " + ratio.ToString("F2") + "（需 ≤1.4，旧版 3.2/6.9 比值 2.16）", ratio <= 1.4f);
+                // ---- 第 25 轮：纸张 / 茶水间两套情景跳过第 2 阶段，电气保留两段式撤离 ----
+                Check("情景：纸张 / 茶水间按就近原则跳过第 2 阶段，电气仍保留撤离段",
+                    !scs[0].skipEvacuation && scs[1].skipEvacuation && scs[2].skipEvacuation);
+                var flowRef = sc.stageTwo != null ? sc.stageTwo : UnityEngine.Object.FindObjectOfType<StageTwoFlow>();
+                Check("流程：StageTwoFlow 存在 skipEvacuation 开关", flowRef != null);
+                if (flowRef != null)
+                {
+                    sc.ApplyScenario(1);
+                    Check("流程：切到纸张情景后 skipEvacuation=True", flowRef.skipEvacuation);
+                    sc.ApplyScenario(0);
+                    Check("流程：切回电气情景后 skipEvacuation=False", !flowRef.skipEvacuation);
+                }
+
+                // ---- 出口门：必须真正走出门外才算通关（第 25 轮） ----
+                var door = UnityEngine.Object.FindObjectOfType<ExitDoor>(true);
+                Check("出口门：存在且配置为「必须走出门外才算通关」",
+                    door != null && door.requireBeyond && door.beyondDepth >= 0.5f);
+                if (door != null)
+                    Check("出口门：门扇转开后 IsPassable=true 才允许走出去（初始锁定=False）",
+                        !door.IsUnlocked && !door.IsPassable);
 
                 // ---- 情景切换：不破坏「同一终点」与流程状态 ----
                 var before = sc.CurrentScenarioIndex;
@@ -1132,8 +1173,40 @@ namespace FireSafety.EditorTools
                 if (corrE != null && corrE.GetComponent<MeshRenderer>() != null)
                 {
                     var b = corrE.GetComponent<MeshRenderer>().bounds;
-                    Check("补墙：东端墙封住 x=7.25 的 z∈[-4,4]",
-                        b.min.z <= -3.95f && b.max.z >= 3.95f && b.min.x <= 7.26f);
+                    // 第 25 轮：东端墙只留「茶水间东侧」那段（z -4.05~0.15），
+                    // 走廊东端 z 0.1~3.9 主动留开口 —— 安全出口门从这里出去接门外广场
+                    Check("补墙：茶水间东侧墙封住 x=7.25 的 z∈[-4.05,0.15]",
+                        b.min.z <= -4.00f && b.max.z <= 0.20f && b.min.x <= 7.26f);
+                    Check("补墙：走廊东端 z 0.1~3.9 留出开口（安全出口通向门外广场）",
+                        b.max.z < 0.60f);
+                }
+
+                // ---- 门外开阔场地（第 25 轮）：出口门背后不再是 2×3.8 米的封死走廊 ----
+                var plaza = GameObject.Find("OutdoorPlaza");
+                Check("门外场地：存在 OutdoorPlaza 容器", plaza != null);
+                if (plaza != null)
+                {
+                    var ground = plaza.transform.Find("PlazaGround");
+                    Check("门外场地：广场地面存在", ground != null);
+                    if (ground != null && ground.GetComponent<MeshRenderer>() != null)
+                    {
+                        var gb = ground.GetComponent<MeshRenderer>().bounds;
+                        Check("门外场地：地面覆盖 x 7.25~13.75 / z -4~4（实际 x["
+                              + gb.min.x.ToString("F2") + "," + gb.max.x.ToString("F2") + "] z["
+                              + gb.min.z.ToString("F2") + "," + gb.max.z.ToString("F2") + "]）",
+                            gb.min.x <= 7.30f && gb.max.x >= 13.70f && gb.min.z <= -3.95f && gb.max.z >= 3.95f);
+                    }
+                    var fenceE = plaza.transform.Find("PlazaFence_East");
+                    var fenceS = plaza.transform.Find("PlazaFence_South");
+                    var fenceN = plaza.transform.Find("PlazaFence_North");
+                    Check("门外场地：三面 1.1 米矮围墙（东 / 南 / 北），西侧敞开接走廊开口",
+                        fenceE != null && fenceS != null && fenceN != null);
+                    int lampCount = 0;
+                    foreach (var l in plaza.GetComponentsInChildren<Light>(true)) if (l.enabled) lampCount++;
+                    Check("门外场地：庭院灯 ≥2 盏（门外夜里不是一片黑，实际 " + lampCount + "）", lampCount >= 2);
+                    Check("门外场地：集合点标识存在（黄色地面圈 + 绿色立牌）",
+                        plaza.transform.Find("PlazaAssembleRing") != null
+                        && plaza.transform.Find("PlazaAssembleSign") != null);
                 }
             }
 
@@ -1314,9 +1387,9 @@ namespace FireSafety.EditorTools
                     flow.autoMoveSpareExtinguisher == true);
                 Check("场景：第 2 阶段题库组 = 3（安全出口情景）", flow.spareQuizSetIndex == 3);
                 {
-                    // 出口灭火器摆在门西侧空位：x≈3.70 / z≈1.60
-                    Vector3 authored = new Vector3(3.70f, 0f, 1.60f);
-                    Check("场景：出口灭火器落点参数＝门旁空位（x≈3.70 / z≈1.60），",
+                    // 出口灭火器摆在门西北侧贴墙位（第 25 轮：不占门前过道）
+                    Vector3 authored = new Vector3(4.95f, 0f, 3.20f);
+                    Check("场景：出口灭火器落点参数＝门西北侧贴墙空位（x≈4.95 / z≈3.20），",
                         Mathf.Abs(flow.spareExtinguisherSpot.x - authored.x) < 0.3f
                         && Mathf.Abs(flow.spareExtinguisherSpot.z - authored.z) < 0.3f);
                     Check("场景：出口备用瓶落点在门旁 3 米内（第 2 阶段找得到）",
@@ -1332,15 +1405,21 @@ namespace FireSafety.EditorTools
 
                     var spareCol = spare.GetComponent<Collider>();
                     int overlap = 0;
+                    string overlapNames = "";
                     if (spareCol != null)
                     {
                         Vector3 half = new Vector3(spareCol.bounds.extents.x - 0.01f,
                                                    spareCol.bounds.extents.y - 0.01f,
                                                    spareCol.bounds.extents.z - 0.01f);
                         foreach (var h in Physics.OverlapBox(spareCol.bounds.center, half, spare.transform.rotation, ~0, QueryTriggerInteraction.Collide))
-                            if (h != spareCol && !h.transform.IsChildOf(spare.transform)) overlap++;
+                            if (h != spareCol && !h.transform.IsChildOf(spare.transform))
+                            {
+                                overlap++;
+                                if (overlap <= 4) overlapNames += (overlap > 1 ? "、" : "") + h.name;
+                            }
                     }
-                    Check("场景：备用灭火器初始位置没有与任何碰撞体重叠（运行后原地不动）",
+                    Check("场景：备用灭火器初始位置没有与任何碰撞体重叠（运行后原地不动；重叠："
+                          + (overlapNames == "" ? "无" : overlapNames) + "）",
                         spareCol != null && overlap == 0);
                 }
             }

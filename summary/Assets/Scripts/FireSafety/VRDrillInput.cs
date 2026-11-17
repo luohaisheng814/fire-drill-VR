@@ -150,6 +150,10 @@ namespace FireSafety
                 {
                     // 未持灭火器时，扳机 = 指电源箱切断电源（电气火灾硬规则）
                 }
+                else if (TryOpenExitDoorByRay())
+                {
+                    // 扳机同时可开安全出口门（第 25 轮）
+                }
             }
             else if (!trigger && _prevTrigger)
             {
@@ -273,6 +277,29 @@ namespace FireSafety
             if (power == null) return false;
 
             scenario.TryCutPower();
+            return true;
+        }
+
+        /// <summary>未持灭火器时，右手射线指向安全出口门 → 开门（未解锁则提示先灭火）。</summary>
+        bool TryOpenExitDoorByRay()
+        {
+            var door = ExitDoor.Instance != null ? ExitDoor.Instance : FindObjectOfType<ExitDoor>();
+            if (door == null) return false;
+
+            Transform src = rightHand != null ? rightHand : (Camera.main != null ? Camera.main.transform : null);
+            if (src == null) return false;
+
+            if (!Physics.Raycast(src.position, src.forward, out var hit, 6f, ~0, QueryTriggerInteraction.Collide))
+                return false;
+            if (hit.collider == null || !door.IsDoorPart(hit.collider)) return false;
+
+            if (!door.IsUnlocked)
+            {
+                Hint("这扇安全出口还锁着：先把门前的火灭掉，指示牌变绿后才能开门");
+                return true;
+            }
+            door.TryOpenByPlayer(6f);
+            Hint("安全出口已打开 —— 走出这扇门即算撤离成功");
             return true;
         }
 

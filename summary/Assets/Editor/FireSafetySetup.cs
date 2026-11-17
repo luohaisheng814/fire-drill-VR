@@ -104,8 +104,11 @@ namespace FireSafety.EditorTools
             // 5.7 天花板（办公室原来只有地板，抬头能直接看到天空盒）
             SetupCeiling();
 
-            // 5.8 补墙：封住南侧 / 南翼东侧 / 大厅南边 / 东端四处敞开的天空盒缺口
+            // 5.8 补墙：封住南侧 / 南翼东侧 / 大厅南边 / 茶水间东侧四处敞开的天空盒缺口
             SetupWalls();
+
+            // 5.9 门外开阔场地：安全出口门背后不再是一条封死的窄走廊
+            SetupOutdoorPlaza();
 
             // 6. 灭火器（01 = 操作演练 / 02 = 正式第 1 阶段设备火 / 03 = 第 2 阶段出口火）
             SetupExtinguisher("Extinguisher01", rig, leftHand, rightHand);
@@ -648,7 +651,7 @@ namespace FireSafety.EditorTools
             var spare = GameObject.Find("Extinguisher03");
             if (spare != null) flow.spareExtinguisher = spare.GetComponent<Extinguisher>();
             flow.autoMoveSpareExtinguisher = false;
-            flow.spareExtinguisherSpot = new Vector3(3.70f, 0f, 1.60f);   // 出口门西侧 1.7 米、Lobby 旁的空位
+            flow.spareExtinguisherSpot = new Vector3(4.95f, 0f, 3.20f);   // 第 25 轮：出口门西北侧贴墙（x=5.25 墙内侧），不再占门前的过道
             flow.spareQuizSetIndex = 3;
 
             // 箭头能指到出口
@@ -777,12 +780,14 @@ namespace FireSafety.EditorTools
                 new Color(0.40f, 0.40f, 0.39f), 0.22f);
 
             // 名称 / 中心点 / 尺寸（单位：米）
+            // 第 25 轮：Wall_CorridorEast 只留「茶水间东侧」那段（z -4~0.1），
+            // 走廊东端（z 0.1~3.9）留空 —— 安全出口门从这里出去，接门外的开阔场地。
             var defs = new[]
             {
                 new { name = "Wall_SouthWing",   pos = new Vector3(-3.75f, 1.50f, -8.10f), size = new Vector3(6.00f, 3.00f, 0.20f) },
                 new { name = "Wall_WingEast",    pos = new Vector3(-0.85f, 1.50f, -6.00f), size = new Vector3(0.20f, 3.00f, 4.00f) },
                 new { name = "Wall_LobbySouth",  pos = new Vector3(3.15f, 1.50f, -4.10f), size = new Vector3(8.20f, 3.00f, 0.20f) },
-                new { name = "Wall_CorridorEast",pos = new Vector3(7.15f, 1.50f, 0.00f),  size = new Vector3(0.20f, 3.00f, 8.00f) },
+                new { name = "Wall_CorridorEast",pos = new Vector3(7.15f, 1.50f, -1.95f), size = new Vector3(0.20f, 3.00f, 4.10f) },
             };
 
             foreach (var d in defs)
@@ -830,7 +835,193 @@ namespace FireSafety.EditorTools
             }
 
             Debug.Log("[Setup] ✔ 补墙：" + defs.Length + " 段 3 米高墙板（南翼南墙 z=-8 / 南翼东墙 x=-0.75 / "
-                      + "大厅南墙 z=-4 / 东端墙 x=7.25），带 BoxCollider + 踢脚线");
+                      + "大厅南墙 z=-4 / 茶水间东侧 x=7.25(仅 z -4~0.1，走廊东端留开口接门外广场)），"
+                      + "带 BoxCollider + 踢脚线");
+        }
+
+        /// <summary>
+        /// 灭火器墙面挂钩板：背板 + 挂钩横杆两块装饰，让「灭火器贴墙」在画面上真实成立。
+        /// wallNormal：从瓶心指向墙面的方向（+Z / -Z / -X 等）。
+        /// </summary>
+        static void SetupExtinguisherWallBracket(Vector3 bottlePos, Vector3 wallNormal, string name)
+        {
+            var root = GameObject.Find("ExtinguisherBrackets");
+            if (root == null) root = new GameObject("ExtinguisherBrackets");
+            root.transform.position = Vector3.zero;
+            root.transform.rotation = Quaternion.identity;
+            root.transform.localScale = Vector3.one;
+
+            var plateMat = EnsureSetupMaterial("Assets/Materials/ExtinguisherBracketMat.mat",
+                new Color(0.60f, 0.10f, 0.10f), 0.30f, new Color(0.26f, 0.02f, 0.02f));
+
+            bool alongZ = Mathf.Abs(wallNormal.z) > 0.5f;
+
+            // 背板（贴墙）
+            Transform plate = root.transform.Find(name);
+            if (plate == null)
+            {
+                var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                go.name = name;
+                plate = go.transform;
+                plate.SetParent(root.transform, false);
+                var c = go.GetComponent<Collider>();
+                if (c != null) UnityEngine.Object.DestroyImmediate(c);
+            }
+            plate.position = new Vector3(bottlePos.x, 0.55f, bottlePos.z) + wallNormal * 0.30f;
+            plate.rotation = Quaternion.identity;
+            plate.localScale = alongZ ? new Vector3(0.50f, 0.90f, 0.03f) : new Vector3(0.03f, 0.90f, 0.50f);
+            var mr = plate.GetComponent<MeshRenderer>();
+            if (mr != null) { mr.sharedMaterial = plateMat; mr.shadowCastingMode = ShadowCastingMode.On; }
+
+            // 挂钩横杆（托住瓶身提把）
+            Transform hook = root.transform.Find(name + "_Hook");
+            if (hook == null)
+            {
+                var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                go.name = name + "_Hook";
+                hook = go.transform;
+                hook.SetParent(root.transform, false);
+                var c = go.GetComponent<Collider>();
+                if (c != null) UnityEngine.Object.DestroyImmediate(c);
+            }
+            hook.position = new Vector3(bottlePos.x, 0.70f, bottlePos.z) + wallNormal * 0.20f;
+            hook.rotation = Quaternion.identity;
+            hook.localScale = alongZ ? new Vector3(0.36f, 0.05f, 0.05f) : new Vector3(0.05f, 0.05f, 0.36f);
+            var hmr = hook.GetComponent<MeshRenderer>();
+            if (hmr != null) { hmr.sharedMaterial = plateMat; hmr.shadowCastingMode = ShadowCastingMode.On; }
+        }
+
+        /// <summary>
+        /// 第 25 轮：安全出口门外 = 开阔场地（原「东端墙」把门后封成 2×3.8 米的死角）。
+        /// 做法：把 Wall_CorridorEast 只留茶水间那段（z -4~0.1），走廊东端（z 0.1~3.9）开口，
+        /// 门口往东铺一块 6.5×8 米的室外广场：地面 + 三面 1.1 米矮墙 + 集合点标识 + 两盏庭院灯 + 绿化。
+        /// </summary>
+        static void SetupOutdoorPlaza()
+        {
+            var root = GameObject.Find("OutdoorPlaza");
+            if (root == null) root = new GameObject("OutdoorPlaza");
+            root.transform.position = Vector3.zero;
+            root.transform.rotation = Quaternion.identity;
+            root.transform.localScale = Vector3.one;
+
+            // 广场范围：x 7.25~13.75（宽 6.5），z -4~4（深 8），地面顶面 y=0 与室内地砖齐平
+            const float cx = 10.50f, cz = 0.00f;
+            const float w = 6.50f, d = 8.00f;
+
+            var groundMat = EnsureSetupMaterial("Assets/Materials/PlazaGroundMat.mat",
+                new Color(0.46f, 0.47f, 0.45f), 0.06f);
+            var lowWallMat = EnsureSetupMaterial("Assets/Materials/PlazaFenceMat.mat",
+                new Color(0.70f, 0.69f, 0.66f), 0.08f);
+            var yellowMat = EnsureSetupMaterial("Assets/Materials/PlazaMarkMat.mat",
+                new Color(0.92f, 0.78f, 0.16f), 0.20f, new Color(0.30f, 0.24f, 0.02f));
+            var greenMat = EnsureSetupMaterial("Assets/Materials/PlazaSignMat.mat",
+                new Color(0.10f, 0.48f, 0.24f), 0.20f, new Color(0.12f, 0.42f, 0.18f));
+
+            Boxing(root.transform, "PlazaGround", new Vector3(cx, -0.05f, cz), new Vector3(w, 0.10f, d), groundMat, true);
+
+            // 三面 1.1 米矮围墙（南 / 北 / 东）；西侧不砌墙 —— 敞开接办公室走廊开口
+            Boxing(root.transform, "PlazaFence_South", new Vector3(cx, 0.55f, cz - d * 0.5f + 0.05f), new Vector3(w, 1.10f, 0.10f), lowWallMat, true);
+            Boxing(root.transform, "PlazaFence_North", new Vector3(cx, 0.55f, cz + d * 0.5f - 0.05f), new Vector3(w, 1.10f, 0.10f), lowWallMat, true);
+            Boxing(root.transform, "PlazaFence_East", new Vector3(cx + w * 0.5f - 0.05f, 0.55f, cz), new Vector3(0.10f, 1.10f, d), lowWallMat, true);
+
+            // 集合点：黄色地面标线（圆形盘，不是方板——从门里看一块黄方块不像集合点）+ 绿色「集合点」立牌
+            Transform ring = root.transform.Find("PlazaAssembleRing");
+            if (ring != null && ring.GetComponent<MeshFilter>() != null
+                && ring.GetComponent<MeshFilter>().sharedMesh != null
+                && ring.GetComponent<MeshFilter>().sharedMesh.name.ToLower().Contains("cube"))
+            {
+                // 旧版是 2.6×2.6 的方块地毯，重建为圆盘
+                UnityEngine.Object.DestroyImmediate(ring.gameObject);
+                ring = null;
+            }
+            if (ring == null)
+            {
+                var ringGo = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+                ringGo.name = "PlazaAssembleRing";
+                ring = ringGo.transform;
+                ring.SetParent(root.transform, false);
+                var rc = ringGo.GetComponent<Collider>();
+                if (rc != null) UnityEngine.Object.DestroyImmediate(rc);
+            }
+            ring.localPosition = new Vector3(9.20f, 0.005f, 0.00f);
+            ring.localRotation = Quaternion.identity;
+            ring.localScale = new Vector3(2.60f, 0.005f, 2.60f);   // 直径 2.6 米、厚 1 厘米
+            {
+                var rmr = ring.GetComponent<MeshRenderer>();
+                if (rmr != null) { rmr.sharedMaterial = yellowMat; rmr.shadowCastingMode = ShadowCastingMode.Off; }
+            }
+
+            // 绿色立牌：正对出口门方向（玩家一出门就能看到），带自发光，避免背光时整块发黑
+            Boxing(root.transform, "PlazaAssembleSign", new Vector3(10.90f, 1.05f, -1.60f), new Vector3(0.06f, 1.80f, 1.20f), greenMat, true);
+            Boxing(root.transform, "PlazaAssembleSign_POST", new Vector3(10.90f, 0.45f, -1.60f), new Vector3(0.10f, 0.90f, 0.10f), lowWallMat, false);
+
+            // 两盏庭院灯（灯柱 + 灯头 + 点光），让门外不像黑走廊
+            for (int i = 0; i < 2; i++)
+            {
+                float lx = i == 0 ? 8.40f : 12.20f;
+                float lz = i == 0 ? -2.60f : 2.90f;
+                Boxing(root.transform, "PlazaLampPost_" + (i + 1), new Vector3(lx, 1.60f, lz), new Vector3(0.12f, 3.20f, 0.12f), lowWallMat, false);
+                Boxing(root.transform, "PlazaLampHead_" + (i + 1), new Vector3(lx, 3.28f, lz), new Vector3(0.34f, 0.20f, 0.34f), yellowMat, false);
+
+                var lightGo = root.transform.Find("PlazaLamp_" + (i + 1));
+                if (lightGo == null)
+                {
+                    var lg = new GameObject("PlazaLamp_" + (i + 1));
+                    lightGo = lg.transform;
+                    lightGo.SetParent(root.transform, false);
+                    var l = lg.AddComponent<Light>();
+                    l.type = LightType.Point;
+                    l.color = new Color(1.0f, 0.95f, 0.82f);
+                    l.intensity = 1.6f;
+                    l.range = 7.0f;
+                    l.shadows = LightShadows.None;
+                }
+                lightGo.position = new Vector3(lx, 3.05f, lz);
+                var lc = lightGo.GetComponent<Light>();
+                if (lc != null) { lc.type = LightType.Point; lc.intensity = 1.6f; lc.range = 7.0f; lc.enabled = true; }
+            }
+
+            // 绿化：两个花箱，给广场一点尺度参照
+            Boxing(root.transform, "PlazaPlanter_1", new Vector3(8.10f, 0.28f, 3.10f), new Vector3(0.90f, 0.55f, 0.55f), lowWallMat, true);
+            Boxing(root.transform, "PlazaPlanter_2", new Vector3(12.60f, 0.28f, -3.10f), new Vector3(0.90f, 0.55f, 0.55f), lowWallMat, true);
+
+            Debug.Log("[Setup] ✔ 门外开阔场地：广场 6.5×8 米（x 7.25~13.75 / z -4~4）、三面 1.1 米矮墙、"
+                      + "集合点标识 2 处、庭院灯 2 盏、花箱 2 个；走廊东端 z 0.1~3.9 开口通向广场");
+        }
+
+        /// <summary>建/复用一个立方体装饰件（可选带 BoxCollider）。</summary>
+        static void Boxing(Transform parent, string name, Vector3 pos, Vector3 size, Material mat, bool collider)
+        {
+            Transform t = parent.Find(name);
+            if (t == null)
+            {
+                var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                go.name = name;
+                t = go.transform;
+                t.SetParent(parent, false);
+            }
+            t.localPosition = pos;
+            t.localRotation = Quaternion.identity;
+            t.localScale = size;
+
+            var mr = t.GetComponent<MeshRenderer>();
+            if (mr != null)
+            {
+                mr.sharedMaterial = mat;
+                mr.shadowCastingMode = ShadowCastingMode.On;
+                mr.receiveShadows = true;
+            }
+
+            var col = t.GetComponent<Collider>();
+            if (collider)
+            {
+                if (col == null) col = t.gameObject.AddComponent<BoxCollider>();
+                col.enabled = true;
+            }
+            else if (col != null)
+            {
+                UnityEngine.Object.DestroyImmediate(col);
+            }
         }
 
         /// <summary>取/建一个 URP Lit 材质资产（场景保存后引用不会丢）。</summary>
@@ -872,9 +1063,11 @@ namespace FireSafety.EditorTools
             // 三套起火情景：起火点不同 / 灭火器不同 / 题库不同 / 出生点不同，
             // 但终点相同（都沿「安全出口」标识撤到同一扇出口门）。
             // ============================================================
-            Vector3 ext01Pos = new Vector3(-3.60f, 0.16f, 0.60f);    // 情景一 电气（兼操作演练取瓶）
-            Vector3 ext02Pos = new Vector3(1.60f, 0.16f, -1.60f);    // 情景二 纸张 / 档案起火
-            Vector3 ext03Pos = new Vector3(6.00f, 0.16f, -3.20f);    // 情景三 茶水间小家电起火
+            // 灭火器一律「贴墙」摆放（第 25 轮）：靠近墙面、固定在自己的挂钩板上，
+            // 不占走道中线 —— 玩家按就近原则取最近的那台。
+            Vector3 ext01Pos = new Vector3(0.85f, 0.16f, 3.45f);      // 情景一 电气：北墙，配电柜东边 3.3 米（兼操作演练取瓶）
+            Vector3 ext02Pos = new Vector3(3.45f, 0.16f, -3.55f);     // 情景二 纸张：大厅南墙，纸张火东南 2.0 米
+            Vector3 ext03Pos = new Vector3(5.95f, 0.16f, -3.80f);     // 情景三 茶水间：南墙贴边（原东南墙角被 stool_2 占住，瓶体会被顶飞），到小家电火 3.1 米
 
             // ---------------- 出生点：每套情景 3 个候选（随机取一个，尽量避开上一次） ----------------
             var spawnRoot = GameObject.Find("DrillSpawnPoints");
@@ -1023,11 +1216,16 @@ namespace FireSafety.EditorTools
             if (ext02 != null) PlaceExtinguisher(ext02.transform, ext02Pos);
             if (ext03 != null) PlaceExtinguisher(ext03.transform, ext03Pos);
 
+            // 墙面挂钩板：让「贴墙」不只是坐标贴近，而是看起来就挂在墙上
+            SetupExtinguisherWallBracket(ext01Pos, Vector3.forward, "Extinguisher01_Bracket");
+            SetupExtinguisherWallBracket(ext02Pos, Vector3.back, "Extinguisher02_Bracket");
+            SetupExtinguisherWallBracket(ext03Pos, Vector3.back, "Extinguisher03_Bracket");
+
             float d12 = Vector3.Distance(new Vector3(ext01Pos.x, 0f, ext01Pos.z), new Vector3(ext02Pos.x, 0f, ext02Pos.z));
             float d23 = Vector3.Distance(new Vector3(ext02Pos.x, 0f, ext02Pos.z), new Vector3(ext03Pos.x, 0f, ext03Pos.z));
-            Debug.Log("[Setup] ✔ 灭火器落位：01" + ext01Pos.ToString("F2") + " / 02" + ext02Pos.ToString("F2")
-                      + " / 03" + ext03Pos.ToString("F2")
-                      + "；间距 01↔02=" + d12.ToString("F2") + " 米，02↔03=" + d23.ToString("F2") + " 米");
+            Debug.Log("[Setup] ✔ 灭火器贴墙落位：01" + ext01Pos.ToString("F2") + "（北墙）/ 02" + ext02Pos.ToString("F2")
+                      + "（大厅南墙）/ 03" + ext03Pos.ToString("F2") + "（茶水间南墙）"
+                      + "；01↔02=" + d12.ToString("F2") + " 米，02↔03=" + d23.ToString("F2") + " 米");
 
             // ---------------- 操作演练用的原地板火 ----------------
             if (template != null)
@@ -1099,6 +1297,7 @@ namespace FireSafety.EditorTools
                     quizSetIndex = 4,                 // E 组：纸张 / 固体可燃物
                     powerSwitch = null,
                     requirePowerCut = false,
+                    skipEvacuation = true,            // 第 25 轮：就近原则，灭火后直奔安全出口门
                     spawnPoints = new[] { spawnP0, spawnP1, spawnP2 }
                 },
                 new DrillScenario.FireScenario
@@ -1114,6 +1313,7 @@ namespace FireSafety.EditorTools
                     quizSetIndex = 5,                 // F 组：茶水间小家电 / 油类
                     powerSwitch = null,
                     requirePowerCut = false,
+                    skipEvacuation = true,            // 第 25 轮：就近原则，灭火后直奔安全出口门
                     spawnPoints = new[] { spawnK0, spawnK1, spawnK2 }
                 }
             };
@@ -1146,7 +1346,7 @@ namespace FireSafety.EditorTools
                 // 三台灭火器现在铺开到房间各处，最近的一台离出口门也有 4.3 米；
                 // 第 2 阶段开始时把备用瓶搬到门旁空位，玩家到大厅就能顺手拿到。
                 flow.autoMoveSpareExtinguisher = true;
-                flow.spareExtinguisherSpot = new Vector3(3.70f, 0f, 1.60f);
+                flow.spareExtinguisherSpot = new Vector3(4.95f, 0f, 3.20f);
             }
 
             Debug.Log("[Setup] ✔ 新流程：操作演练 + 正式第 1 阶段（3 个随机出生点 / 设备火 / 电源箱 / 独立烟雾 / 火焰血量条）"

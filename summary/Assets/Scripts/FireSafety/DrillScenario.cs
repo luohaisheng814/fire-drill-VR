@@ -58,6 +58,8 @@ namespace FireSafety
             public bool requirePowerCut;
             [Tooltip("该情景的出生点（2~3 个候选）")]
             public Transform[] spawnPoints = new Transform[0];
+            [Tooltip("第 25 轮：该情景是否跳过第 2 阶段（撤离大厅）——纸张 / 茶水间就近直奔安全出口门")]
+            public bool skipEvacuation = false;
         }
 
         [Header("起火情景（不同情景 = 不同起火点 + 不同灭火器 + 不同出生点，终点相同）")]
@@ -403,6 +405,10 @@ namespace FireSafety
             powerSwitch = sc.powerSwitch;
             requirePowerCutBeforeExtinguish = sc.requirePowerCut;
             spawnPoints = sc.spawnPoints;
+
+            // 第 25 轮：本情景是否跳过第 2 阶段（就近原则直达安全出口门）
+            if (stageTwo == null) stageTwo = FindObjectOfType<StageTwoFlow>();
+            if (stageTwo != null) stageTwo.skipEvacuation = sc.skipEvacuation;
 
             if (deviceFire != null)
             {
