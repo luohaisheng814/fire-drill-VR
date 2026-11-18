@@ -40,6 +40,7 @@ namespace FireSafety.EditorTools
             TestExtinguisherKindRound28();
             TestRuntimeDeviceModeRound29();
             TestInputFeedbackRound30();
+            TestConnectionRound31();
             TestDrillScenario();
             TestVrConfiguration();
 
@@ -2043,6 +2044,46 @@ namespace FireSafety.EditorTools
                 Check("第30轮：RealHeadset 与 deviceKind 语义一致（编辑器为桌面 → false）",
                     RuntimeDeviceMode.RealHeadset == (mode.deviceKind == RuntimeDeviceMode.DeviceKind.Headset));
             }
+        }
+
+        static void TestConnectionRound31()
+        {
+            // ---- 1. 「为什么手柄没反应」的指引：三种状态各给不同答案 ----
+            string desktop = RuntimeDeviceMode.GuidanceFor(RuntimeDeviceMode.DeviceKind.Desktop, 0, false);
+            Check("第31轮：桌面/镜像模式提示说明 Unity 没进入 XR", desktop.Contains("没有进入 XR"));
+            Check("第31轮：提示点名「虚拟显示屏/远程桌面」不是 Link 会话", desktop.Contains("虚拟显示屏"));
+            Check("第31轮：提示给出 F6 重试入口", desktop.Contains("F6"));
+
+            string headsetNoPad = RuntimeDeviceMode.GuidanceFor(RuntimeDeviceMode.DeviceKind.Headset, 0, true);
+            Check("第31轮：进了 XR 但没手柄 → 提示查手柄配对", headsetNoPad.Contains("手柄"));
+
+            string headsetOk = RuntimeDeviceMode.GuidanceFor(RuntimeDeviceMode.DeviceKind.Headset, 2, true);
+            Check("第31轮：手柄正常时不打扰玩家（提示为空）", string.IsNullOrEmpty(headsetOk));
+
+            // ---- 2. 新增的重试入口与状态字段 ----
+            var mode = UnityEngine.Object.FindObjectOfType<RuntimeDeviceMode>();
+            Check("第31轮：RuntimeDeviceMode 暴露 xrActive", HasField(typeof(RuntimeDeviceMode), "xrActive"));
+            Check("第31轮：提供公开的 RetryXr（F6 调用）",
+                typeof(RuntimeDeviceMode).GetMethod("RetryXr") != null);
+            if (mode != null)
+            {
+                Check("第31轮：编辑器里 Guidance 与设备类型一致（桌面 → 有提示）",
+                    (mode.deviceKind == RuntimeDeviceMode.DeviceKind.Headset)
+                    || !string.IsNullOrEmpty(mode.Guidance));
+            }
+
+            // ---- 3. 位姿驱动：优先 Input System，旧接口只做兜底 ----
+            Check("第31轮：DrillTrackedPose 默认优先 Input System",
+                HasField(typeof(DrillTrackedPose), "preferInputSystem"));
+            Check("第31轮：DrillTrackedPose 暴露 HasPose 诊断属性",
+                typeof(DrillTrackedPose).GetProperty("HasPose") != null);
+
+            var poses = UnityEngine.Object.FindObjectsOfType<DrillTrackedPose>();
+            Check("第31轮：场景里存在位姿驱动脚本（相机/手柄锚点）", poses.Length > 0);
+            bool centerEye = false;
+            for (int i = 0; i < poses.Length; i++)
+                if (poses[i] != null && poses[i].node == UnityEngine.XR.XRNode.CenterEye) centerEye = true;
+            Check("第31轮：相机锚点挂的是 CenterEye 位姿驱动", centerEye);
         }
 
         static bool HasField(System.Type t, string name)

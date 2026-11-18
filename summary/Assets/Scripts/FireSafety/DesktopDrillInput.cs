@@ -76,6 +76,9 @@ namespace FireSafety
 
         Canvas _hudCanvas;
         Text _hudText;
+        Button _retryXrButton;
+        GameObject _guideBar;
+        Text _guideText;
         string _status = "";
         float _statusUntil;
         float _nextHudRefresh;
@@ -716,7 +719,7 @@ namespace FireSafety
             rt.anchorMax = new Vector2(0.5f, 0f);
             rt.pivot = new Vector2(0.5f, 0f);
             rt.anchoredPosition = new Vector2(0f, 16f);
-            rt.sizeDelta = new Vector2(1640f, 168f);
+            rt.sizeDelta = new Vector2(1640f, 180f);
 
             var img = bar.GetComponent<Image>();
             img.color = new Color(0f, 0f, 0f, 0.62f);
@@ -740,7 +743,81 @@ namespace FireSafety
             trt.offsetMin = new Vector2(14f, 8f);
             trt.offsetMax = new Vector2(-14f, -8f);
 
+            // 第 31 轮：XR 没接管时的连接提示单独放顶部，避免和底部键位 HUD 叠在一起
+            var gb = new GameObject("XrGuideBar", typeof(RectTransform), typeof(Image));
+            gb.transform.SetParent(go.transform, false);
+            var grt = gb.GetComponent<RectTransform>();
+            grt.anchorMin = new Vector2(0.5f, 1f);
+            grt.anchorMax = new Vector2(0.5f, 1f);
+            grt.pivot = new Vector2(0.5f, 1f);
+            grt.anchoredPosition = new Vector2(0f, -14f);
+            grt.sizeDelta = new Vector2(1520f, 86f);
+
+            var gi = gb.GetComponent<Image>();
+            gi.color = new Color(0.30f, 0.16f, 0.02f, 0.92f);
+            gi.raycastTarget = false;
+
+            var gtGo = new GameObject("Text", typeof(RectTransform), typeof(Text));
+            gtGo.transform.SetParent(gb.transform, false);
+            _guideText = gtGo.GetComponent<Text>();
+            _guideText.font = UIFont.Resolve();
+            if (_guideText.font != null) _guideText.material = _guideText.font.material;
+            _guideText.fontSize = 23;
+            _guideText.color = new Color(1f, 0.84f, 0.38f, 1f);
+            _guideText.alignment = TextAnchor.MiddleCenter;
+            _guideText.horizontalOverflow = HorizontalWrapMode.Wrap;
+            _guideText.verticalOverflow = VerticalWrapMode.Overflow;
+            _guideText.raycastTarget = false;
+            var gtrt = gtGo.GetComponent<RectTransform>();
+            gtrt.anchorMin = Vector2.zero;
+            gtrt.anchorMax = Vector2.one;
+            gtrt.offsetMin = new Vector2(16f, 8f);
+            gtrt.offsetMax = new Vector2(-16f, -8f);
+
+            _guideBar = gb;
+            gb.SetActive(false);
+
+            // 第 31 轮：屏幕右下角一个「重试 XR」按钮（鼠标能点，不用去够 F6）
+            var btnGo = new GameObject("RetryXrButton", typeof(RectTransform), typeof(Image), typeof(Button));
+            btnGo.transform.SetParent(go.transform, false);
+            var brt = btnGo.GetComponent<RectTransform>();
+            brt.anchorMin = new Vector2(1f, 0f);
+            brt.anchorMax = new Vector2(1f, 0f);
+            brt.pivot = new Vector2(1f, 0f);
+            brt.anchoredPosition = new Vector2(-18f, 226f);
+            brt.sizeDelta = new Vector2(176f, 46f);
+
+            var bimg = btnGo.GetComponent<Image>();
+            bimg.color = new Color(0.16f, 0.38f, 0.62f, 0.95f);
+            _retryXrButton = btnGo.GetComponent<Button>();
+            _retryXrButton.onClick.AddListener(RetryXrClicked);
+
+            var labelGo = new GameObject("Label", typeof(RectTransform), typeof(Text));
+            labelGo.transform.SetParent(btnGo.transform, false);
+            var lt = labelGo.GetComponent<Text>();
+            lt.font = UIFont.Resolve();
+            if (lt.font != null) lt.material = lt.font.material;
+            lt.fontSize = 21;
+            lt.text = "重试 XR（F6）";
+            lt.color = Color.white;
+            lt.alignment = TextAnchor.MiddleCenter;
+            lt.raycastTarget = false;
+            var lrt = labelGo.GetComponent<RectTransform>();
+            lrt.anchorMin = Vector2.zero;
+            lrt.anchorMax = Vector2.one;
+            lrt.offsetMin = Vector2.zero;
+            lrt.offsetMax = Vector2.zero;
+
+            btnGo.SetActive(false);
+
             RefreshHudText(true);      // 首帧就把键位说明显示出来
+        }
+
+        void RetryXrClicked()
+        {
+            if (RuntimeDeviceMode.HasInstance) RuntimeDeviceMode.Instance.RetryXr();
+            else Debug.LogWarning("[Mode] 重试 XR：场景里没有 RuntimeDeviceMode");
+            RefreshHudText(true);
         }
 
         /// <summary>显示/收起底部键位 HUD（切到手柄模式时由 RuntimeDeviceMode 调用）。</summary>
@@ -767,7 +844,20 @@ namespace FireSafety
                 : "";
             string line = modeLine + controls + "\n" + StateText();
             if (!string.IsNullOrEmpty(status)) line += "　｜　" + status;
+
+            // 第 31 轮：头显只是把桌面镜像过来时，Unity 没有 XR 会话，玩家会以为"手柄坏了"，
+            // 这里直接把原因和下一步操作写在画面底部，不用再去翻日志。
             _hudText.text = line;
+
+            string guide = RuntimeDeviceMode.HasInstance ? RuntimeDeviceMode.Instance.Guidance : "";
+            if (_guideBar != null)
+            {
+                bool show = !string.IsNullOrEmpty(guide);
+                if (_guideBar.activeSelf != show) _guideBar.SetActive(show);
+                if (show && _guideText != null) _guideText.text = "⚠ " + guide;
+            }
+            if (_retryXrButton != null && _retryXrButton.gameObject.activeSelf != !string.IsNullOrEmpty(guide))
+                _retryXrButton.gameObject.SetActive(!string.IsNullOrEmpty(guide));
         }
 
         private string StateText()

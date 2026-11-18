@@ -150,9 +150,11 @@ namespace FireSafety
             _title.text = "操作帮助 · " + kind;
 
             var snap = VRInputSource.Read(false);
+            string guide = RuntimeDeviceMode.HasInstance ? RuntimeDeviceMode.Instance.Guidance : "";
             _body.text =
                 "模式：" + kind + " · " + control + "\n"
                 + VRInputSource.Diagnostics() + "\n"
+                + (string.IsNullOrEmpty(guide) ? "" : "⚠ " + guide + "\n")
                 + (snap.keyboardFallback ? "⚠ 手柄没识别到，正在用键盘兜底\n" : "")
                 + "\n"
                 + "左摇杆     移动（沿头显朝向，推满小跑）\n"
@@ -165,11 +167,14 @@ namespace FireSafety
                 + "B / X      问答选 B / 选 C\n"
                 + "Y          开关本面板（F5 同效）\n"
                 + "左摇杆按下 蹲下 / 站起\n"
-                + "\n"
-                + "没反应就按顺序查：\n"
-                + "① 「设备」是否识别到左右手柄\n"
-                + "② 按 Trigger / Grip 看 T/G 数值是否跳动\n"
-                + "③ 数值会动但没反应 → 射线没指到目标";
+                // 已经给出「为什么连不上 / 下一步做什么」时，不再重复底部的通用排查段，
+                // 否则面板高度装不下、文字会顶到背景外面。
+                + (string.IsNullOrEmpty(guide)
+                    ? "\n没反应就按顺序查：\n"
+                      + "① 「设备」是否识别到左右手柄\n"
+                      + "② 按 Trigger / Grip 看 T/G 数值是否跳动\n"
+                      + "③ 数值会动但没反应 → 射线没指到目标"
+                    : "");
         }
     }
 }

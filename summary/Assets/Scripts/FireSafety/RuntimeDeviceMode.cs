@@ -82,6 +82,9 @@ namespace FireSafety
         public ControlMode controlMode = ControlMode.KeyboardMouse;
         [Tooltip("加载的 XR 插件名")]
         public string loadedDevice = "";
+
+        /// <summary>最近一次检测到的 XR 显示是否在输出（XRSettings.isDeviceActive）。</summary>
+        public bool xrActive = false;
         [Tooltip("HMD 设备名（真机为头显型号）")]
         public string hmdName = "";
         [Tooltip("判定理由（一句话，写进 HUD / 日志）")]
@@ -118,6 +121,33 @@ namespace FireSafety
                 string device = string.IsNullOrEmpty(hmdName) ? (string.IsNullOrEmpty(loadedDevice) ? "无 XR 设备" : loadedDevice) : hmdName;
                 return KindLabel(deviceKind) + "（" + device + "）· " + ControlLabel(controlMode) + " · " + reason;
             }
+        }
+
+        /// <summary>
+        /// 第 31 轮：给玩家看的「为什么手柄没反应」提示。
+        /// 只有真的会让人误判的情况才返回非空：没进入 XR、或进了 XR 但手柄没识别。
+        /// </summary>
+        public string Guidance
+        {
+            get { return GuidanceFor(deviceKind, controllerCount, xrActive); }
+        }
+
+        /// <summary>纯函数版本（自检可直接断言，不需要真设备）。</summary>
+        public static string GuidanceFor(DeviceKind kind, int controllers, bool active)
+        {
+            if (kind == DeviceKind.Headset)
+            {
+                if (controllers <= 0)
+                    return "已进入 XR，但左右手柄都没识别：按一下手柄按键唤醒、确认电量与配对，再按 Y 看诊断。";
+                return "";
+            }
+
+            // 桌面/模拟器：Unity 没有 XR 会话，手柄按键根本不会进游戏
+            if (active)
+                return "";
+
+            return "Unity 没有进入 XR（isDeviceActive=false）：头显里若显示电脑桌面，那是「虚拟显示屏/远程桌面」，手柄按键不会进游戏。" +
+                   "请退出桌面视图、回到 Link 首页，再按 F6（或点右下角按钮）重试。";
         }
 
         public static string KindLabel(DeviceKind kind)
@@ -172,6 +202,7 @@ namespace FireSafety
                 if (Keyboard.current.f2Key.wasPressedThisFrame) ForceKind(DeviceKind.Desktop);
                 else if (Keyboard.current.f3Key.wasPressedThisFrame) ForceKind(DeviceKind.Headset);
                 else if (Keyboard.current.f4Key.wasPressedThisFrame) ClearForce();
+                else if (Keyboard.current.f6Key.wasPressedThisFrame) RetryXr();
             }
 
             if (forced || !autoDetect) return;
@@ -195,6 +226,7 @@ namespace FireSafety
             string loaded = XRSettings.loadedDeviceName;
             string hmd = HeadDeviceName();
             string displayId = RunningDisplayId();
+            xrActive = active;
 
             DeviceKind kind;
             string why;
@@ -323,6 +355,67 @@ namespace FireSafety
             forced = false;
             DetectNow();
             ApplyMode(true);
+        }
+
+        /// <summary>
+        /// 第 31 轮新增（F6）：头显中途退出虚拟显示屏、回到 Link 首页后，不用重开 Play，
+        /// 直接重试一次 XR 加载器。已经在 XR 里时不打扰，只重读状态。
+        /// </summary>
+        public void RetryXr()
+        {
+            DetectNow();
+            if (xrActive)
+            {
+                ApplyMode(true);
+                Debug.Log("[Mode] F6：XR 已经在运行，无需重试 · " + DetailLine);
+                return;
+            }
+
+            bool started = false;
+            string error = "";
+            try
+            {
+                var settings = UnityEngine.XR.Management.XRGeneralSettings.Instance;
+                var mgr = settings != null ? settings.Manager : null;
+                if (mgr == null)
+                {
+                    error = "XR Management 没有配置";
+                }
+                else
+                {
+                    if (mgr.activeLoader == null)
+                    {
+                        // 之前 OpenXR 初始化失败过，加载器可能停在半初始化状态，先彻底退掉再重来
+                        try { mgr.DeinitializeLoader(); }
+                        catch (System.Exception) { /* 本来就没初始化，忽略 */ }
+
+                        mgr.InitializeLoaderSync();   // 这个版本返回 void，成功与否看 activeLoader
+                        if (mgr.activeLoader == null)
+                            error = "InitializeLoaderSync 后 activeLoader 仍为空（运行时给不出 XR 设备）";
+                    }
+
+                    if (mgr.activeLoader != null)
+                    {
+                        mgr.StartSubsystems();
+                        started = true;
+                    }
+                    else if (string.IsNullOrEmpty(error))
+                    {
+                        error = "activeLoader 仍为空（OpenXR 运行时拿不到头显）";
+                    }
+                }
+            }
+            catch (System.Exception e)
+            {
+                error = e.GetType().Name + "：" + e.Message;
+            }
+
+            forced = false;
+            _nextPoll = 0f;
+            DetectNow();
+            ApplyMode(true);
+            Debug.Log("[Mode] F6 重试 XR：" + (started ? "已请求启动子系统" : "未启动（" + error + "）")
+                      + " · active=" + xrActive + " · " + DetailLine);
         }
 
         /// <summary>把当前 deviceKind 的操作方案真正应用到各输入层。</summary>

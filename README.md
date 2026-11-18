@@ -604,6 +604,119 @@ scenarios[3] = { 电气（DeviceFire / 需断电 / 题库 2 / 出生组 1）
 - **已知限制（如实记录）**：本机没有可用头显运行时（日志里 OpenXR 仍报 `XR_ERROR_FORM_FACTOR_UNAVAILABLE`），所有"真机"结论都来自 `ForceKind(Headset)` + 虚拟输入 + 手柄计数补丁，**没有在 Quest 2 上实测按键**；`InputSystem` 层能枚举到 XRController 说明修复方向正确，但具体控制名是否与你所用的 OpenXR 交互 profile 完全一致，仍需真机确认。
 - **真机复验 5 步**（戴上头显后）：① 按 **Y** 打开帮助面板，看「设备 左/右」是否显示手柄名；② 捏 **Grip** 看 `T/G` 里的 `G` 是否跳到 1.00，松手回 0；③ 扣 **Trigger** 看 `T` 是否跳动，若跳动但没拔销，说明只是射线没指到瓶；④ 抬右手看激光是否跟着手走、指到电源箱/门是否变绿；⑤ 面板里若显示「正在用键盘兜底」，说明手柄没被识别，先查 Link/Air Link 与 SteamVR/OpenXR 运行时，而不是改键位。
 
+## 第 31 轮：头显「只镜像桌面」的 XR 接管自检、F6 重试与位姿改走 Input System
+
+### 11.1 用户复述与实时日志证据
+
+玩家复述：Quest 2 接 Link 后，**头显里能看到电脑画面（虚拟显示屏）**，打开演练后只有摇杆能转视野，Grip / Trigger / A / B / X 全无反应。
+
+本轮直接读玩家当时正在 Play 的编辑器实时日志（`summary/Logs/Editor.log`），证据链如下：
+
+| 证据 | 日志原文 |
+|---|---|
+| OpenXR 实例能建 | `Runtime Name: Oculus`、`XrInstance Created with OpenXR API Version: 1.1.54` |
+| 但拿不到头显形态 | `xrGetSystem: XR_ERROR_FORM_FACTOR_UNAVAILABLE`（`unity_session.cpp:328`） |
+| 显示子系统启动失败 | `[Subsystems] Failed to initialize subsystem OpenXR Display [error: 1]` |
+| Unity 判定为无 XR | `[Mode] Desktop → KeyboardMouse · 桌面模式（无 XR 设备）· XRSettings.isDeviceActive=false（切换次数 0）` |
+| 相机没有位姿驱动 | `Camera "Main Camera" does not use a Tracked Pose Driver (Input System)` |
+| 玩家实际用鼠标点开始界面 | `InputSystemUIInputModule.ProcessPointerButton → StartScreen.BuildScenarioRow`，随后 `[Drill] 情景切换到…` |
+
+**结论**：这次 Play 里 Unity **根本没有进入 XR 会话**。头显只是把 Windows 桌面镜像过去；摇杆被虚拟桌面当成鼠标，桌面输入层又用鼠标做视角旋转，所以"只有摇杆能转视野"；手柄按键从头到尾没有进过 Unity。场景侧另有两处真缺陷：1 台相机、0 个 `TrackedPoseDriver`；`DrillTrackedPose` 仍在走旧 `InputDevices`（本工程是 Input System 独享，读不到位姿）。
+
+### 11.2 修复方案：先让玩家看清"卡在哪"，再让位姿真正可用
+
+**（1）`DrillTrackedPose` 改走 Input System 位姿**
+
+- 相机（`XRNode.CenterEye`）优先读 `XRHMD.centerEyePosition / centerEyeRotation`，手柄读 `XRController.leftHand / rightHand` 的 `devicePosition / deviceRotation`；
+- 只有 Input System 拿不到时才回落旧 `UnityEngine.XR.InputDevices`；
+- 新增 `preferInputSystem`（默认 true）与只读 `HasPose`，`isTracked=false` 或数值 NaN/Inf 时不写入，避免把相机写成原点。
+
+**（2）`RuntimeDeviceMode` 新增 XR 接管诊断与 F6 重试**
+
+- 记录 `xrActive`（`XRSettings.isDeviceActive`）；
+- 新增 `Guidance` / 纯函数 `GuidanceFor(kind, controllers, active)`，只在两种会误判的情况下出提示：
+  - 桌面/镜像：说明 Unity 没进入 XR、点名「虚拟显示屏/远程桌面」，并给出"退出桌面视图→回 Link 首页→F6/按钮重试"；
+  - 已进 XR 但 0 手柄：提示唤醒手柄、查电量配对；
+  - 手柄正常（≥1 只）：返回空，不打扰玩家。
+- 新增 `RetryXr()`（F6）：已激活时只重读状态；未激活时 `DeinitializeLoader → InitializeLoaderSync → StartSubsystems`，全程 try/catch 并把结果写日志。
+
+**（3）`DesktopDrillInput`：顶部连接提示条 + 屏幕按钮**
+
+- 新增顶部琥珀色提示条（1520×86，23 px），只在 `Guidance` 非空时出现；
+- 屏幕右下角新增「重试 XR（F6）」按钮，鼠标可点，调用 `RetryXr()`；
+- 底部键位 HUD 恢复 180 高，不再塞连接提示，避免叠字/裁切。
+
+**（4）`VRHelpPanel`：头显里也能看到同一条指引**
+
+- 正文在诊断行后插入 `⚠ Guidance`；
+- 当指引已出现时，隐藏底部"没反应就按顺序查 ①②③"通用排查段，用腾出的高度保证 900×800 面板不溢字。
+
+### 11.3 玩家视角判图后的返工（按真实缺陷处理）
+
+| 现象（离屏出图） | 根因 | 处理 |
+|---|---|---|
+| 第一版把指引塞进底部 HUD，最后一行被屏幕下缘裁掉 | 键位 2 行 + 状态 1 行 + 指引 2 行超出 200 高 | 指引移到顶部独立提示条，HUD 恢复 180 |
+| 帮助面板加指引后，正文与排查段**顶到背景外**（`vr30_input_help` 第一版） | 800 高装不下新增 3~4 行 | 有指引时隐藏 ①②③ 排查段 |
+| 缩面板到 880@0.00072、字号 24 后文字发糊、行距过挤 | 字高×缩放变小 | 回到 900×800@0.00078、26 px、`dynamicPixelsPerUnit 8` |
+| 顶部提示条遮挡倒计时 | 提示条贴顶 14 px、高 86 | 只占顶部 8%，倒计时在画面中部，实测不遮挡 |
+
+### 11.4 改动文件清单（第 31 轮）
+
+| 文件 | 改动 |
+|---|---|
+| `Assets/Scripts/FireSafety/DrillTrackedPose.cs` | 位姿改走 `XRHMD`/`XRController`，旧 `InputDevices` 兜底；新增 `preferInputSystem`、`HasPose` |
+| `Assets/Scripts/FireSafety/RuntimeDeviceMode.cs` | `xrActive`、`Guidance`/`GuidanceFor`、`RetryXr()`（F6） |
+| `Assets/Scripts/FireSafety/DesktopDrillInput.cs` | 顶部连接提示条、右下「重试 XR（F6）」按钮、HUD 180 |
+| `Assets/Scripts/FireSafety/VRHelpPanel.cs` | 插入指引行；有指引时隐藏通用排查段 |
+| `Assets/Editor/FireSafetySelfTest.cs` | 新增 `TestConnectionRound31()` 11 条断言并在 `RunAll()` 调用 |
+| `Assets/Scenes/FireSafetyOffice.unity` | RunSetup 写回（无结构变化，刷新位姿脚本参数） |
+
+### 11.5 验证证据
+
+- `Logs/setup31.log`：末尾 `[Setup] ==== 搭建完成，场景已保存 ====`，无 `error CS`。
+- `Logs/selftest31.log`：末尾 `[TEST] ==== 全部通过 ====；第 31 轮 11 条断言全 ✔（镜像指引文案、F6 提示、XR 有手柄时不打扰、`xrActive`/`RetryXr` 存在、`DrillTrackedPose` 默认走 Input System、相机锚点为 CenterEye）。
+- `Logs/modeprobe31.log` + `Logs/shots/_modeprobe.txt`：八阶段全过，读数 **位移 1.58 m / 速度 1.76 m/s / 重定位误差 0.00 m / 眼高 1.68 m**，`切换次数=3 · 通过=是`，末尾 `FAIL_COUNT=0`、`PROBE_EXIT=0`。
+- 出图复核：`vr29_mode_1desktop.png`（顶部指引条 + 右下按钮 + 底部 HUD 无裁切）、`vr29_mode_2headset.png`（手柄未识别状态行）、`vr30_input_help.png`（指引在面板内、无溢字）、`vr30_grip_hint.png`。
+
+### 11.6 复跑与调参
+
+```powershell
+# 1) 装配（必须先关闭 Unity 编辑器，释放工程锁）
+Unity.exe -batchmode -nographics -quit -projectPath D:\43763\VR\summary `
+  -executeMethod FireSafety.EditorTools.FireSafetySetup.RunSetup -logFile Logs\setup31.log
+
+# 2) 自检
+Unity.exe -batchmode -nographics -quit -projectPath D:\43763\VR\summary `
+  -executeMethod FireSafety.EditorTools.FireSafetySelfTest.RunAll -logFile Logs\selftest31.log
+
+# 3) 玩家视角探针（不要加 -quit，脚本自己退出）
+Unity.exe -batchmode -projectPath D:\43763\VR\summary `
+  -executeMethod FireSafety.EditorTools.InputModeProbe.RunFromBatch -logFile Logs\modeprobe31.log
+```
+
+调参：提示条位置/字号在 `DesktopDrillInput.BuildHud()` 的 `XrGuideBar`（`anchoredPosition (0,-14)`、`sizeDelta (1520,86)`、`fontSize 23`）；帮助面板在 `VRHelpPanel.Build()`（`900×800`、`0.00078`、正文 26 px）。
+
+### 11.7 已知限制与真机复验
+
+- **本轮仍无法在 Quest 2 上实测按键**：日志证明 Unity 侧 OpenXR 拿不到 HMD（`XR_ERROR_FORM_FACTOR_UNAVAILABLE`），原因是头显当时停在「虚拟显示屏/远程桌面」而没有回到 Link 的 VR 会话；这段是环境问题，代码只能负责识别、提示与重试。
+- 本轮能确认的是：① 相机/手柄位姿不再依赖失效的旧接口，XR 一旦接管就会跟随头显；② 玩家在 PC 画面和头显里都能看到"为什么没接管 + 下一步"；③ 不用重开 Play，F6/按钮即可重试。
+- **真机复验 4 步**：① 头显里退出虚拟显示屏，回到 Link 首页（PC 端 Oculus 应用确认 Quest 2 已连接）；② Unity 点 Play；③ 若顶部仍提示"没有进入 XR"，按 F6 或点右下按钮；④ 进入 XR 后转头，画面应随头转动（不是只有摇杆能转），再按 Y 看「设备 左/右」是否识别到手柄。
+- 若第 ③ 步一直失败：确认注册表 `HKLM\SOFTWARE\Khronos\OpenXR\1\ActiveRuntime` 指向 Meta 运行时、重启 `OVRServer_x64`、并确保 Link 没有被其它串流软件（Virtual Desktop / ALVR）占用。
+
+**提交信息**
+
+```
+第31轮：头显只镜像桌面时补齐 XR 接管诊断、F6 重试与 Input System 位姿读取
+
+- DrillTrackedPose 改读 XRHMD/XRController 位姿，旧 InputDevices 仅兜底
+- RuntimeDeviceMode 记录 xrActive，新增 Guidance 与 RetryXr（F6）
+- 桌面模式顶部提示条 + 右下「重试 XR」按钮，明确「虚拟显示屏不是 Link 会话」
+- 帮助面板插入连接指引，并在有指引时隐藏通用排查段，避免溢字
+- 自检新增 11 条断言；玩家视角八阶段探针 FAIL_COUNT=0 / PROBE_EXIT=0
+```
+
+**三条判成功硬条件**：① 玩家视角下能直接看到"Unity 没进 XR / 请退出桌面视图回 Link"的原因与重试入口，且不遮不裁；② 相机与手柄位姿默认走 Input System，`HasPose` 可作为是否真的拿到数据的判据；③ 自检与八阶段探针零失败，提交与远端 `main` 双向一致。
+
 ## 主要功能
 
 - **手柄锚定 UI**：开始界面（前 1.0 m / 上 0.15 m）、倒计时（上 0.42 m / 前 0.12 m）、引导页（前 1.0 m / 上 0.14 m）都跟随右手手柄并朝向玩家（`StartScreen.cs` / `DrillCountdown.cs` / `OnboardingScreen.cs`）
