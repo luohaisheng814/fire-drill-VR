@@ -77,6 +77,10 @@ namespace FireSafety
         [Tooltip("无头显时可用 WASD/Q/E 在桌面预览")]
         public bool keyboardDebug = true;
 
+        [Header("运行模式（由 RuntimeDeviceMode 写入）")]
+        [Tooltip("true=真机头显接管：摇杆移动生效、键盘调试关闭；false=桌面/模拟器：键盘接管")]
+        public bool xrControlMode;
+
         /// <summary>最近一帧的实际移动速度（米/秒），供测试与调试读取。</summary>
         public float CurrentSpeed { get; private set; }
         /// <summary>最近一帧是否处于蹲行状态。</summary>
@@ -134,6 +138,51 @@ namespace FireSafety
         }
 
         // ---------------- 探针接口 ----------------
+
+        /// <summary>
+        /// 切换操作模式（由 RuntimeDeviceMode 调用）：真机模式关掉键盘调试、锁回瞬转；
+        /// 键鼠模式放开 WASD / Q/E。速度与死区保持同一套值，避免两种模式手感差太多。
+        /// </summary>
+        public void ApplyControlMode(bool xr)
+        {
+            xrControlMode = xr;
+            keyboardDebug = !xr;
+            if (xr) useSnapTurn = true;
+        }
+
+        /// <summary>
+        /// 原地重定位（头显舒适性兜底）：把 XR 锚点挪到"当前头部所处的位置"，
+        /// 玩家在现实里走偏了、或相机被家具挤开时，一按就回到脚下。
+        /// </summary>
+        public void RecenterOrigin()
+        {
+            ResolveReferences();
+            if (_root == null || _head == null) return;
+            Vector3 offset = _head.position - _root.position;
+            offset.y = 0f;
+            MoveRoot(_root.position + offset);
+            _fallVelocity = Vector3.zero;
+        }
+
+        /// <summary>把玩家整体挪到指定位置（可选朝向），供"回到出生点"与探针使用。</summary>
+        public void RecenterTo(Vector3 position, float yawDegrees = 0f, bool applyYaw = false)
+        {
+            ResolveReferences();
+            if (_root == null) return;
+            MoveRoot(position);
+            if (applyYaw) _root.rotation = Quaternion.Euler(0f, yawDegrees, 0f);
+            _fallVelocity = Vector3.zero;
+        }
+
+        /// <summary>写锚点位置时必须先关 CharacterController，否则它会把相机从体积内顶出去。</summary>
+        void MoveRoot(Vector3 position)
+        {
+            var cc = _cc != null ? _cc : GetComponent<CharacterController>();
+            bool was = cc != null && cc.enabled;
+            if (cc != null) cc.enabled = false;
+            _root.position = position;
+            if (cc != null) cc.enabled = was;
+        }
 
         /// <summary>用虚拟摇杆值接管移动（move.y 前后、move.x 左右、turn 左右转身）。</summary>
         public void SetVirtualInput(Vector2 move, float turn)

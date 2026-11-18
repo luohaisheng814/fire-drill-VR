@@ -379,6 +379,146 @@ scenarios[3] = { 电气（DeviceFire / 需断电 / 题库 2 / 出生组 1）
 - 三情景探针 → `Logs/extfx_RunSc1/2/3.log`、`Logs/shots/_extfx_RunSc1/2/3.txt`，全部 `FAIL_COUNT=0` / `PROBE_EXIT=0`。
 - 第 27 轮门禁、第 26 轮拾取链路未被本轮改动影响（本轮只动了灭火剂与广场装饰，未触碰 `RoomDoor` / `ToggleGrab` 逻辑）。
 
+## 第 29 轮：头显移动/操作补齐 + 「模拟器 / 真机 / 桌面」运行环境识别与操作模式切换
+
+### 9.1 需求与勘察：头显的移动操作第 21 轮就有了，缺的是「现在到底是什么设备」
+
+用户这轮要三件事：①给项目补 VR 头显相关的移动、操作代码与步骤；②运行时判断是 XR 模拟器还是真接了头显，据此切不同操作模式；③以玩家视角测试，通过后推仓库、出日志。
+
+先查代码，避免重复造轮子。第 21 轮已经把两套输入层建好了：
+
+| 已有能力 | 位置 | 具体参数 / 行为 |
+|---|---|---|
+| 头显移动 | `XRDrillLocomotion.cs` | 左摇杆沿头显朝向平移（`moveSpeed 2.2` m/s、`crawlSpeed 1.05`、推满 >0.92 触发 `sprintMultiplier 1.6` 小跑）；右摇杆 45° 瞬转（`snapAngle 45`、`turnSpeed 120`、`snapCooldown 0.35`）；头显低于 `crouchHeight 1.15 m` 自动蹲行；另有 WASD/QE/Shift 键盘调试与 `SetVirtualInput` 探针注入口 |
+| 头显操作 | `VRDrillInput.cs` | Grip 抓取、Trigger 拔销→压把→喷射、A 开始/翻页、B/X 选答、左摇杆按下蹲起、右手射线点 UI、`SendHapticImpulse` 触觉脉冲 |
+
+真正的缺口只有一处：**运行环境判据太粗**。
+
+| 原判据 | 问题 |
+|---|---|
+| `XRSettings.isDeviceActive` 为真就当成真机 | XR 模拟器（XR Simulation / MockHMD）也会让它为真，模拟器被"真机"接管后：桌面 HUD 消失、键鼠全部失效，人在电脑前反而动不了 |
+
+所以本轮不是重写输入，而是加一层「设备识别 + 模式编排」，并补上头显侧的位移与重定位接口。
+
+### 9.2 实现
+
+#### 9.2.1 `RuntimeDeviceMode.cs`（新增，约 350 行）：三态识别 + 一张模式表
+
+三态：`DeviceKind { Desktop, Simulator, Headset }`、两套控制：`ControlMode { KeyboardMouse, XRControllers }`。
+
+检测证据链（四路并用，缺一路都能退化）：
+
+| 证据 | 取值方式 | 用途 |
+|---|---|---|
+| XR 是否在输出 | `XRSettings.isDeviceActive` | 为假直接判桌面 |
+| 已加载设备名 | `XRSettings.loadedDeviceName` | 命中关键字判模拟器 |
+| 显示子系统描述 | `SubsystemManager.GetSubsystems<XRDisplaySubsystem>()` → `subsystemDescriptor.id` | 命中关键字判模拟器 |
+| HMD 设备名 | `InputDevices.GetDeviceAtXRNode(XRNode.Head).name` | 命中关键字判模拟器，否则真机 |
+
+纯函数 `Classify(bool xrActive, string loadedDevice, string hmd, string displayId, out DeviceKind, out string reason)`：未激活 → `Desktop`；四段文本任一含 `simulat` / `mock` / `xrsimulation` / `editor test` / `fake`（不区分大小写）→ `Simulator`；其余 → `Headset`。纯函数不碰引擎状态，自检可以直接灌字符串。
+
+`PlanFor(kind)` 出来的 `struct ModePlan` 就是"切换"的全部内容：
+
+| 层 | 真机 Headset | XR 模拟器 | 桌面 Desktop |
+|---|---|---|---|
+| `VRDrillInput.enabled` | 开 | 关 | 关 |
+| `DesktopDrillInput.enabled` + 底部 HUD | 关（HUD 一并收起） | 开 | 开 |
+| `XRDrillLocomotion` 控制模式 | 手柄模式（键盘调试关） | 键鼠（WASD/QE/Shift 可用） | 键鼠 |
+| 手柄模型 `VRControllerVisual` | 显示 | **显示**（模拟器里它是"手在哪"的唯一参照） | 隐藏 |
+| VR 世界空间提示条 | 显示，状态写「VR 头显 · 手柄摇杆 / Grip+Trigger」 | 收起 | 收起 |
+| 灭火器 `desktopMode` | 强制关（否则压把链路断） | 保留 | 保留 |
+
+`ApplyMode(bool log)` 一次性把上表落到各组件上，并打 `[Mode] 真机 → 手柄 · …（切换次数 N）`；`ForceKind(kind)` 置手动覆盖、`ClearForce()` 回到自动检测。静态出口：`Instance` / `HasInstance` / `RealHeadset` / `VisualsVisible` / `XRControlActive`。
+
+自动复检：`pollInterval = 1.0 s` 轮询 + 订阅 `InputDevices.deviceConnected / deviceDisconnected` 事件立即复检；热键 **F2 = 强制键鼠、F3 = 强制手柄、F4 = 回自动**（真机不在手边时也能排练两种模式）。
+
+#### 9.2.2 `XRDrillLocomotion.cs`（改）：给头显补三个接口
+
+| 新增 | 作用 |
+|---|---|
+| `xrControlMode` + `ApplyControlMode(bool xr)` | 手柄模式只读摇杆、不读键盘；键鼠模式反过来，避免两套输入同时推人 |
+| `RecenterOrigin()` | 把移动锚点挪到当前头显位置（`offset.y = 0`），玩家原地踏步后"脚下就是新原点" |
+| `RecenterTo(pos, yawDegrees, applyYaw)` | 供编辑器探针 / 传送把玩家摆到指定站位与朝向；内部 `MoveRoot()` 先关 `CharacterController` 再写位置，避免被自身碰撞顶开 |
+
+#### 9.2.3 `VRDrillInput.cs` / `VRControllerVisual.cs` / `VRDrillHud.cs` / `DesktopDrillInput.cs`（改）
+
+| 文件 | 改动 |
+|---|---|
+| `VRDrillInput` | `HeadsetPresent` 改为「有设备层就问 `RuntimeDeviceMode.RealHeadset`，没有才退回 `XRSettings.isDeviceActive`」；新增 `locomotion` 字段；HUD 状态行改用 `StatusLine`；**右摇杆按下 = `Recenter()`**，提示「已重定位：你脚下成为新的移动原点」 |
+| `VRControllerVisual` | 新增 `modeVisible`；可见性最终由 `RuntimeDeviceMode.VisualsVisible` 决定（未挂设备层时退回旧行为） |
+| `VRDrillHud` | 新增 `CurrentStatus` 属性（状态行文本），探针与自检断言用它，不再误读提示行 |
+| `DesktopDrillInput` | `EnsureReady()` 公开（组件被 XR 模式禁掉后重开也能补建 HUD）；新增 `SetHudVisible(bool)`；底部 HUD 首行加模式标签 `【桌面模式】/【XR 模拟器】`，面板 120 → 168 高 |
+
+#### 9.2.4 `FireSafetySetup.cs`（改）：把设备层装进场景
+
+`RunSetup()` 在 `SetupVrInput()` 之后调 `SetupRuntimeDeviceMode()`：挂在 `rig.Origin` 上，接线 `vrInput / desktopInput / locomotion / vrHud / cam / rigRoot`，`autoDetect = true`、`pollInterval = 1.0`、`allowHotkeys = true`，并把 `mode.locomotion` 回写给 `vrInput`。日志打印「✔ 设备检测层：RuntimeDeviceMode…」。
+
+### 9.3 使用步骤（头显 / 模拟器 / 桌面）
+
+1. **桌面直接跑**：Unity 里 Play，检测结果「桌面模式 · 键盘鼠标 / WASD+鼠标」，底部 HUD 第一行显示 `【桌面模式】`，鼠标右键拾瓶、左键拔销/压把。没有头显、也不想开模拟器时什么都不用配。
+2. **XR 模拟器**：装了 XR Simulation（或 MockHMD）后 Play，检测结果「XR 模拟器 · 键盘鼠标」，仍用键鼠操作，但**手柄模型会出现**，用来确认虚拟手柄的位置与射线方向；此时 `VRDrillInput` 不接管，避免模拟器冒充真机。
+3. **真机头显（Quest 等）**：
+   - 有线：装好 Quest Link / Air Link，头显里允许数据连接，Unity Play 后 `XRSettings.isDeviceActive` 为真、HMD 名不含模拟器关键字 → 自动进「VR 头显 · 手柄摇杆 / Grip+Trigger」。
+   - 打包：`Project Settings → XR Plug-in Management` 在 Android 页勾选 **OpenXR**（并按厂商要求启用对应 feature）；Player Settings 里 `Scripting Backend = IL2CPP`、`Target Architectures = ARM64`；打包安装后在头显里启动。
+4. **真机键位**：左摇杆推 → 沿头显朝向走（推满小跑）；右摇杆左右 → 45° 瞬转；**右摇杆按下 → 重定位**（把当前脚下设为新原点，坐姿/原地转身后必用）；Grip 抓瓶、Trigger 拔销/压把/喷射；A 开始与翻页、B/X 答题；头显蹲下低于 1.15 m 自动切蹲行。
+5. **排练用热键**：F2 强制键鼠、F3 强制手柄、F4 回自动检测；切换会打 `[Mode]` 日志并计入「切换次数」。
+
+### 9.4 玩家视角验收（`InputModeProbe.RunFromBatch`）
+
+探针走真实 `Play`（不加 `-nographics`、不加 `-quit`），六阶段状态机，每阶段出图并断言：
+
+| 阶段 | 动作 | 断言 | 图 |
+|---|---|---|---|
+| 1 | 自动检测（批处理无头显） | 判 Desktop、键鼠层开、手柄层关、键盘调试开、手柄模型隐藏、VR 提示条隐藏、底部 HUD 含「桌面模式」 | `vr29_mode_1desktop.png` |
+| 2 | `ForceKind(Headset)` | 判「VR 头显」、手柄层接管、键鼠让位、移动层切手柄、手柄模型出现、VR 提示条出现且状态含「VR 头显」 | `vr29_mode_2headset.png` |
+| 3 | 虚拟摇杆推 0.8 走 0.9 s | 位移 ≥ 1.2 m、速度落在 1.5~4.0 m/s、y 未顶飞 | `vr29_mode_3xrmove.png` |
+| 4 | `RecenterTo(3.20, 0, 1.20, yaw 90)` | 水平误差 ≤ 0.2 m、眼高 1.4~1.8 m | `vr29_mode_4recenter.png` |
+| 5 | `ForceKind(Simulator)` | 判「XR 模拟器」、切回键鼠、手柄层关、键盘调试开、手柄模型仍可见、VR 提示条收起、HUD 含「XR 模拟器」 | `vr29_mode_5simulator.png` |
+| 6 | `ClearForce()` | 回自动判 Desktop、键鼠接管、HUD 回「桌面模式」 | `vr29_mode_6auto.png` |
+
+最终读数：位移 **1.51 m**、速度 **1.76 m/s**、重定位误差 **0.00 m**、眼高 **1.68 m**，`切换次数=2 · 通过=是`，`_modeprobe.txt` 末两行 `FAIL_COUNT=0` / `PROBE_EXIT=0`。
+
+逐张判读（玩家视角）：
+
+| 图 | 玩家看到什么 | 结论 |
+|---|---|---|
+| `_1desktop` | 情景三茶水间内景，火光在操作台，底部三行 HUD 完整（`【桌面模式】` / `【鼠标操作】…` / `状态：第 1 阶段…`） | 桌面键鼠可玩、UI 不裁字 |
+| `_2headset` | 视线下方一条世界空间提示条「操作模式（手动）：VR 头显 · 手柄摇杆 / Grip+Trigger」，桌面 HUD 已收起 | 手柄模式接管、只有一套 UI |
+| `_3xrmove` | 玩家被推到门外广场，正对知识墙：红标题条 + 三块展板正文可读，画面底部仍是 VR 提示条 | 摇杆真的位移了，且取景能证明"走过去了" |
+| `_4recenter` | 回到大厅指定站位，正对「安全出口 EXIT」与门洞，透过门能看到广场知识墙 | 重定位生效、眼高正常 |
+| `_5simulator` | 同一站位，底部 HUD 换成 `【XR 模拟器】…`，VR 提示条收起 | 模拟器不冒充真机 |
+| `_6auto` | 回到 `【桌面模式】…` | 清除覆盖后能回到自动检测 |
+
+### 9.5 判图后返工（四条，全部按真实问题处理）
+
+| 现象 | 根因 | 处理 |
+|---|---|---|
+| 室内截图里知识墙文字**穿透墙面与火光**显示，像穿墙 bug | 探针离屏 RT 用了 **0 深度位**：没有深度缓冲时所有物体"没有前后关系"，世界空间 Canvas 直接叠在墙上 | `RenderTexture(1280,720,**24**,…)` 补 24 位深度。加深度后同一角度再看，墙正常遮住知识墙（曾先怀疑 Canvas 未做深度测试，写了一份 `ZTest` 材质副本，验证出是探针问题后已回退，代码保持原样） |
+| 手柄模式下**两块 HUD 叠在画面底部**（世界空间 VR 提示条 + 桌面黑条） | `DesktopDrillInput.enabled=false` 只停逻辑，Overlay Canvas 仍在渲染 | 新增 `SetHudVisible()`，`ApplyMode()` 里按 `desktopInputEnabled` 一起收/放 |
+| 桌面 HUD 加模式标签后**末行被裁** | 1640×120 的黑条容不下三行折行文本 | 标签缩成 `【桌面模式】`（不再塞整串 StatusLine），面板 120 → 168 |
+| 移动截图只剩天空与地平线 | 起点在出生点旁、朝 +z 走 4.7 m 直接越过广场矮墙，镜头对着空天际线 | 起点改到广场 `(7.80, 0, 1.20)` 朝东对知识墙，摇杆 0.8（不触发小跑）走 0.9 s，速度与位移都可核对 |
+
+### 9.6 改动文件清单（第 29 轮）
+
+| 文件 | 改动 |
+|---|---|
+| `Assets/Scripts/FireSafety/RuntimeDeviceMode.cs` | **新增**：三态识别、`ModePlan` 编排、F2/F3/F4 热键、自动复检、HUD 文案 |
+| `Assets/Editor/InputModeProbe.cs` | **新增**：六阶段玩家视角探针（6 图 + 断言 + `_modeprobe.txt`） |
+| `Assets/Scripts/FireSafety/XRDrillLocomotion.cs` | 加 `xrControlMode` / `ApplyControlMode` / `RecenterOrigin` / `RecenterTo` / `MoveRoot` |
+| `Assets/Scripts/FireSafety/VRDrillInput.cs` | 真机判定改走设备层、接 `locomotion`、右摇杆按下重定位、状态行用 `StatusLine` |
+| `Assets/Scripts/FireSafety/VRControllerVisual.cs` | `modeVisible` + 由 `VisualsVisible` 决定显示 |
+| `Assets/Scripts/FireSafety/VRDrillHud.cs` | 新增 `CurrentStatus` |
+| `Assets/Scripts/FireSafety/DesktopDrillInput.cs` | `EnsureReady()` / `SetHudVisible()` / 模式标签 / 面板加高 |
+| `Assets/Editor/FireSafetySetup.cs` | 新增 `SetupRuntimeDeviceMode()` 并在 `RunSetup()` 调用 |
+| `Assets/Editor/FireSafetySelfTest.cs` | 新增 `TestRuntimeDeviceModeRound29()` 25 条断言 |
+| `Assets/Scenes/FireSafetyOffice.unity` | XROrigin 挂 `RuntimeDeviceMode` 并写回接线 |
+
+### 9.7 自检与已知限制
+
+- `FireSafetySelfTest.RunAll` → `Logs/selftest29.log`，末尾 `[TEST] ==== 全部通过 ====`；第 29 轮 25 条断言全 ✔（三态 `Classify`、三套 `ModePlan` 字段组合、场景组件与五项接线、默认 Desktop、`locomotion` 默认非手柄模式与三个方法存在、移动参数表、`RealHeadset` 默认假）。
+- 探针 → `Logs/modeprobe.log`、`Logs/shots/_modeprobe.txt`，`FAIL_COUNT=0` / `PROBE_EXIT=0`；六张图 `Logs/shots/vr29_mode_*.png`。
+- **已知限制（如实记录）**：本机没有可用的头显运行时（批处理日志里有 OpenXR 初始化异常），真机分支只做了两件事——`Classify()` 纯函数灌入 `Oculus Quest 3` / `MockHMD` 等字符串的判定、以及 `ForceKind(Headset)` 注入后各层真实切换与位移；**摇杆死区、瞬转舒适度、HUD 在头显 FOV 里的实际位置**仍需接上真机复验。16:9 截图里键位提示行贴近画面下缘，属相机 FOV 比头显窄造成的取景差异，未做额外下压。
+
 ## 主要功能
 
 - **手柄锚定 UI**：开始界面（前 1.0 m / 上 0.15 m）、倒计时（上 0.42 m / 前 0.12 m）、引导页（前 1.0 m / 上 0.14 m）都跟随右手手柄并朝向玩家（`StartScreen.cs` / `DrillCountdown.cs` / `OnboardingScreen.cs`）
@@ -411,6 +551,9 @@ scenarios[3] = { 电气（DeviceFire / 需断电 / 题库 2 / 出生组 1）
 | 开门（房间门 / 出口门） | 右键单击门 | 空手时 Trigger 指向门 |
 | 答题选项 | 数字 1 / 2 / 3 | B / X 键切换，A 确认 |
 | 蹲下 / 站起 | Ctrl | 左摇杆按下 |
+| 重定位（把脚下设为新原点） | — | 右摇杆按下 |
+
+> 第 29 轮补上了运行环境识别：真机、XR 模拟器、纯桌面三种情况会自动切到对应操作模式，并可用 F2/F3/F4 手动覆盖，详见上文「第 29 轮」。
 
 - **OpenXR 运行时**：`Assets/Editor/VROpenXRConfig.cs` 装配 OpenXRLoader 与 11 项手柄 profile（Oculus Touch / Meta Quest Touch Plus / Vive / Index / 微软 MR 等），批处理入口 `FireSafety.EditorTools.VROpenXRConfig.RunFromBatch`，校验入口 `...VROpenXRConfig.Verify`
 - **输入层**：`Assets/Scripts/FireSafety/VRDrillInput.cs`（按键上升沿 + `_triggerConsumed` 锁，避免一按到底连拔销带压把）

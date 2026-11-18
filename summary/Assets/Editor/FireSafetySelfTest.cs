@@ -38,6 +38,7 @@ namespace FireSafety.EditorTools
             TestStepChain();
             TestSceneWiring();
             TestExtinguisherKindRound28();
+            TestRuntimeDeviceModeRound29();
             TestDrillScenario();
             TestVrConfiguration();
 
@@ -1891,6 +1892,85 @@ namespace FireSafety.EditorTools
                     board.boardCenter.x > 7.25f && board.boardCenter.x < 13.9f
                     && Mathf.Abs(board.boardCenter.z) < 4f);
             }
+        }
+
+        static void TestRuntimeDeviceModeRound29()
+        {
+            // ---- 1. 纯函数分类：桌面 / 模拟器 / 真机 三种输入必须判到三个不同结果 ----
+            RuntimeDeviceMode.DeviceKind k1, k2, k3, k4;
+            string r1, r2, r3, r4;
+            RuntimeDeviceMode.Classify(false, "", "", "", out k1, out r1);
+            RuntimeDeviceMode.Classify(true, "OpenXR Display", "XRSimulationHMD", "Unity XR Simulation", out k2, out r2);
+            RuntimeDeviceMode.Classify(true, "OpenXR Display", "Oculus Quest 3", "OpenXR Display", out k3, out r3);
+            RuntimeDeviceMode.Classify(true, "MockHMD Display", "MockHMD", "MockHMD", out k4, out r4);
+
+            Check("第29轮：无 XR 输出 → 桌面模式（" + r1 + "）", k1 == RuntimeDeviceMode.DeviceKind.Desktop);
+            Check("第29轮：XR Simulation → 模拟器模式（" + r2 + "）", k2 == RuntimeDeviceMode.DeviceKind.Simulator);
+            Check("第29轮：Oculus Quest 3 → 真机头显（" + r3 + "）", k3 == RuntimeDeviceMode.DeviceKind.Headset);
+            Check("第29轮：MockHMD 也算模拟器（" + r4 + "）", k4 == RuntimeDeviceMode.DeviceKind.Simulator);
+            Check("第29轮：三种判定的理由文案非空",
+                !string.IsNullOrEmpty(r1) && !string.IsNullOrEmpty(r2) && !string.IsNullOrEmpty(r3));
+
+            // ---- 2. 三种设备对应的操作方案 ----
+            var headset = RuntimeDeviceMode.PlanFor(RuntimeDeviceMode.DeviceKind.Headset);
+            var simulator = RuntimeDeviceMode.PlanFor(RuntimeDeviceMode.DeviceKind.Simulator);
+            var desktop = RuntimeDeviceMode.PlanFor(RuntimeDeviceMode.DeviceKind.Desktop);
+
+            Check("第29轮：真机 → 手柄层开启、键鼠层关闭",
+                headset.vrInputEnabled && !headset.desktopInputEnabled
+                && headset.control == RuntimeDeviceMode.ControlMode.XRControllers);
+            Check("第29轮：真机 → 手柄模型可见、键盘调试关闭、灭火器桌面开关关掉",
+                headset.controllerVisuals && !headset.keyboardDebug && headset.headsetDesktopModeOff);
+            Check("第29轮：模拟器 → 键鼠层开启、手柄层关闭（避免模拟器被当成真机接管）",
+                simulator.desktopInputEnabled && !simulator.vrInputEnabled
+                && simulator.control == RuntimeDeviceMode.ControlMode.KeyboardMouse);
+            Check("第29轮：模拟器 → 仍显示手柄模型、键盘调试可用",
+                simulator.controllerVisuals && simulator.keyboardDebug);
+            Check("第29轮：桌面 → 键鼠层开启、手柄模型隐藏",
+                desktop.desktopInputEnabled && !desktop.controllerVisuals);
+            Check("第29轮：三种状态文案分别含「头显 / 模拟器 / 桌面」",
+                headset.status.Contains("头显") && simulator.status.Contains("模拟器") && desktop.status.Contains("桌面"));
+
+            // ---- 3. 场景里必须真的挂上这个组件，并且引用齐全 ----
+            var mode = UnityEngine.Object.FindObjectOfType<RuntimeDeviceMode>();
+            Check("第29轮：场景存在 RuntimeDeviceMode（挂在 XR Origin 上）", mode != null);
+            if (mode != null)
+            {
+                Check("第29轮：已接线 VRDrillInput", mode.vrInput != null);
+                Check("第29轮：已接线 DesktopDrillInput", mode.desktopInput != null);
+                Check("第29轮：已接线 XRDrillLocomotion", mode.locomotion != null);
+                Check("第29轮：已接线 VRDrillHud", mode.vrHud != null);
+                Check("第29轮：摄像机与锚点已接线", mode.cam != null && mode.rigRoot != null);
+                Check("第29轮：自动检测开启、轮询间隔 1 秒左右",
+                    mode.autoDetect && mode.pollInterval >= 0.5f && mode.pollInterval <= 2f);
+                Check("第29轮：默认状态是桌面模式（编辑器批处理无头显）",
+                    mode.deviceKind == RuntimeDeviceMode.DeviceKind.Desktop || mode.forced);
+            }
+
+            // ---- 4. 头显移动层：模式参数 + 重定位接口存在，且默认键盘调试开启 ----
+            var loco = UnityEngine.Object.FindObjectOfType<XRDrillLocomotion>();
+            Check("第29轮：场景存在 XRDrillLocomotion", loco != null);
+            if (loco != null)
+            {
+                Check("第29轮：移动层默认不是「手柄接管」状态（无头显时键鼠优先）", !loco.xrControlMode);
+                Check("第29轮：移动层提供 ApplyControlMode / RecenterOrigin / RecenterTo",
+                    loco.GetType().GetMethod("ApplyControlMode") != null
+                    && loco.GetType().GetMethod("RecenterOrigin") != null
+                    && loco.GetType().GetMethod("RecenterTo") != null);
+                Check("第29轮：摇杆移动参数表齐全（速度 " + loco.moveSpeed + " / 蹲行 " + loco.crawlSpeed
+                      + " / 瞬转 " + loco.snapAngle + "°）",
+                    loco.moveSpeed > 1f && loco.crawlSpeed > 0.5f && loco.snapAngle >= 30f);
+            }
+
+            var vr = UnityEngine.Object.FindObjectOfType<VRDrillInput>();
+            Check("第29轮：VRDrillInput 已拿到移动层引用（右摇杆按下可重定位）",
+                vr != null && vr.locomotion != null);
+
+            // ---- 5. 静态开关默认值：没有真机时不能自称头显接管 ----
+            Check("第29轮：静态 RealHeadset 默认 false（编辑器无真机）", !RuntimeDeviceMode.RealHeadset);
+            Check("第29轮：状态文案函数可用",
+                RuntimeDeviceMode.KindLabel(RuntimeDeviceMode.DeviceKind.Headset).Contains("头显")
+                && RuntimeDeviceMode.ControlLabel(RuntimeDeviceMode.ControlMode.KeyboardMouse).Contains("键盘"));
         }
 
         static void Check(string name, bool ok)

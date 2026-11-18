@@ -35,6 +35,9 @@ namespace FireSafety
 
         public string CurrentHint { get; private set; } = "";
 
+        /// <summary>当前状态行文本（"VR 头显已连接" / "XR 模拟器…" 等），自检与探针断言用。</summary>
+        public string CurrentStatus { get; private set; } = "";
+
         /// <summary>被模态面板（问答/完成/结算）暂时压暗：整块 HUD 淡到透明，避免和新面板叠在一起。</summary>
         public bool suppressed { get; set; }
 
@@ -142,6 +145,7 @@ namespace FireSafety
         /// <summary>刷新状态行（例如“VR 头显已连接” / “等待头显连接”）。</summary>
         public void SetStatus(string status)
         {
+            CurrentStatus = status ?? "";
             if (_statusText != null) _statusText.text = status;
         }
 

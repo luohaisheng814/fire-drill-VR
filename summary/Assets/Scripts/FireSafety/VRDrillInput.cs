@@ -21,12 +21,14 @@ namespace FireSafety
     [DisallowMultipleComponent]
     public class VRDrillInput : MonoBehaviour
     {
-        /// <summary>头显是否已连接并初始化（真实设备）。</summary>
+        /// <summary>头显是否已连接并初始化（真机）。第 29 轮起由 RuntimeDeviceMode 判定，避免把 XR 模拟器当成真机。</summary>
         public static bool HeadsetPresent
         {
             get
             {
-                // Unity 6 起 XRDevice.isPresent 已移除，XRSettings.isDeviceActive 即「头显正在输出」
+                // Unity 6 起 XRDevice.isPresent 已移除，XRSettings.isDeviceActive 只说明"有 XR 显示在输出"，
+                // 它同时包含 XR 模拟器；真机判定必须取 RuntimeDeviceMode 的结果。
+                if (RuntimeDeviceMode.HasInstance) return RuntimeDeviceMode.RealHeadset;
                 return XRSettings.isDeviceActive;
             }
         }
@@ -46,6 +48,7 @@ namespace FireSafety
         public StageOneCompletePanel stagePanel;
         public StageTwoFlow stageTwo;
         public VRDrillHud hud;
+        public XRDrillLocomotion locomotion;
         public Transform leftHand;
         public Transform rightHand;
 
@@ -77,7 +80,7 @@ namespace FireSafety
         public bool vTrigger;
         public bool vStickClick;
 
-        bool _prevTrigger, _prevPrimary, _prevSecondary, _prevLeftPrimary, _prevStickClick;
+        bool _prevTrigger, _prevPrimary, _prevSecondary, _prevLeftPrimary, _prevStickClick, _prevStickClickRight;
         bool _triggerConsumed;                 // 本次按压已用于拔销，不再顺带压把
         bool _virtualRegistered;
         float _lastHint = -999f;
@@ -105,7 +108,15 @@ namespace FireSafety
             {
                 hud.head = hud.head != null ? hud.head : (Camera.main != null ? Camera.main.transform : null);
                 hud.SetVisible(active);
-                if (active) hud.SetStatus(virtualMode && !HeadsetPresent ? "VR 探针模式（模拟头显）" : "VR 头显已连接");
+                if (active)
+                {
+                    string status = virtualMode && !HeadsetPresent
+                        ? "VR 探针模式（模拟头显）"
+                        : (RuntimeDeviceMode.HasInstance
+                            ? RuntimeDeviceMode.Instance.StatusLine
+                            : "VR 头显已连接");
+                    hud.SetStatus(status);
+                }
             }
             if (!active) return;
 
@@ -180,13 +191,28 @@ namespace FireSafety
             // ---- 左摇杆按下：蹲下 / 站起兜底 ----
             if (stickClick && !_prevStickClick) ToggleCrouch();
 
+            // ---- 右摇杆按下：原地重定位（现实中走出安全区/相机被挤开时一键回到脚下） ----
+            bool stickClickRight = virtualMode ? false : Button(XRNode.RightHand, UnityEngine.XR.CommonUsages.primary2DAxisClick);
+            if (stickClickRight && !_prevStickClickRight) Recenter();
+
             _prevTrigger = trigger;
             _prevPrimary = primary;
             _prevSecondary = secondary;
             _prevLeftPrimary = leftPrimary;
             _prevStickClick = stickClick;
+            _prevStickClickRight = stickClickRight;
 
             UpdateIdleHint();
+        }
+
+        /// <summary>右摇杆按下：把移动原点挪到当前头部位置，并给一条确认提示。</summary>
+        void Recenter()
+        {
+            var loco = locomotion != null ? locomotion : GetComponent<XRDrillLocomotion>();
+            if (loco == null) loco = FindObjectOfType<XRDrillLocomotion>();
+            if (loco == null) { Hint("找不到移动层，无法重定位"); return; }
+            loco.RecenterOrigin();
+            Hint("已重定位：你脚下成为新的移动原点");
         }
 
         void OnPrimary()

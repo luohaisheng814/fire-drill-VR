@@ -41,6 +41,12 @@ namespace FireSafety
         /// <summary>模型根节点（自检与探针定位用）。</summary>
         public GameObject ModelRoot { get; private set; }
 
+        /// <summary>
+        /// 由 RuntimeDeviceMode 写入的模式可见性：真机与 XR 模拟器为 true，桌面模式为 false。
+        /// 与 showInDesktop / DrillInputActive 取"与"关系，避免两处判断互相打架。
+        /// </summary>
+        public bool modeVisible = true;
+
         const int IgnoreRaycastLayer = 2;
         Transform _holder;
 
@@ -56,7 +62,12 @@ namespace FireSafety
 
         void Update()
         {
-            SetVisible(showInDesktop || VRDrillInput.DrillInputActive);
+            // 真机与 XR 模拟器要看得到手柄；桌面模式藏起来。
+            // 没挂 RuntimeDeviceMode 时退回旧行为（DrillInputActive 或 showInDesktop）。
+            bool want = RuntimeDeviceMode.HasInstance
+                ? RuntimeDeviceMode.VisualsVisible
+                : (showInDesktop || VRDrillInput.DrillInputActive);
+            SetVisible(want && modeVisible);
         }
 
         /// <summary>生成手柄模型（幂等，可重复调用）。</summary>

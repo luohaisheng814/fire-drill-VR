@@ -127,6 +127,9 @@ namespace FireSafety.EditorTools
             // 9. 头显输入层：Trigger 拔销/压把/喷射、A/B/X 问答与翻页、左摇杆按下蹲起、VR 提示条
             SetupVrInput(rig, cam);
 
+            // 9.1 运行环境识别与操作模式切换（真机=手柄 / XR 模拟器=键鼠 / 桌面=键鼠）
+            SetupRuntimeDeviceMode(rig, cam);
+
             // 10. 新流程编排：操作演练 + 正式两阶段（随机出生点 / 设备火 / 电源 / 火焰血量 / 出口火）
             SetupDrillScenario(rig != null ? rig.gameObject : null);
 
@@ -2259,6 +2262,33 @@ namespace FireSafety.EditorTools
 
             Debug.Log("[Setup] ✔ 头显输入层：VRDrillInput（Trigger 拔销/压把/喷射 · A 开始/翻页 · A/B/X 选答 · 左摇杆按下蹲起）"
                       + " + VRDrillHud（视线下方 0.22 米的世界空间提示条）");
+        }
+
+        // ================================================================
+        // 9.1 运行环境识别 + 操作模式切换（第 29 轮）
+        // ================================================================
+
+        static void SetupRuntimeDeviceMode(XROrigin rig, Transform cam)
+        {
+            var host = rig.Origin != null ? rig.Origin : rig.gameObject;
+            var mode = host.GetComponent<RuntimeDeviceMode>();
+            if (mode == null) mode = host.AddComponent<RuntimeDeviceMode>();
+
+            mode.vrInput = host.GetComponent<VRDrillInput>();
+            mode.desktopInput = UnityEngine.Object.FindObjectOfType<DesktopDrillInput>(true);
+            mode.locomotion = host.GetComponent<XRDrillLocomotion>();
+            mode.vrHud = UnityEngine.Object.FindObjectOfType<VRDrillHud>(true);
+            mode.cam = cam;
+            mode.rigRoot = rig.transform;
+            mode.autoDetect = true;
+            mode.pollInterval = 1f;
+            mode.allowHotkeys = true;
+
+            // 头显输入层拿一份移动层引用，右摇杆按下才能做"原地重定位"
+            if (mode.vrInput != null) mode.vrInput.locomotion = mode.locomotion;
+
+            Debug.Log("[Setup] ✔ 设备检测层：RuntimeDeviceMode（真机头显=手柄+摇杆 · XR 模拟器/桌面=键鼠；"
+                      + "F2 强制键鼠 / F3 强制手柄 / F4 回到自动检测）");
         }
 
         // ================================================================

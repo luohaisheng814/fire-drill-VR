@@ -118,6 +118,15 @@ namespace FireSafety
 
         private void Start()
         {
+            EnsureReady();
+        }
+
+        /// <summary>
+        /// 解析引用并让 HUD/手部锚点就绪。第 29 轮由 RuntimeDeviceMode 在"切回键鼠模式"时调用：
+        /// 组件可能在开局就被 XR 模式禁用（此时 Awake 还没跑），重新启用时必须补一次初始化。
+        /// </summary>
+        public void EnsureReady()
+        {
             if ((extinguishers == null || extinguishers.Length == 0) && extinguisher == null)
                 extinguishers = FindObjectsByType<Extinguisher>(FindObjectsSortMode.None);
 
@@ -136,7 +145,6 @@ namespace FireSafety
             // 头显连接时不能强制桌面模式：desktopMode 会短路 Extinguisher.CheckSpray，
             // 压把→喷射链路就整段失效，只能用右键双击。
             bool headset = VRDrillInput.DrillInputActive;
-
             foreach (var e in extinguishers)
             {
                 if (e == null) continue;
@@ -708,7 +716,7 @@ namespace FireSafety
             rt.anchorMax = new Vector2(0.5f, 0f);
             rt.pivot = new Vector2(0.5f, 0f);
             rt.anchoredPosition = new Vector2(0f, 16f);
-            rt.sizeDelta = new Vector2(1640f, 120f);
+            rt.sizeDelta = new Vector2(1640f, 168f);
 
             var img = bar.GetComponent<Image>();
             img.color = new Color(0f, 0f, 0f, 0.62f);
@@ -735,6 +743,13 @@ namespace FireSafety
             RefreshHudText(true);      // 首帧就把键位说明显示出来
         }
 
+        /// <summary>显示/收起底部键位 HUD（切到手柄模式时由 RuntimeDeviceMode 调用）。</summary>
+        public void SetHudVisible(bool visible)
+        {
+            if (_hudCanvas != null && _hudCanvas.gameObject.activeSelf != visible)
+                _hudCanvas.gameObject.SetActive(visible);
+        }
+
         private void RefreshHudText(bool force)
         {
             if (!showHud || _hudText == null) return;
@@ -747,7 +762,10 @@ namespace FireSafety
                 "｜　左键双击：压把　｜　右键双击：喷射（再双击停止）　｜　P：放下　｜　右键单击门：开门";
 
             string status = Time.unscaledTime < _statusUntil ? _status : "";
-            string line = controls + "\n" + StateText();
+            string modeLine = RuntimeDeviceMode.HasInstance
+                ? "【" + RuntimeDeviceMode.KindLabel(RuntimeDeviceMode.Instance.deviceKind) + "】　"
+                : "";
+            string line = modeLine + controls + "\n" + StateText();
             if (!string.IsNullOrEmpty(status)) line += "　｜　" + status;
             _hudText.text = line;
         }
