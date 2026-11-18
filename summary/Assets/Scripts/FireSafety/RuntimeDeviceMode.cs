@@ -86,6 +86,8 @@ namespace FireSafety
         public string hmdName = "";
         [Tooltip("判定理由（一句话，写进 HUD / 日志）")]
         public string reason = "尚未检测";
+        [Tooltip("最近一次检测到的 XR 手柄数量（0~2）")]
+        public int controllerCount = 0;
 
         /// <summary>本次运行切换过几次模式（自检断言用）。</summary>
         public int SwitchCount { get; private set; }
@@ -197,6 +199,19 @@ namespace FireSafety
             DeviceKind kind;
             string why;
             Classify(active, loaded, hmd, displayId, out kind, out why);
+
+            // 第 30 轮补的一条证据：显示可能被串流/镜像软件接管（isDeviceActive=false），
+            // 但左右手柄已经被 XR 运行时识别 —— 这时仍应按真机处理，
+            // 否则会出现「摇杆能走（走 XRI 动作）、按键全哑（VRDrillInput 被停掉）」的现象。
+            int controllers = 0;
+            if (InputDevices.GetDeviceAtXRNode(XRNode.LeftHand).isValid) controllers++;
+            if (InputDevices.GetDeviceAtXRNode(XRNode.RightHand).isValid) controllers++;
+            controllerCount = controllers;
+            if (kind == DeviceKind.Desktop && controllers > 0)
+            {
+                kind = DeviceKind.Headset;
+                why = "显示未激活，但已识别到 " + controllers + " 只 XR 手柄（串流/镜像场景），按真机处理";
+            }
 
             loadedDevice = loaded ?? "";
             hmdName = hmd ?? "";
@@ -316,7 +331,7 @@ namespace FireSafety
             var plan = PlanFor(deviceKind);
             var previous = controlMode;
             controlMode = plan.control;
-            RealHeadset = plan.control == ControlMode.XRControllers;
+            RealHeadset = deviceKind == DeviceKind.Headset;
             VisualsVisible = plan.controllerVisuals;
             _applied = true;
             if (previous != controlMode) SwitchCount++;
@@ -358,5 +373,8 @@ namespace FireSafety
 
         /// <summary>当前是否应由手柄层接管（供外部脚本查询，等价于 controlMode==XRControllers）。</summary>
         public static bool XRControlActive => HasInstance ? Instance.controlMode == ControlMode.XRControllers : false;
+
+        /// <summary>最近一次检测到的 XR 手柄数量（0~2），供 HUD 与诊断面板用。</summary>
+        public static int Controllers => HasInstance ? Instance.controllerCount : 0;
     }
 }

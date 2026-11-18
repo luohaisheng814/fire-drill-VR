@@ -48,6 +48,7 @@ namespace FireSafety
         public StageOneCompletePanel stagePanel;
         public StageTwoFlow stageTwo;
         public VRDrillHud hud;
+        public VRHelpPanel helpPanel;
         public XRDrillLocomotion locomotion;
         public Transform leftHand;
         public Transform rightHand;
@@ -77,10 +78,14 @@ namespace FireSafety
         public bool vPrimary;
         public bool vSecondary;
         public bool vLeftPrimary;
+        public bool vLeftSecondary;
         public bool vTrigger;
+        public bool vGrip;
         public bool vStickClick;
+        public bool vStickClickRight;
 
-        bool _prevTrigger, _prevPrimary, _prevSecondary, _prevLeftPrimary, _prevStickClick, _prevStickClickRight;
+        bool _prevTrigger, _prevPrimary, _prevSecondary, _prevLeftPrimary, _prevLeftSecondary;
+        bool _prevStickClick, _prevStickClickRight, _prevGrip;
         bool _triggerConsumed;                 // 本次按压已用于拔销，不再顺带压把
         bool _virtualRegistered;
         float _lastHint = -999f;
@@ -94,8 +99,8 @@ namespace FireSafety
 
         void OnEnable()
         {
-            if (rightTriggerAction != null && rightTriggerAction.action != null) rightTriggerAction.action.Enable();
-            if (leftTriggerAction != null && leftTriggerAction.action != null) leftTriggerAction.action.Enable();
+            // 第 30 轮：把扳机动作交给统一输入层（新输入系统 / 旧 XR / 键盘三级兜底）
+            VRInputSource.BindActions(rightTriggerAction, leftTriggerAction);
         }
 
         void Update()
@@ -107,14 +112,19 @@ namespace FireSafety
             if (hud != null)
             {
                 hud.head = hud.head != null ? hud.head : (Camera.main != null ? Camera.main.transform : null);
-                hud.SetVisible(active);
-                if (active)
+                // 帮助面板打开时先收起提示条，避免两层文字叠在视线里
+                bool hudWant = active && (helpPanel == null || !helpPanel.Visible);
+                hud.SetVisible(hudWant);
+                if (hudWant)
                 {
                     string status = virtualMode && !HeadsetPresent
                         ? "VR 探针模式（模拟头显）"
                         : (RuntimeDeviceMode.HasInstance
                             ? RuntimeDeviceMode.Instance.StatusLine
                             : "VR 头显已连接");
+                    // 手柄没识别时直接把原因写在状态行里（短句，避免一行被折成两行压住提示）
+                    if (!virtualMode && HeadsetPresent && !VRInputSource.AnyControllerValid)
+                        status = "VR 头显 · 手柄未识别（按 Y 看诊断）";
                     hud.SetStatus(status);
                 }
             }
@@ -125,13 +135,33 @@ namespace FireSafety
                 foreach (var e in extinguishers)
                     if (e != null && e.desktopMode) e.desktopMode = false;
 
-            bool trigger = virtualMode ? vTrigger : ReadTrigger();
-            bool primary = virtualMode ? vPrimary : Button(XRNode.RightHand, UnityEngine.XR.CommonUsages.primaryButton);
-            bool secondary = virtualMode ? vSecondary : Button(XRNode.RightHand, UnityEngine.XR.CommonUsages.secondaryButton);
-            bool leftPrimary = virtualMode ? vLeftPrimary : Button(XRNode.LeftHand, UnityEngine.XR.CommonUsages.primaryButton);
-            bool stickClick = virtualMode ? vStickClick : Button(XRNode.LeftHand, UnityEngine.XR.CommonUsages.primary2DAxisClick);
+            // 第 30 轮：所有按键统一走 VRInputSource（Input System XRController → 旧 XR.InputDevices → 键盘兜底）。
+            // 之前直接读 UnityEngine.XR.InputDevices，在「新输入系统 + OpenXR」下设备常常拿不到，
+            // 表现就是左摇杆能走（走的是 XRI 动作）、其他键全无反应。
+            var snap = virtualMode ? default(VRInputSource.Snapshot) : VRInputSource.Read(HeadsetPresent);
+            bool trigger = virtualMode ? vTrigger : snap.trigger;
+            bool primary = virtualMode ? vPrimary : snap.primary;
+            bool secondary = virtualMode ? vSecondary : snap.secondary;
+            bool leftPrimary = virtualMode ? vLeftPrimary : snap.leftPrimary;
+            bool leftSecondary = virtualMode ? vLeftSecondary : snap.leftSecondary;
+            bool stickClick = virtualMode ? vStickClick : snap.stickClickLeft;
+            bool stickClickRight = virtualMode ? vStickClickRight : snap.stickClickRight;
+            bool gripNow = virtualMode ? vGrip : snap.grip;
+
+            // F5：任何模式下都能开关操作帮助面板（编辑器里排练用；头显里用 Y）
+            var kb = UnityEngine.InputSystem.Keyboard.current;
+            if (kb != null && kb.f5Key.wasPressedThisFrame && helpPanel != null)
+            {
+                helpPanel.Toggle();
+                Hint(helpPanel.Visible ? "已打开操作帮助面板 · Y / F5 关闭" : "已关闭操作帮助面板");
+            }
 
             _held = FindHeld();
+
+            // Grip 按下但手里没东西：直接告诉玩家"按到了、只是没抓住"，不再静默无反应
+            if (gripNow && !_prevGrip && _held == null)
+                Hint("Grip 已按下：手边没有可抓的灭火器（站到瓶旁 2 米内，Grip 要按到底）");
+            _prevGrip = gripNow;
 
             // 抓取成功 → 一次轻脉冲（VR 里没有「拿住了」的视觉确认，靠手上震一下）
             if (_held != null && _prevHeld != _held) PulseRight(hapticGrab, hapticDuration);
@@ -169,6 +199,11 @@ namespace FireSafety
                 {
                     // 扳机也可开情景二/三那扇通往出口的房间门（第 27 轮）
                 }
+                else
+                {
+                    // 按到了、但射线没指到任何可交互物 —— 给一句反馈，避免"按了毫无动静"
+                    Hint("Trigger 已按下：射线没指到可交互物（电源箱 / 门 / 灭火器）");
+                }
             }
             else if (!trigger && _prevTrigger)
             {
@@ -188,17 +223,28 @@ namespace FireSafety
                 if (!AnswerQuiz(2)) Hint("X 键：问答时选 C");
             }
 
+            // ---- Y：打开 / 关闭操作帮助（输入诊断）面板 ----
+            if (leftSecondary && !_prevLeftSecondary)
+            {
+                if (helpPanel != null)
+                {
+                    helpPanel.Toggle();
+                    Hint(helpPanel.Visible ? "已打开操作帮助面板 · Y 关闭" : "已关闭操作帮助面板");
+                }
+                else Hint("Y 键：场景里没有挂操作帮助面板（先跑一遍 RunSetup）");
+            }
+
             // ---- 左摇杆按下：蹲下 / 站起兜底 ----
             if (stickClick && !_prevStickClick) ToggleCrouch();
 
             // ---- 右摇杆按下：原地重定位（现实中走出安全区/相机被挤开时一键回到脚下） ----
-            bool stickClickRight = virtualMode ? false : Button(XRNode.RightHand, UnityEngine.XR.CommonUsages.primary2DAxisClick);
             if (stickClickRight && !_prevStickClickRight) Recenter();
 
             _prevTrigger = trigger;
             _prevPrimary = primary;
             _prevSecondary = secondary;
             _prevLeftPrimary = leftPrimary;
+            _prevLeftSecondary = leftSecondary;
             _prevStickClick = stickClick;
             _prevStickClickRight = stickClickRight;
 
@@ -381,20 +427,10 @@ namespace FireSafety
             VRHaptics.Pulse(HandSide.Right, amplitude, duration);
         }
 
-        bool ReadTrigger()
+        /// <summary>给射线/悬停这类外部反馈用的公开脉冲入口。</summary>
+        public void PulseRightPublic(float amplitude, float duration)
         {
-            if (rightTriggerAction != null && rightTriggerAction.action != null &&
-                rightTriggerAction.action.ReadValue<float>() > 0.5f) return true;
-            if (leftTriggerAction != null && leftTriggerAction.action != null &&
-                leftTriggerAction.action.ReadValue<float>() > 0.5f) return true;
-            if (Button(XRNode.RightHand, UnityEngine.XR.CommonUsages.triggerButton)) return true;
-            return Button(XRNode.LeftHand, UnityEngine.XR.CommonUsages.triggerButton);
-        }
-
-        static bool Button(XRNode node, InputFeatureUsage<bool> usage)
-        {
-            var d = InputDevices.GetDeviceAtXRNode(node);
-            return d.isValid && d.TryGetFeatureValue(usage, out bool v) && v;
+            PulseRight(amplitude, duration);
         }
     }
 }

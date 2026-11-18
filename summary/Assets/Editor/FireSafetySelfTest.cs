@@ -39,6 +39,7 @@ namespace FireSafety.EditorTools
             TestSceneWiring();
             TestExtinguisherKindRound28();
             TestRuntimeDeviceModeRound29();
+            TestInputFeedbackRound30();
             TestDrillScenario();
             TestVrConfiguration();
 
@@ -1971,6 +1972,82 @@ namespace FireSafety.EditorTools
             Check("第29轮：状态文案函数可用",
                 RuntimeDeviceMode.KindLabel(RuntimeDeviceMode.DeviceKind.Headset).Contains("头显")
                 && RuntimeDeviceMode.ControlLabel(RuntimeDeviceMode.ControlMode.KeyboardMouse).Contains("键盘"));
+        }
+
+        static void TestInputFeedbackRound30()
+        {
+            // ---- 1. 统一输入层：三级读取可用，诊断文案可读 ----
+            var snap = VRInputSource.Read(false);
+            Check("第30轮：输入快照能正常读取（不抛异常）", true);
+            Check("第30轮：诊断行含「设备」「输入源」「T/G」三个字段",
+                VRInputSource.Diagnostics().Contains("设备")
+                && VRInputSource.Diagnostics().Contains("输入源")
+                && VRInputSource.Diagnostics().Contains("T/G"));
+            Check("第30轮：编辑器无手柄时诊断为「未识别」", VRInputSource.ControllerBrief().Contains("未识别"));
+            Check("第30轮：扳机/握把数值在 0~1 范围内",
+                snap.triggerValue >= 0f && snap.triggerValue <= 1f
+                && snap.gripValue >= 0f && snap.gripValue <= 1f);
+            Check("第30轮：绑定动作接口存在（BindActions(right,left)）",
+                typeof(VRInputSource).GetMethod("BindActions") != null
+                && typeof(VRInputSource).GetMethod("Read") != null);
+
+            // ---- 2. 帮助面板：场景已挂、接线到头显相机、能开关 ----
+            var help = UnityEngine.Object.FindObjectOfType<VRHelpPanel>();
+            Check("第30轮：场景存在 VRHelpPanel（操作帮助 / 输入诊断）", help != null);
+            if (help != null)
+            {
+                Check("第30轮：帮助面板绑定观察者（head）", help.head != null);
+                bool initial = help.Visible;
+                help.Toggle();
+                bool after = help.Visible;
+                help.SetVisible(initial);
+                Check("第30轮：Toggle 能切换可见性（" + initial + " → " + after + "）", initial != after);
+                Check("第30轮：默认收起（戴着头显不挡视线）", !help.startsOpen);
+            }
+
+            // ---- 3. 右手射线：挂在右手柄上，接线到 VRDrillInput ----
+            var vr = UnityEngine.Object.FindObjectOfType<VRDrillInput>();
+            var pointer = UnityEngine.Object.FindObjectOfType<VRPointerVisual>();
+            Check("第30轮：场景存在 VRPointerVisual（右手激光/悬停反馈）", pointer != null);
+            if (pointer != null)
+            {
+                Check("第30轮：激光起点的 source 已接线", pointer.source != null);
+                Check("第30轮：激光已接线 VRDrillInput（悬停可发触觉）", pointer.drillInput == vr && vr != null);
+                Check("第30轮：射线长度与线宽参数在合理范围",
+                    pointer.maxDistance >= 2f && pointer.maxDistance <= 12f
+                    && pointer.lineWidth > 0.002f && pointer.lineWidth < 0.05f);
+            }
+
+            // ---- 4. VRDrillInput 新增的按键与反馈入口 ----
+            if (vr != null)
+            {
+                Check("第30轮：VRDrillInput 已接线帮助面板", vr.helpPanel != null);
+                Check("第30轮：新增虚拟键 Grip / 左手二级键 / 右摇杆按下",
+                    HasField(typeof(VRDrillInput), "vGrip")
+                    && HasField(typeof(VRDrillInput), "vLeftSecondary")
+                    && HasField(typeof(VRDrillInput), "vStickClickRight"));
+                Check("第30轮：提供公开触觉入口 PulseRightPublic",
+                    typeof(VRDrillInput).GetMethod("PulseRightPublic") != null);
+                Check("第30轮：旧的裸读入口已移除（ReadTrigger / Button 不再存在）",
+                    typeof(VRDrillInput).GetMethod("ReadTrigger", BindingFlags.Instance | BindingFlags.NonPublic) == null
+                    && typeof(VRDrillInput).GetMethod("Button", BindingFlags.Static | BindingFlags.NonPublic) == null);
+            }
+
+            // ---- 5. 设备检测补丁：串流场景下靠手柄数量兜底 ----
+            var mode = UnityEngine.Object.FindObjectOfType<RuntimeDeviceMode>();
+            if (mode != null)
+            {
+                Check("第30轮：RuntimeDeviceMode 暴露 controllerCount", HasField(typeof(RuntimeDeviceMode), "controllerCount"));
+                Check("第30轮：静态 Controllers 可查询（0~2）",
+                    RuntimeDeviceMode.Controllers >= 0 && RuntimeDeviceMode.Controllers <= 2);
+                Check("第30轮：RealHeadset 与 deviceKind 语义一致（编辑器为桌面 → false）",
+                    RuntimeDeviceMode.RealHeadset == (mode.deviceKind == RuntimeDeviceMode.DeviceKind.Headset));
+            }
+        }
+
+        static bool HasField(System.Type t, string name)
+        {
+            return t.GetField(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic) != null;
         }
 
         static void Check(string name, bool ok)

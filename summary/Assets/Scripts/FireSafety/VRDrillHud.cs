@@ -17,11 +17,11 @@ namespace FireSafety
         [Tooltip("沿视线前方的距离（米）")]
         public float distance = 0.9f;
         [Tooltip("相对视线向下的偏移（米）")]
-        public float verticalOffset = -0.4f;
+        public float verticalOffset = -0.34f;
         [Tooltip("跟随平滑（越大越跟手）")]
         public float followSpeed = 8f;
         [Tooltip("面板缩放：1 单位 = 1 米")]
-        public float canvasScale = 0.00038f;
+        public float canvasScale = 0.00046f;
 
         [Header("文案")]
         public string title = "头显操作提示";
@@ -78,7 +78,7 @@ namespace FireSafety
             _canvas.renderMode = RenderMode.WorldSpace;
             _canvas.sortingOrder = 320;
             var rt = go.GetComponent<RectTransform>();
-            rt.sizeDelta = new Vector2(1500, 430);
+            rt.sizeDelta = new Vector2(1500, 460);
             rt.localScale = Vector3.one * canvasScale;
 
             var panel = new GameObject("Panel", typeof(RectTransform), typeof(Image), typeof(CanvasGroup));
@@ -94,9 +94,9 @@ namespace FireSafety
             _group = panel.GetComponent<CanvasGroup>();
             _group.alpha = 1f;
 
-            _statusText = MakeText(panel.transform, title, 40, new Color(0.45f, 0.95f, 1f), 84f, TextAnchor.MiddleCenter);
-            _hintText = MakeText(panel.transform, "", 36, Color.white, 150f, TextAnchor.MiddleCenter);
-            _keyText = MakeText(panel.transform, keyLine, 26, new Color(0.75f, 0.82f, 0.9f), 160f, TextAnchor.MiddleCenter);
+            _statusText = MakeText(panel.transform, title, 44, new Color(0.45f, 0.95f, 1f), 92f, TextAnchor.MiddleCenter);
+            _hintText = MakeText(panel.transform, "", 40, Color.white, 168f, TextAnchor.MiddleCenter);
+            _keyText = MakeText(panel.transform, keyLine, 30, new Color(0.75f, 0.82f, 0.9f), 178f, TextAnchor.MiddleCenter);
 
             // 纵向排列
             float y = 0f;

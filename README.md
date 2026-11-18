@@ -519,6 +519,91 @@ scenarios[3] = { 电气（DeviceFire / 需断电 / 题库 2 / 出生组 1）
 - 探针 → `Logs/modeprobe.log`、`Logs/shots/_modeprobe.txt`，`FAIL_COUNT=0` / `PROBE_EXIT=0`；六张图 `Logs/shots/vr29_mode_*.png`。
 - **已知限制（如实记录）**：本机没有可用的头显运行时（批处理日志里有 OpenXR 初始化异常），真机分支只做了两件事——`Classify()` 纯函数灌入 `Oculus Quest 3` / `MockHMD` 等字符串的判定、以及 `ForceKind(Headset)` 注入后各层真实切换与位移；**摇杆死区、瞬转舒适度、HUD 在头显 FOV 里的实际位置**仍需接上真机复验。16:9 截图里键位提示行贴近画面下缘，属相机 FOV 比头显窄造成的取景差异，未做额外下压。
 
+## 第 30 轮：手柄按键「只有摇杆能动」的根因修复 + 头显内即时反馈
+
+### 10.1 用户报告与实物确认
+
+玩家在 Quest 2（Link 串流到 PC）里进入演练后：**电脑上的模拟器画面能正常投到头显里，左摇杆也能走、能转向，但 Grip / Trigger / A / B / X 全部没有任何反应**。随附三张实拍确认设备为 Quest 2 头显（背面贴「동아대학교 / 오큘러스 퀘스트2 / 컴퓨터공학과」资产标签）+ Quest 2 右手柄（A/B、摇杆、扳机），排除了"手柄没电/没配对"这类表层原因。
+
+### 10.2 根因：两套输入在读同一只手柄，但只有一套读得到
+
+| 证据 | 说明 |
+|---|---|
+| `ProjectSettings/ProjectSettings.asset` → `activeInputHandler: 1` | 工程是「**Input System Package (New)**」独享模式，旧 `UnityEngine.XR.InputDevices` 不再自动接线 |
+| 摇杆能走 | `XRDrillLocomotion` 的移动/转向走 XRI 的 `InputActionReference`（新输入系统路径），所以正常 |
+| 其余键全哑 | 第 21 轮的 `VRDrillInput` 用 `InputDevices.GetDeviceAtXRNode(...)` + `CommonUsages` 裸读（旧 XR 路径），`isValid=false`，读到的是"永远没按下" |
+| 探针现场读数 | `VRInputSource.Diagnostics()` 显示 `设备 左=未识别 右=未识别 头显=— · 输入源 InputSystem` —— **新输入系统里已经有 XRController 设备，旧 XR 裸读却一只都看不到**，与症状完全对上 |
+| 附带隐患 | 显示被串流/镜像接管时 `XRSettings.isDeviceActive` 可能为假，第 29 轮的检测会把真机判成「桌面模式」→ `VRDrillInput` 被停掉，同样表现成"按键全哑" |
+
+### 10.3 修复方案：一条统一输入通道 + 三层证据 + 三处可见反馈
+
+**（1）`VRInputSource`（新增，静态多路读取层）**
+
+按顺序取第一个拿得到值的来源，`Snapshot` 一次给出 9 个按键 + 4 个设备状态 + 诊断串：
+
+1. XRI `InputActionReference`（扳机，场景里已绑定）；
+2. 新输入系统 `UnityEngine.InputSystem.XR.XRController`（usages `LeftHand`/`RightHand`，控制名 `trigger`/`grip`/`primaryButton`/`secondaryButton`/`primary2DAxisClick`）；
+3. 旧 `UnityEngine.XR.InputDevices` + `CommonUsages`（兼容老插件）；
+4. **键盘兜底**：仅当"判定为头显、但左右手柄都没被识别"时启用（`Space`=Trigger、`G`=Grip、`Enter`=A、`B`/`X`/`Y`、`R`=右摇杆按下），并让面板明写"正在用键盘兜底"，避免玩家以为按键坏了。
+
+**（2）`RuntimeDeviceMode` 检测补丁**：`DetectNow()` 额外统计左右手柄 `isValid` 数量写入 `controllerCount`；若 `Classify` 判 Desktop 但手柄 ≥1 只，改判 `Headset`，理由写明「显示未激活，但已识别到 N 只 XR 手柄（串流/镜像场景），按真机处理」。`RealHeadset` 语义同步改为 `deviceKind == Headset`，静态 `Controllers` 供 HUD/自检查询。
+
+**（3）`VRDrillInput` 接线**：`OnEnable` 调 `VRInputSource.BindActions(rightTrigger, leftTrigger)`；`Update` 用一份 `Snapshot` 取代所有裸读，新增虚拟键 `vGrip` / `vLeftSecondary` / `vStickClickRight`（探针注入用）；删掉旧的 `ReadTrigger()` / `Button()`。
+
+**（4）三处"按了有反应"的反馈**
+
+| 反馈 | 触发 | 玩家看到/感到 |
+|---|---|---|
+| 操作帮助 · 输入诊断面板（`VRHelpPanel`） | 左手柄 **Y**（或键盘 F5） | 视线前 1 m 的 900×800 世界面板：模式、`设备 左/右/头显`、实时 `T/G` 数值、完整键位表、三步排查；打开时自动收起提示条，避免两层字叠在一起 |
+| 右手激光 + 命中点（`VRPointerVisual`） | 常驻（仅在头显接管时显示） | 从右手柄射出的线，指到墙是暖白、指到电源箱/门/灭火器/UI 变绿并放大命中点，进入可交互目标时右手**轻震一下**（0.6 s 冷却） |
+| 空按提示 | Grip 按下但手里没瓶 / Trigger 按下但射线没指到可交互物 | 提示条各出一句明确原因（"手边没有可抓的灭火器（站到瓶旁 2 米内…）" / "射线没指到可交互物（电源箱 / 门 / 灭火器）"），不再"按了毫无动静" |
+
+另外：手柄未识别时，VR 提示条状态行直接显示「VR 头显 · 手柄未识别（按 Y 看诊断）」；HUD 字号/面板放大（`canvasScale 0.00038 → 0.00046`，40/36/26 → 44/40/30），并把提示条上移 6 cm（`verticalOffset -0.40 → -0.34`），800×450 三行不再贴画面下缘。
+
+### 10.4 玩家视角验收（`InputModeProbe.RunFromBatch`，八阶段）
+
+| 阶段 | 动作 | 断言 | 图 |
+|---|---|---|---|
+| 1~6 | 同第 29 轮（桌面 → 强制真机 → 摇杆走 → 重定位 → 模拟器 → 回自动） | 全部保持 ✔ | `vr29_mode_1~6*.png` |
+| 3 | 摇杆 0.8 走 0.9 s | 位移 **1.59 m**、速度 **1.76 m/s**、y 未被顶飞 | `vr29_mode_3xrmove.png` |
+| 7 | 强制真机 + 虚拟输入，按 **Y** | 帮助面板能打开、绑定玩家相机、诊断含「设备」「输入源」、键位表含 Trigger/Grip、右手 `LineRenderer` 已启用且两点齐全 | `vr30_input_help.png` |
+| 8 | 收起面板、空按 **Grip** | 提示条出现且含「Grip」、面板已收起且提示条恢复 | `vr30_grip_hint.png` |
+
+最终读数 `切换次数=3 · 通过=是`，`_modeprobe.txt` 末两行 `FAIL_COUNT=0` / `PROBE_EXIT=0`。
+
+### 10.5 判图后返工（按真实缺陷处理，不掩盖）
+
+| 现象 | 根因 | 处理 |
+|---|---|---|
+| 帮助面板第一版标题换行压住正文、正文与排查提示**溢出面板右/下边界** | 900×640@0.00075 太小、标题 44 px 太长、文案单行过长 | 面板 900×700→**900×800**，标题 44→38 且只写「操作帮助 · VR 头显」，正文 26 px 重排为短行（"左摇杆 移动…"），提示改成 ①②③ 三行 |
+| 面板文字**糊到看不清**（0.95 m 处字高仅 0.7°） | 字号×缩放的物理尺寸过小 | 缩放到 **0.00078**（字高 ≈0.020 m → 1.15°）、`dynamicPixelsPerUnit 3 → 8`、面板推到 1.0 m |
+| 面板后面的知识墙**透字**、正文读不清 | 背景色 alpha 0.94 仍偏透 | 背景改不透明白黑（`0.03,0.05,0.08,alpha 1`） |
+| 面板打开时 VR 提示条仍压在下面（两层字叠一起） | HUD 每帧 `SetVisible(active)` 不顾面板状态 | `hudWant = active && (helpPanel == null \|\| !helpPanel.Visible)`，面板打开即收提示条 |
+| 阶段 7 第一次判定失败：Y 没反应 | ① 阶段 6 拍图很慢，`_wait` 一帧跨过 0.05/0.25 s 时间窗，注入代码整段被跳过；② 探针没开 `virtualMode`，Y 读的是真实设备（没有） | 阶段 7/8 改成**状态驱动**（`!_vr.enabled` → 强制真机并开虚拟输入；`!_yPressed` → 按下）而不是时间窗；并补 `virtualMode=true` |
+| HUD 放大后三行贴底被切 | 面板变高 + `verticalOffset -0.40` | 上移到 **-0.34 m**，字号 30，键位行完整入镜 |
+
+### 10.6 改动文件清单（第 30 轮）
+
+| 文件 | 改动 |
+|---|---|
+| `Assets/Scripts/FireSafety/VRInputSource.cs` | **新增**：XRI→InputSystem→XR.Input→键盘四级读取、`Snapshot`、`Diagnostics()`、`ControllerBrief()` |
+| `Assets/Scripts/FireSafety/VRHelpPanel.cs` | **新增**：Y/F5 开关的操作帮助 + 输入诊断世界面板（900×800@0.00078，1 m） |
+| `Assets/Scripts/FireSafety/VRPointerVisual.cs` | **新增**：右手激光 + 命中点 + 可交互物变绿 + 悬停触觉 |
+| `Assets/Scripts/FireSafety/VRDrillInput.cs` | 接 `VRInputSource`、删裸读、Y 开关帮助、Grip/Trigger 空按提示、`PulseRightPublic`、新虚拟键、HUD 让位与状态短句 |
+| `Assets/Scripts/FireSafety/RuntimeDeviceMode.cs` | `controllerCount` + 「显示未激活但识别到手柄 → 按真机处理」、`RealHeadset` 语义、静态 `Controllers` |
+| `Assets/Scripts/FireSafety/VRDrillHud.cs` | 字号 44/40/30、面板 1500×460、`canvasScale 0.00046`、`verticalOffset -0.34` |
+| `Assets/Editor/FireSafetySetup.cs` | `SetupVrInput()` 挂 `VRHelpPanel` / `VRPointerVisual` 并接线，日志文案更新 |
+| `Assets/Editor/FireSafetySelfTest.cs` | 新增 `TestInputFeedbackRound30()` 18 条断言并在 `RunAll()` 调用 |
+| `Assets/Editor/InputModeProbe.cs` | 阶段 6 → 7（Y 帮助面板）、7 → 8（Grip 空按提示），新增 `HelpBody()`、射线断言、`vr30_*.png` |
+| `Assets/Scenes/FireSafetyOffice.unity` | RunSetup 写回：右手柄挂 `VRPointerVisual`、XR Origin 下挂 `VRHelpPanel` |
+
+### 10.7 自检、已知限制与真机复验步骤
+
+- `FireSafetySelfTest.RunAll` → `Logs/selftest30.log`，末尾 `[TEST] ==== 全部通过 ====`；第 30 轮 18 条断言全 ✔（四级读取可调用、诊断含设备/输入源/T/G、无手柄时"未识别"、面板存在且能开关、激光挂在右手且接线、三个新虚拟键、`PulseRightPublic`、旧裸读已删、`controllerCount`/`Controllers`/`RealHeadset` 语义）。
+- 探针 → `Logs/modeprobe30.log`、`Logs/shots/_modeprobe.txt`，`FAIL_COUNT=0` / `PROBE_EXIT=0`；新增 `vr30_input_help.png`、`vr30_grip_hint.png`。
+- **已知限制（如实记录）**：本机没有可用头显运行时（日志里 OpenXR 仍报 `XR_ERROR_FORM_FACTOR_UNAVAILABLE`），所有"真机"结论都来自 `ForceKind(Headset)` + 虚拟输入 + 手柄计数补丁，**没有在 Quest 2 上实测按键**；`InputSystem` 层能枚举到 XRController 说明修复方向正确，但具体控制名是否与你所用的 OpenXR 交互 profile 完全一致，仍需真机确认。
+- **真机复验 5 步**（戴上头显后）：① 按 **Y** 打开帮助面板，看「设备 左/右」是否显示手柄名；② 捏 **Grip** 看 `T/G` 里的 `G` 是否跳到 1.00，松手回 0；③ 扣 **Trigger** 看 `T` 是否跳动，若跳动但没拔销，说明只是射线没指到瓶；④ 抬右手看激光是否跟着手走、指到电源箱/门是否变绿；⑤ 面板里若显示「正在用键盘兜底」，说明手柄没被识别，先查 Link/Air Link 与 SteamVR/OpenXR 运行时，而不是改键位。
+
 ## 主要功能
 
 - **手柄锚定 UI**：开始界面（前 1.0 m / 上 0.15 m）、倒计时（上 0.42 m / 前 0.12 m）、引导页（前 1.0 m / 上 0.14 m）都跟随右手手柄并朝向玩家（`StartScreen.cs` / `DrillCountdown.cs` / `OnboardingScreen.cs`）

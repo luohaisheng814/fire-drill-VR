@@ -2244,8 +2244,8 @@ namespace FireSafety.EditorTools
             if (hud == null) hud = hudGo.AddComponent<VRDrillHud>();
             hud.head = cam;
             hud.distance = 0.9f;               // 与玩家视角判图后调好的场景值保持一致
-            hud.verticalOffset = -0.4f;
-            hud.canvasScale = 0.00038f;
+            hud.verticalOffset = -0.34f;      // 第 30 轮：面板加高后往上提一点，底部不被视野边缘切掉
+            hud.canvasScale = 0.00046f;      // 第 30 轮：字号放大后同步放大面板，720p 离屏出图里字才不糊
             hud.holdSeconds = 5f;
             hud.idleAlpha = 0.55f;
             vr.hud = hud;
@@ -2260,8 +2260,32 @@ namespace FireSafety.EditorTools
             // 场景里默认关掉：桌面模式不看这块面板，头显接通后由 VRDrillInput 打开
             hudGo.SetActive(true);
 
-            Debug.Log("[Setup] ✔ 头显输入层：VRDrillInput（Trigger 拔销/压把/喷射 · A 开始/翻页 · A/B/X 选答 · 左摇杆按下蹲起）"
-                      + " + VRDrillHud（视线下方 0.22 米的世界空间提示条）");
+            // ---- 第 30 轮：操作帮助 / 输入诊断面板（Y 或 F5 开关） ----
+            var helpGo = GameObject.Find("VRHelpPanel");
+            if (helpGo == null) helpGo = new GameObject("VRHelpPanel");
+            helpGo.transform.SetParent(host.transform, false);
+            var help = helpGo.GetComponent<VRHelpPanel>();
+            if (help == null) help = helpGo.AddComponent<VRHelpPanel>();
+            help.head = cam;
+            help.distance = 1.0f;             // 第 30 轮：面板 0.70 米宽，正前方 1 米、略低于视线
+            help.verticalOffset = -0.12f;
+            help.startsOpen = false;
+            vr.helpPanel = help;
+
+            // ---- 第 30 轮：右手射线可视化（激光 + 命中点 + 悬停变绿） ----
+            Transform right = vr.rightHand;
+            if (right != null)
+            {
+                var pointer = right.GetComponent<VRPointerVisual>();
+                if (pointer == null) pointer = right.gameObject.AddComponent<VRPointerVisual>();
+                pointer.source = right;
+                pointer.drillInput = vr;
+                pointer.maxDistance = 6f;
+            }
+
+            Debug.Log("[Setup] ✔ 头显输入层：VRDrillInput（统一输入源 InputSystem/XR.Input/键盘三级 · Trigger 拔销/压把/喷射 · "
+                      + "A 开始/翻页 · A/B/X 选答 · Y 操作帮助 · 右摇杆按下重定位）"
+                      + " + VRDrillHud + VRHelpPanel（输入诊断） + VRPointerVisual（右手激光/悬停反馈）");
         }
 
         // ================================================================

@@ -46,7 +46,8 @@ namespace FireSafety.EditorTools
 
         static int _phase;
         static float _phaseT, _t0, _wait;
-        static bool _shotDesk, _shotHead, _shotMove, _shotRecenter, _shotSim, _shotAuto;
+        static bool _shotDesk, _shotHead, _shotMove, _shotRecenter, _shotSim, _shotAuto, _shotHelp;
+        static bool _yPressed, _helpClosed, _gripPressed, _shotHint;
         static Vector3 _moveStart;
         static float _moveMaxSpeed;
         static Vector3 _spawn;
@@ -60,7 +61,11 @@ namespace FireSafety.EditorTools
             Directory.CreateDirectory(ShotDir);
             Log.Clear(); Fails.Clear(); _failSeen.Clear();
             _phase = 0; _phaseT = 0f; _wait = 0f;
-            _shotDesk = _shotHead = _shotMove = _shotRecenter = _shotSim = _shotAuto = false;
+            _shotDesk = _shotHead = _shotMove = _shotRecenter = _shotSim = _shotAuto = _shotHelp = false;
+            _yPressed = false;
+            _helpClosed = false;
+            _gripPressed = false;
+            _shotHint = false;
             _moveMaxSpeed = 0f;
             EditorSceneManager.OpenScene(ScenePath);
             _t0 = Time.realtimeSinceStartup;
@@ -247,9 +252,89 @@ namespace FireSafety.EditorTools
                 Check("自动模式下键鼠层重新接管", _desk.enabled && !_vr.enabled);
                 Check("自动模式下底部 HUD 重新显示「桌面模式」", HudText().Contains("桌面模式"));
                 if (!_shotAuto) { Shot("vr29_mode_6auto.png"); _shotAuto = true; }
+                Next(7);
+                return;
+            }
+
+            // 第 30 轮：Y 键打开「操作帮助 / 输入诊断」面板，并出一张玩家视角截图
+            if (_phase == 7)
+            {
+                _wait += Time.deltaTime;
+                float t = Time.realtimeSinceStartup - _phaseT;
+
+                // 上一阶段拍图很慢，_wait 可能一帧跨过阈值，所以这里用「状态」而不是「时间窗」推进
+                if (!_vr.enabled || !_vr.virtualMode)
+                {
+                    _vr.virtualMode = true;
+                    _vr.enabled = true;
+                    _mode.ForceKind(RuntimeDeviceMode.DeviceKind.Headset);
+                    return;
+                }
+                if (!_yPressed)
+                {
+                    _vr.vLeftSecondary = true;     // 按下左手柄 Y（虚拟输入），等 Update 抓到上升沿
+                    _yPressed = true;
+                    return;
+                }
+                if (t < 0.6f) return;
+                if (_vr.vLeftSecondary) { _vr.vLeftSecondary = false; return; }
+                if (t < 1.2f) return;
+
+                var help = _vr.helpPanel;
+                Check("Y 键能打开操作帮助面板", help != null && help.Visible);
+                Check("帮助面板绑定到玩家相机", help != null && help.head != null);
+                Check("输入诊断行含「设备」与「输入源」",
+                    VRInputSource.Diagnostics().Contains("设备") && VRInputSource.Diagnostics().Contains("输入源"),
+                    VRInputSource.Diagnostics());
+                string body = HelpBody();
+                Check("帮助面板列出 Trigger / Grip 键位", body.Contains("Trigger") && body.Contains("Grip"));
+
+                var ptr = UnityEngine.Object.FindObjectOfType<VRPointerVisual>();
+                var lineField = typeof(VRPointerVisual).GetField("_line", BindingFlags.Instance | BindingFlags.NonPublic);
+                var line = (ptr != null && lineField != null) ? lineField.GetValue(ptr) as LineRenderer : null;
+                Check("右手射线在头显模式下可见（LineRenderer 已启用）", line != null && line.enabled);
+                Check("射线有起点与终点（positionCount=2）", line != null && line.positionCount == 2);
+                if (!_shotHelp) { Shot("vr30_input_help.png"); _shotHelp = true; }
+                Next(8);
+                return;
+            }
+
+            // 第 30 轮：Grip 空按 → 提示条必须给出可见反馈（不再"按了毫无动静"）
+            if (_phase == 8)
+            {
+                _wait += Time.deltaTime;
+                float t = Time.realtimeSinceStartup - _phaseT;
+
+                if (!_helpClosed)
+                {
+                    if (t < 0.15f) { _vr.vLeftSecondary = true; return; }
+                    if (t < 0.5f) { _vr.vLeftSecondary = false; _helpClosed = true; return; }
+                    return;
+                }
+                if (!_gripPressed)
+                {
+                    _vr.vGrip = true;                 // 手里没灭火器，空按 Grip
+                    _gripPressed = true;
+                    return;
+                }
+                if (t < 0.9f) return;
+
+                string hint = _vrhud != null ? _vrhud.CurrentHint : "";
+                Check("Grip 空按给出可见提示（提示条含「Grip」）", hint.Contains("Grip"), hint);
+                Check("帮助面板已收起、提示条重新出现", !_vr.helpPanel.Visible && _vrhud.Visible);
+                if (!_shotHint) { Shot("vr30_grip_hint.png"); _shotHint = true; }
+                _vr.vGrip = false;
                 Say("切换次数=" + _mode.SwitchCount + " · 通过=" + (Fails.Count == 0 ? "是" : "否"));
                 Finish(Fails.Count == 0 ? 0 : 1);
             }
+        }
+
+        static string HelpBody()
+        {
+            if (_vr == null || _vr.helpPanel == null) return "";
+            var f = typeof(VRHelpPanel).GetField("_body", BindingFlags.Instance | BindingFlags.NonPublic);
+            var t = f != null ? f.GetValue(_vr.helpPanel) as Text : null;
+            return t != null ? (t.text ?? "") : "";
         }
 
         // ------------------------------------------------------------------
