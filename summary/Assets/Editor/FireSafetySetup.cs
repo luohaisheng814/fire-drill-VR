@@ -480,8 +480,13 @@ namespace FireSafety.EditorTools
         {
             var go = GameObject.Find("GuidanceArrows") ?? new GameObject("GuidanceArrows");
             var arrows = go.GetComponent<GuidanceArrows>() ?? go.AddComponent<GuidanceArrows>();
-            arrows.arrowCount = 6;
-            arrows.spacing = 1.2f;
+            arrows.arrowCount = 8;
+            arrows.spacing = 1.1f;
+            arrows.arrowStartDistance = 0.9f;
+            arrows.pathProbeHeight = 0.35f;
+            arrows.pathClearRadius = 0.30f;
+            arrows.pathSideOffsets = new float[] { 0.8f, 1.6f, 2.4f };
+            arrows.adaptiveExitSign = true;
             arrows.floorY = 0.02f;
             arrows.autoStartOnAlarm = true;
 

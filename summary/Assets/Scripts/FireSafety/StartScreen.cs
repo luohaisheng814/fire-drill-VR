@@ -221,12 +221,11 @@ namespace FireSafety
             _instText.lineSpacing = 1.15f;
             _instText.alignment = TextAnchor.UpperLeft;
 
-            // 开始按钮（带呼吸动画）：随机挑一套起火情景（终点相同，只是起点与起火点不同）
+            // 开始按钮（点击反馈由 ButtonFeedback 统一处理，避免和呼吸动画同时改 localScale）
             _startButton = MakeButton(panel.transform,
                 DrillLocale.T(buttonLabel, buttonLabelEnglish), 40,
                 new Color(0.12f, 0.55f, 0.30f, 1f), 100f);
             _startLabel = _startButton.GetComponentInChildren<Text>();
-            UIFX.Pulse(this, _startButton.transform, 1f, buttonPulseAmplitude, buttonPulseFrequency);
             _startButton.onClick.AddListener(StartGame);
 
             // 三套起火情景的快选行：随机 / 电气 / 纸张 / 茶水间
@@ -292,6 +291,8 @@ namespace FireSafety
             lrt.anchorMax = Vector2.one;
             lrt.offsetMin = Vector2.zero;
             lrt.offsetMax = Vector2.zero;
+            var feedback = b.AddComponent<ButtonFeedback>();
+            feedback.Init(bg);
             return btn;
         }
 
@@ -449,6 +450,10 @@ namespace FireSafety
             lrt.anchorMax = Vector2.one;
             lrt.offsetMin = Vector2.zero;
             lrt.offsetMax = Vector2.zero;
+
+            // 第 36 轮：统一的悬停/按下/回弹反馈
+            var feedback = b.AddComponent<ButtonFeedback>();
+            feedback.Init(bg);
             return btn;
         }
 

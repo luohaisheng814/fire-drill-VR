@@ -27,12 +27,49 @@ namespace FireSafety
         public float exitArriveDistance = 0.9f;
 
         [Header("箭头参数")]
-        public int arrowCount = 6;
-        public float spacing = 1.2f;
+        public int arrowCount = 8;
+        public float spacing = 1.1f;
         public float floorY = 0.02f;
+        [Tooltip("第一枚箭头离玩家多远：太近会踩在脚下，太远又看不出起点")]
+        public float arrowStartDistance = 0.9f;
         public Color arrowColor = new Color(1f, 0.82f, 0.15f);
         public float pulseHz = 2.5f;
         public bool autoStartOnAlarm = true;
+
+        [Header("第 36 轮：不同方向/绕障路径")]
+        [Tooltip("路径探测高度（米）：贴着地面走，只关心桌腿、墙、门框等低矮遮挡")]
+        public float pathProbeHeight = 0.35f;
+        [Tooltip("路径通畅判定的身体半径（米）：0.3 米能避开椅子、桌腿和窄缝")]
+        public float pathClearRadius = 0.30f;
+        [Tooltip("直线被挡时，依次尝试的横向绕行距离（米）")]
+        public float[] pathSideOffsets = { 0.8f, 1.6f, 2.4f };
+        [Tooltip("安全出口牌显示实时距离与相对方向（↑ ↗ → ↘ ↓ ↙ ← ↖）")]
+        public bool adaptiveExitSign = true;
+
+        public int VisibleArrowCount { get; private set; }
+        public int PathPointCount => _pathCount;
+        public bool UsingDetour { get; private set; }
+        public string CurrentSignText => _signText != null ? _signText.text : string.Empty;
+        public Vector3 FirstArrowPosition
+        {
+            get
+            {
+                if (_arrows == null) return Vector3.zero;
+                foreach (var a in _arrows)
+                    if (a != null && a.activeSelf) return a.transform.position;
+                return Vector3.zero;
+            }
+        }
+        public Vector3 FirstArrowForward
+        {
+            get
+            {
+                if (_arrows == null) return Vector3.forward;
+                foreach (var a in _arrows)
+                    if (a != null && a.activeSelf) return a.transform.forward;
+                return Vector3.forward;
+            }
+        }
 
         [Header("第二阶段：浓烟中的地面安全出口标识")]
         [Tooltip("第二阶段箭头整体放大倍数：烟雾里更醒目")]
@@ -67,6 +104,9 @@ namespace FireSafety
         Text _signText;
         Material _arrowMat;
         bool _collected;
+        readonly Vector3[] _path = new Vector3[3];
+        readonly Collider[] _probeHits = new Collider[32];
+        int _pathCount;
 
         private void Awake()
         {
@@ -204,20 +244,121 @@ namespace FireSafety
                 PlaceSign(target, playerPos);
             else
                 SetSignVisible(false);
-            Quaternion look = Quaternion.LookRotation(dir, Vector3.up);
 
+            // 第 36 轮：先算一条从玩家到目标的可行路径，直线被桌/墙挡住时自动绕行，
+            // 再把箭头沿折线等距铺开；玩家从大厅、茶水间或门口侧面来都能得到正确朝向。
+            BuildPath(flatPlayer, flatTarget);
+            PlaceArrowsAlongPath();
+        }
+
+        void BuildPath(Vector3 start, Vector3 end)
+        {
+            _pathCount = 0;
+            UsingDetour = false;
+            _path[0] = start;
+            _path[1] = end;
+            _pathCount = 2;
+
+            Vector3 delta = end - start;
+            float length = delta.magnitude;
+            if (length < 0.5f) return;
+            Vector3 dir = delta / length;
+            if (IsPathClear(start, end)) return;
+
+            Vector3 side = Vector3.Cross(Vector3.up, dir);
+            if (side.sqrMagnitude < 0.0001f) side = Vector3.right;
+            side.Normalize();
+
+            // 直线走不通：在中点附近向左/右各试几个绕行点，选第一条两段都通畅的折线。
+            for (int i = 0; i < pathSideOffsets.Length; i++)
+            {
+                float offset = Mathf.Max(0.2f, pathSideOffsets[i]);
+                for (int s = -1; s <= 1; s += 2)
+                {
+                    Vector3 way = start + dir * (length * 0.55f) + side * (offset * s);
+                    way.y = start.y;
+                    if (!IsPathClear(start, way)) continue;
+                    if (!IsPathClear(way, end)) continue;
+                    _path[1] = way;
+                    _path[2] = end;
+                    _pathCount = 3;
+                    UsingDetour = true;
+                    return;
+                }
+            }
+        }
+
+        bool IsPathClear(Vector3 a, Vector3 b)
+        {
+            Vector3 start = new Vector3(a.x, floorY, a.z);
+            Vector3 end = new Vector3(b.x, floorY, b.z);
+            Vector3 seg = end - start;
+            float dist = seg.magnitude;
+            if (dist < 0.4f) return true;
+            Vector3 dir = seg / dist;
+
+            // 两端各留 0.35 米余量：玩家自己站的位置、门框/出口目标本身不算挡路。
+            Vector3 from = new Vector3(a.x, floorY + pathProbeHeight + 0.10f, a.z) + dir * 0.35f;
+            Vector3 to = new Vector3(b.x, floorY + pathProbeHeight + 0.10f, b.z) - dir * 0.35f;
+            if ((to - from).sqrMagnitude < 0.01f) return true;
+            int count = Physics.OverlapCapsuleNonAlloc(from, to, pathClearRadius, _probeHits,
+                ~0, QueryTriggerInteraction.Ignore);
+            for (int i = 0; i < count; i++)
+            {
+                var c = _probeHits[i];
+                if (c == null) continue;
+                if (c.transform.IsChildOf(transform)) continue;
+                if (_player != null && c.transform.IsChildOf(_player)) continue;
+                if (c.GetComponentInParent<ExitDoor>() != null) continue;
+                if (c.GetComponentInParent<FireSource>() != null) continue;
+                string n = c.name ?? string.Empty;
+                if (n.IndexOf("Guide", System.StringComparison.OrdinalIgnoreCase) >= 0) continue;
+                if (n.IndexOf("Arrow", System.StringComparison.OrdinalIgnoreCase) >= 0) continue;
+                if (n.IndexOf("Lobby", System.StringComparison.OrdinalIgnoreCase) >= 0) continue;
+                return false;
+            }
+            return true;
+        }
+
+        void PlaceArrowsAlongPath()
+        {
+            VisibleArrowCount = 0;
+            if (_arrows == null || _pathCount < 2) return;
+
+            float total = 0f;
+            for (int i = 0; i < _pathCount - 1; i++) total += Vector3.Distance(_path[i], _path[i + 1]);
+            if (total < 0.2f) { SetArrowsVisible(false); return; }
+
+            int seg = 0;
             for (int i = 0; i < _arrows.Length; i++)
             {
-                var a = _arrows[i];
-                if (a == null) continue;
-                float d = spacing * (i + 1);
-                if (d > dist - 0.3f) { a.SetActive(false); continue; }
-                a.SetActive(true);
-                a.transform.position = flatPlayer + dir * d;
-                a.transform.rotation = look;
+                float travel = arrowStartDistance + spacing * i;
+                if (travel > total - 0.35f)
+                {
+                    if (_arrows[i] != null) _arrows[i].SetActive(false);
+                    continue;
+                }
+
+                seg = 0;
+                float acc = 0f;
+                while (seg < _pathCount - 2)
+                {
+                    float walkLen = Vector3.Distance(_path[seg], _path[seg + 1]);
+                    if (travel <= acc + walkLen) break;
+                    acc += walkLen;
+                    seg++;
+                }
+                float segLen = Vector3.Distance(_path[seg], _path[seg + 1]);
+                float local = Mathf.Clamp(travel - acc, 0f, segLen);
+                Vector3 dir = (_path[seg + 1] - _path[seg]).normalized;
+                Vector3 pos = _path[seg] + dir * local;
+                pos.y = floorY;
+                _arrows[i].SetActive(true);
+                _arrows[i].transform.position = pos;
+                _arrows[i].transform.rotation = Quaternion.LookRotation(dir, Vector3.up);
+                VisibleArrowCount++;
             }
 
-            // 箭头颜色呼吸脉动
             float k = 0.6f + 0.4f * (Mathf.Sin(Time.time * Mathf.PI * 2f * pulseHz) * 0.5f + 0.5f);
             if (_arrowMat) _arrowMat.color = arrowColor * k;
         }
@@ -396,6 +537,26 @@ namespace FireSafety
             Vector3 toPlayer = new Vector3(playerPos.x - target.position.x, 0f, playerPos.z - target.position.z);
             if (toPlayer.sqrMagnitude < 0.0001f) toPlayer = Vector3.back;
             toPlayer.Normalize();
+
+            // 第 36 轮：牌面按玩家实际来向更新「距离 + 相对方向」，不再永远写死 →。
+            if (ExitMode && adaptiveExitSign && _signText != null)
+            {
+                Vector3 playerToExit = -toPlayer;
+                float planarDistance = Vector2.Distance(
+                    new Vector2(playerPos.x, playerPos.z),
+                    new Vector2(target.position.x, target.position.z));
+                string glyph = DirectionGlyph(playerToExit);
+                _signText.fontSize = 84;
+                _signText.text = DrillLocale.English
+                    ? "EXIT " + planarDistance.ToString("0.0") + " m " + glyph
+                    : "安全出口 " + planarDistance.ToString("0.0") + " 米 " + glyph;
+            }
+            else if (_signText != null)
+            {
+                _signText.fontSize = 108;
+                _signText.text = floorSignText;
+            }
+
             // 横向挪开的基准向量：与「门→玩家」垂直，保证牌子挪到门侧、不挡住火源和门口
             Vector3 side = Vector3.Cross(Vector3.up, toPlayer);
             if (side.sqrMagnitude < 0.0001f) side = Vector3.right;
@@ -413,6 +574,22 @@ namespace FireSafety
                 if (d < 2.4f) { SetSignVisible(false); return; }
             }
             SetSignVisible(true);
+        }
+
+        /// <summary>按玩家视线方向给出 ↑ ↗ → ↘ ↓ ↙ ← ↖，保证箭头符号和实际门的方向一致。</summary>
+        string DirectionGlyph(Vector3 playerToExit)
+        {
+            Vector3 forward = _cam != null ? _cam.transform.forward : playerToExit;
+            forward.y = 0f;
+            if (forward.sqrMagnitude < 0.0001f) forward = playerToExit;
+            forward.Normalize();
+            float angle = Vector3.SignedAngle(forward, playerToExit, Vector3.up); // 右转为正
+            float a = Mathf.Abs(angle);
+            if (a < 22.5f) return "↑";
+            if (a < 67.5f) return angle > 0f ? "↗" : "↖";
+            if (a < 112.5f) return angle > 0f ? "→" : "←";
+            if (a < 157.5f) return angle > 0f ? "↘" : "↙";
+            return "↓";
         }
 
         private void SetSignVisible(bool visible)
