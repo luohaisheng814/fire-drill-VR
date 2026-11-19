@@ -344,11 +344,17 @@ namespace FireSafety.EditorTools
             loco.turnAction = GetOrCreateRef("XRI Right Locomotion", "Snap Turn");
             loco.moveSpeed = 2.2f;
             loco.crawlSpeed = 1.05f;
-            loco.sprintMultiplier = 1.6f;
-            loco.turnSpeed = 120f;
+            loco.sprintMultiplier = 1.45f;
+            loco.turnSpeed = 90f;
             loco.snapAngle = 45f;
             loco.snapCooldown = 0.35f;
-            loco.deadzone = 0.15f;
+            loco.deadzone = 0.2f;
+            loco.stickExponent = 1.55f;              // 小推杆更细腻，避免「碰一下就窜」
+            loco.stickSmoothing = 0.06f;             // 摇杆低通，压掉零漂抖动
+            loco.acceleration = 4.5f;                // 第 33 轮：约 0.22 秒到巡航，不再「一推就窜」
+            loco.deceleration = 6f;                  // 松手后约 0.4 米滑行，不瞬停也不漂远
+            loco.turnDeadzone = 0.65f;
+            loco.turnSmoothing = 12f;
             loco.crouchHeight = 1.15f;
             loco.useSnapTurn = true;
             loco.sprintOnFullStick = true;           // 推满摇杆自动小跑
@@ -2172,8 +2178,14 @@ namespace FireSafety.EditorTools
             input.doubleClickWindow = 0.25f;
             input.handOffset = new Vector3(0.33f, -0.24f, 0.7f);   // 0.7 米：既不糊镜头又能看清瓶身
             input.handEuler = new Vector3(0f, -12f, 0f);
-            input.mouseLookSensitivity = 0.12f;                      // 鼠标转头灵敏度
-            input.pitchClamp = 75f;                                 // 俯仰限幅，防翻转
+            input.mouseLookSensitivity = 0.018f;                    // 第 33 轮：度/像素（1080p 基准），比上一版 0.06 慢 3 倍
+            input.mouseLookPitchSensitivity = 0.012f;               // 垂直更低，减少点头频率
+            input.mouseDeltaClamp = 40f;                            // 单帧位移上限，防切窗口甩头
+            input.mouseDeadzone = 1.5f;                             // 手抖死区，防画面缓慢漂移
+            input.pitchClamp = 80f;                                 // 俯仰限幅，防翻转
+            input.lookSmoothing = 0.05f;                            // 位移低通，抑制高 DPI 鼠标一格一格跳
+            input.lookReferenceHeight = 1080f;                      // 4K 下同一手部动作不会转得更快
+            input.lockCameraPosition = true;                        // 桌面锁住相机本地位置，防 XR/角色控制器推走
 
             // 桌面手部锚点：挂在相机下，随视角移动
             Transform anchor = null;
@@ -2214,7 +2226,9 @@ namespace FireSafety.EditorTools
             input.stagePanel = UnityEngine.Object.FindObjectOfType<StageOneCompletePanel>();
 
             Debug.Log("[Setup] ✔ 桌面鼠标输入：右键单击灭火器答题/拿起 / 左键单击拔销 / 左键双击压把 / 右键双击喷射 / P 放下"
-                      + "（主灭火器：" + (primary != null ? primary.gameObject.name : "未找到") + "）");
+                      + "（主灭火器：" + (primary != null ? primary.gameObject.name : "未找到") + "）"
+                      + " · 视角 " + input.mouseLookSensitivity + "/" + input.mouseLookPitchSensitivity + " 度/px"
+                      + " · 死区 " + input.mouseDeadzone + "px · 平滑 " + input.lookSmoothing + "s");
         }
 
         // ================================================================

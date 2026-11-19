@@ -44,13 +44,29 @@ namespace FireSafety
         public Vector3 handEuler = new Vector3(0f, -12f, 0f);
 
         [Header("视角跟随（桌面鼠标）")]
-        [Tooltip("鼠标转视角灵敏度（度 / 鼠标像素，乘以 1）")]
-        public float mouseLookSensitivity = 0.12f;
+        [Tooltip("水平灵敏度（度 / 鼠标像素）：第 33 轮从 0.06 降到 0.022，约常规 FPS 手感，避免“轻轻一动就甩头”")]
+        public float mouseLookSensitivity = 0.022f;
+        [Tooltip("垂直灵敏度（度 / 鼠标像素），通常略低于水平，减少点头频率")]
+        public float mouseLookPitchSensitivity = 0.016f;
+        [Tooltip("单帧鼠标位移上限（像素）：切换窗口 / 光标贴边时的突跳不会被放大成甩头")]
+        public float mouseDeltaClamp = 45f;
+        [Tooltip("鼠标抖动死区（像素）：小于该值的位移视为手抖，不累积，避免画面缓慢漂移")]
+        public float mouseDeadzone = 1.2f;
         [Tooltip("俯仰最大角度（度），防止仰头/低头翻转")]
         public float pitchClamp = 75f;
 
-        float _yaw;
-        float _pitch;
+        [Header("视角平滑与分辨率适配")]
+        [Tooltip("平滑时间常数（秒）：0=不平滑；0.03~0.08 抑制高 DPI 下的抖动，又不明显拖手")]
+        public float lookSmoothing = 0.05f;
+        [Tooltip("灵敏度标定的参考屏幕高度（像素）：4K 下同样的手部动作不会转得比 1080p 更快")]
+        public float lookReferenceHeight = 1080f;
+        [Tooltip("桌面模式锁住相机本地位置：XR Origin / 角色控制器不再把相机一点点推走")]
+        public bool lockCameraPosition = true;
+
+        float _lastAppliedYaw;
+        Vector3 _desktopCamLocalPos;
+        Vector2 _smoothedLook;
+        bool _posCaptured;
 
         [Header("选取灭火器")]
         [Tooltip("鼠标射不中时，允许在该距离内自动选取视线前方的灭火器")]
@@ -90,8 +106,9 @@ namespace FireSafety
 
             if (cameraTransform != null)
             {
-                _yaw = cameraTransform.localEulerAngles.y;
-                _pitch = 0f;
+                _lastAppliedYaw = cameraTransform.localEulerAngles.y;
+                _desktopCamLocalPos = cameraTransform.localPosition;
+                _posCaptured = true;
             }
 
             if (handAnchor == null)
@@ -110,13 +127,65 @@ namespace FireSafety
             if (_hudCanvas != null) Destroy(_hudCanvas.gameObject);
         }
 
-        /// <summary>直接施加一段视角增量（探针/自检用）：yawDelta 水平、pitchDelta 垂直，方向与鼠标一致。</summary>
+        /// <summary>
+        /// 直接施加一段视角增量（探针/自检用）：yawDelta 水平、pitchDelta 垂直，方向与鼠标一致。
+        /// 每帧从相机当前朝向重新取基准，再叠加本帧位移——相机若被别的层（XR 位姿、重定位）动过，
+        /// 不会因为缓存的旧角度而在下一次鼠标移动时"跳回去"，这是之前视角漂移的主因之一。
+        /// 单帧位移先限幅、再过死区，抑制手抖与切窗口时的突跳。
+        /// </summary>
         public void ApplyLook(float yawDelta, float pitchDelta)
         {
+            ApplyLookInternal(yawDelta, pitchDelta, true);
+        }
+
+        /// <summary>
+        /// 鼠标专用：先按屏幕分辨率归一化，再过死区与平滑，最后写入相机。
+        /// 平滑是对“每帧位移”做低通，输入总量不变，只是摊到几帧，避免高 DPI 鼠标一格一格地跳。
+        /// </summary>
+        public void ApplyLookSmoothed(float yawDelta, float pitchDelta, float deltaTime)
+        {
+            if (Mathf.Abs(yawDelta) < mouseDeadzone) yawDelta = 0f;
+            if (Mathf.Abs(pitchDelta) < mouseDeadzone) pitchDelta = 0f;
+
+            if (lookSmoothing <= 0.0001f)
+            {
+                _smoothedLook = new Vector2(yawDelta, pitchDelta);
+            }
+            else
+            {
+                float k = 1f - Mathf.Exp(-Mathf.Max(0.001f, deltaTime) / lookSmoothing);
+                _smoothedLook.x = Mathf.Lerp(_smoothedLook.x, yawDelta, k);
+                _smoothedLook.y = Mathf.Lerp(_smoothedLook.y, pitchDelta, k);
+                if (Mathf.Abs(_smoothedLook.x) < 0.05f) _smoothedLook.x = 0f;
+                if (Mathf.Abs(_smoothedLook.y) < 0.05f) _smoothedLook.y = 0f;
+            }
+            ApplyLookInternal(_smoothedLook.x, _smoothedLook.y, false);
+        }
+
+        void ApplyLookInternal(float yawDelta, float pitchDelta, bool useDeadzone)
+        {
             if (cameraTransform == null) return;
-            _yaw += yawDelta * mouseLookSensitivity;
-            _pitch = Mathf.Clamp(_pitch - pitchDelta * mouseLookSensitivity, -pitchClamp, pitchClamp);
-            cameraTransform.localRotation = Quaternion.Euler(_pitch, _yaw, 0f);
+
+            float dx = Mathf.Clamp(yawDelta, -mouseDeltaClamp, mouseDeltaClamp);
+            float dy = Mathf.Clamp(pitchDelta, -mouseDeltaClamp, mouseDeltaClamp);
+            if (useDeadzone)
+            {
+                if (Mathf.Abs(dx) < mouseDeadzone) dx = 0f;
+                if (Mathf.Abs(dy) < mouseDeadzone) dy = 0f;
+            }
+            if (dx == 0f && dy == 0f) return;
+
+            Vector3 e = cameraTransform.localEulerAngles;
+            float yaw = e.y;
+            if (yaw > 180f) yaw -= 360f;
+            float pitch = e.x;
+            if (pitch > 180f) pitch -= 360f;
+
+            yaw += dx * mouseLookSensitivity;
+            pitch = Mathf.Clamp(pitch - dy * mouseLookPitchSensitivity, -pitchClamp, pitchClamp);
+
+            cameraTransform.localRotation = Quaternion.Euler(pitch, yaw, 0f);
+            _lastAppliedYaw = yaw;
         }
 
         private void Start()
@@ -187,11 +256,25 @@ namespace FireSafety
                 handAnchor.localRotation = Quaternion.Euler(handEuler);
             }
 
-            // 鼠标视角跟随：水平偏航累计到相机本地 Y，俯仰限幅，避免翻转
-            if (cameraTransform != null && Mouse.current != null)
+            // 鼠标视角跟随：水平偏航、俯仰限幅，避免翻转。
+            // 只有桌面模式才由鼠标拥有相机；进入 XR（真机 / 模拟器）后位姿归 DrillTrackedPose，
+            // 这里再写 localRotation 会和头显位姿互相覆盖，表现就是"视角自己慢慢漂"。
+            bool xrOwnsCamera = RuntimeDeviceMode.HasInstance
+                && RuntimeDeviceMode.Instance.deviceKind != RuntimeDeviceMode.DeviceKind.Desktop;
+
+            // 相机本地位置只认 Awake 时的站立偏移：之后无论 XR Origin、角色控制器怎么动，
+            // 桌面模式都锁回这个偏移，杜绝"没按任何键、画面却慢慢平移"。
+            if (cameraTransform != null && !xrOwnsCamera && lockCameraPosition && _posCaptured)
+                cameraTransform.localPosition = _desktopCamLocalPos;
+
+            if (cameraTransform != null && !xrOwnsCamera && Mouse.current != null)
             {
                 Vector2 look = Mouse.current.delta.ReadValue();
-                if (look.sqrMagnitude > 0.0001f) ApplyLook(look.x, look.y);
+                float resScale = lookReferenceHeight / Mathf.Max(1f, Screen.height);
+                if (look.sqrMagnitude > 0.0001f)
+                    ApplyLookSmoothed(look.x * resScale, look.y * resScale, Time.unscaledDeltaTime);
+                else
+                    ApplyLookSmoothed(0f, 0f, Time.unscaledDeltaTime);
             }
 
             RefreshHudText(false);

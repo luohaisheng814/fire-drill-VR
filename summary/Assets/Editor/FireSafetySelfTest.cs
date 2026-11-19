@@ -250,15 +250,44 @@ namespace FireSafety.EditorTools
             Check("HUD 文本标注鼠标转头与 Q/E 转身",
                   text != null && text.text != null && text.text.Contains("移动鼠标转头") && text.text.Contains("Q/E"));
             Check("桌面：鼠标视角跟随灵敏度 > 0", input.mouseLookSensitivity > 0f);
+            Check("桌面：灵敏度 ≤ 0.03 度/像素（第 33 轮降速）", input.mouseLookSensitivity <= 0.03f);
+            Check("桌面：平滑时间常数在 0~0.15 秒", input.lookSmoothing >= 0f && input.lookSmoothing <= 0.15f);
+            Check("桌面：参考屏幕高度为 1080（分辨率归一化）", Mathf.Approximately(input.lookReferenceHeight, 1080f));
+            Check("桌面：桌面模式锁住相机本地位置", input.lockCameraPosition);
+            Check("API：DrillInputAPI 暴露视角/移动/设备模式接口",
+                  typeof(DrillInputAPI).GetMethod("SetLook") != null &&
+                  typeof(DrillInputAPI).GetMethod("SetMove") != null &&
+                  typeof(DrillInputAPI).GetMethod("SetDeviceMode") != null &&
+                  typeof(DrillInputAPI).GetMethod("Snapshot") != null);
+            Check("API：GetLook/GetMove 结构可读", typeof(DrillInputAPI).GetMethod("GetLook") != null &&
+                  typeof(DrillInputAPI).GetMethod("GetMove") != null);
             Check("桌面：俯仰限幅在 30°~90° 之间", input.pitchClamp > 30f && input.pitchClamp <= 90f);
+            Check("桌面：抖动死区在 0.2~2 像素之间（太小会漂、太大发涩）",
+                  input.mouseDeadzone >= 0.2f && input.mouseDeadzone <= 2f);
+            Check("桌面：单帧位移上限在 20~200 像素之间（防切窗口甩头）",
+                  input.mouseDeltaClamp >= 20f && input.mouseDeltaClamp <= 200f);
+            Check("桌面：垂直灵敏度不高于水平灵敏度（减少点头频率）",
+                  input.mouseLookPitchSensitivity > 0f && input.mouseLookPitchSensitivity <= input.mouseLookSensitivity);
 
             var lookCam = new GameObject("TEST_LookCam").transform;
             input.cameraTransform = lookCam;
-            input.ApplyLook(100f, 0f);
-            Check("桌面：鼠标偏航累计到相机朝向（≈12°）", Mathf.Abs(lookCam.localEulerAngles.y - 12f) < 1f);
-            input.ApplyLook(0f, 1000f);
+            input.ApplyLook(60f, 0f);      // 单帧位移上限 60 像素，分两帧累计 100 像素
+            input.ApplyLook(40f, 0f);
+            Check("桌面：鼠标偏航累计到相机朝向（≈6°）",
+                  Mathf.Abs(lookCam.localEulerAngles.y - input.mouseLookSensitivity * 100f) < 1f);
+
+            float yawBefore = lookCam.localEulerAngles.y;
+            for (int i = 0; i < 60; i++) input.ApplyLook(0.3f, 0f);      // 手抖级别的位移
+            Check("桌面：连续手抖不累积成漂移（60 帧 < 0.1°）",
+                  Mathf.Abs(Mathf.DeltaAngle(yawBefore, lookCam.localEulerAngles.y)) < 0.1f);
+
+            input.ApplyLook(5000f, 0f);                                  // 切窗口式突跳
+            Check("桌面：单帧突跳被限幅（5000 像素不会甩头）",
+                  Mathf.Abs(Mathf.DeltaAngle(yawBefore, lookCam.localEulerAngles.y)) <= input.mouseDeltaClamp * input.mouseLookSensitivity + 0.1f);
+
+            for (int i = 0; i < 40; i++) input.ApplyLook(0f, 60f);
             Check("桌面：俯仰被限幅在 ±75°",
-                Mathf.Abs(Mathf.DeltaAngle(0f, lookCam.localEulerAngles.x)) <= 75.5f);
+                  Mathf.Abs(Mathf.DeltaAngle(0f, lookCam.localEulerAngles.x)) <= input.pitchClamp + 0.5f);
             UnityEngine.Object.DestroyImmediate(lookCam.gameObject);
 
             if (canvas != null) UnityEngine.Object.DestroyImmediate(canvas.gameObject);

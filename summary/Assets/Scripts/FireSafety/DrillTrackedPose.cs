@@ -25,6 +25,14 @@ namespace FireSafety
         void Update()
         {
             HasPose = false;
+
+            // 桌面/模拟器：相机朝向与位置都归鼠标/键鼠层，不写任何 XR 位姿。
+            // 旧版在没有 XR 会话时也会尝试读 XRHMD，一旦输入系统里残留一个 mock HMD，
+            // 或者 XR 模拟器每帧推送一个带噪声的位姿，就会和鼠标争夺相机 → 玩家看到"视角自己漂"。
+            // 只有真机（RealHeadset）才允许这一层接管相机。
+            if (RuntimeDeviceMode.HasInstance && !RuntimeDeviceMode.RealHeadset)
+                return;
+
             if (preferInputSystem && ReadInputSystem())
             {
                 HasPose = true;

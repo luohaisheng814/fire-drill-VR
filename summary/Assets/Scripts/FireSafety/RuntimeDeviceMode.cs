@@ -445,6 +445,26 @@ namespace FireSafety
             for (int i = 0; i < visuals.Length; i++)
                 if (visuals[i] != null) visuals[i].modeVisible = plan.controllerVisuals;
 
+            // 第 33 轮：XR 的 Tracked Pose Driver 只在真机模式启用。
+            // 桌面/模拟器里它仍会按输入系统里的 mock HMD 每帧写相机位姿，
+            // 与鼠标视角叠加后就是"没碰鼠标也在慢慢转 / 转得特别灵"的根因。
+            int drivers = 0;
+            var roots = new System.Collections.Generic.List<Transform>();
+            if (cam != null) roots.Add(cam);
+            if (rigRoot != null) roots.Add(rigRoot);
+            foreach (var r in roots)
+            {
+                var tpds = r.GetComponentsInChildren<UnityEngine.InputSystem.XR.TrackedPoseDriver>(true);
+                for (int i = 0; i < tpds.Length; i++)
+                {
+                    if (tpds[i] == null) continue;
+                    tpds[i].enabled = plan.vrInputEnabled;
+                    drivers++;
+                }
+            }
+            if (drivers > 0)
+                Debug.Log("[Mode] TrackedPoseDriver ×" + drivers + " → " + (plan.vrInputEnabled ? "启用（真机）" : "停用（键鼠接管相机）"));
+
             // 灭火器的桌面喷射开关：手柄模式下必须关掉 desktopMode，否则压把链路整段失效
             if (plan.headsetDesktopModeOff)
             {

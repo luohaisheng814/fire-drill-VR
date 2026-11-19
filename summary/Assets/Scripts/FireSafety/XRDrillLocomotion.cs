@@ -34,13 +34,23 @@ namespace FireSafety
         [Tooltip("头顶低于 crouchHeight 时的蹲行速度（米/秒）")]
         public float crawlSpeed = 1.05f;
         [Tooltip("按住 Grip / Shift 时的加速倍率")]
-        public float sprintMultiplier = 1.6f;
+        public float sprintMultiplier = 1.45f;
         [Tooltip("连续转身的角速度（度/秒）")]
         public float turnSpeed = 120f;
         [Tooltip("瞬转身角度（度）")]
         public float snapAngle = 45f;
         [Tooltip("两次瞬转之间的最短间隔（秒）")]
         public float snapCooldown = 0.35f;
+
+        [Header("起步/停步手感")]
+        [Tooltip("从静止加速到满速的斜率（米/秒²）：太快会显得「一推就窜」")]
+        public float acceleration = 4.5f;
+        [Tooltip("松开后的减速斜率（米/秒²）：略大于加速，停得干脆但不瞬停")]
+        public float deceleration = 6f;
+        [Tooltip("转身死区：低于该值的摇杆偏移不参与转向（含连续转动）")]
+        public float turnDeadzone = 0.65f;
+        [Tooltip("连续转向的跟随速度（越大越跟手）")]
+        public float turnSmoothing = 12f;
 
         [Header("移动方向")]
         [Tooltip("推杆时的朝向基准：Head=朝头显看的方向走（默认）；LeftHand=朝左手柄指的方向走")]
@@ -59,7 +69,11 @@ namespace FireSafety
         public bool useGravity = true;
         public float gravity = -9.81f;
         [Tooltip("摇杆死区，低于该值的推杆视为不动")]
-        public float deadzone = 0.15f;
+        public float deadzone = 0.2f;
+        [Tooltip("摇杆响应曲线指数：1=线性；1.4~1.8 让小推杆更细腻，避免「碰一下就窜」")]
+        public float stickExponent = 1.55f;
+        [Tooltip("摇杆平滑时间常数（秒）：0=不平滑，0.04~0.08 抑制漂移抖动")]
+        public float stickSmoothing = 0.06f;
         [Tooltip("蹲行判定阈値：头显相机世界高度低于该値算蹲下（米）")]
         public float crouchHeight = 1.15f;
 
@@ -96,8 +110,12 @@ namespace FireSafety
         Vector3 _fallVelocity;
         float _snapTimer;
         float _turnLatch;
+        float _turnAmount;
+        float _speedScale;
         Vector2 _virtualMove;
         float _virtualTurn;
+        Vector2 _stickSmoothed;
+        Vector3 _lastDir = Vector3.zero;
 
         void OnEnable()
         {
@@ -200,6 +218,50 @@ namespace FireSafety
             _virtualTurn = 0f;
         }
 
+        /// <summary>运行时调移动手感（供 DrillInputAPI / 外部脚本调用）。</summary>
+        public void SetMoveTuning(float speedMetersPerSecond, float turnDegreesPerSecond)
+        {
+            if (speedMetersPerSecond > 0f) moveSpeed = speedMetersPerSecond;
+            if (turnDegreesPerSecond > 0f) turnSpeed = turnDegreesPerSecond;
+        }
+
+        /// <summary>运行时调摇杆手感：死区、响应曲线、平滑。</summary>
+        public void SetStickTuning(float dz, float exponent, float smoothing)
+        {
+            deadzone = Mathf.Clamp(dz, 0.02f, 0.9f);
+            stickExponent = Mathf.Clamp(exponent, 1f, 3f);
+            stickSmoothing = Mathf.Clamp(smoothing, 0f, 0.3f);
+            _stickSmoothed = Vector2.zero;
+        }
+
+        /// <summary>
+        /// 摇杆整形：径向死区 → 归一化 → 指数曲线 → 低通。
+        /// 小推杆不再产生"一碰就走"，零漂量级也被死区挡掉；虚拟输入不走这里，探针数值保持不变。
+        /// </summary>
+        Vector2 ShapeStick(Vector2 raw, float dt)
+        {
+            float m = raw.magnitude;
+            Vector2 shaped = Vector2.zero;
+            if (m > deadzone)
+            {
+                float n = Mathf.Clamp01((m - deadzone) / Mathf.Max(0.0001f, 1f - deadzone));
+                n = Mathf.Pow(n, Mathf.Max(1f, stickExponent));
+                shaped = raw.normalized * n;
+            }
+
+            if (stickSmoothing <= 0.0001f)
+            {
+                _stickSmoothed = shaped;
+            }
+            else
+            {
+                float k = 1f - Mathf.Exp(-Mathf.Max(0.001f, dt) / stickSmoothing);
+                _stickSmoothed = Vector2.Lerp(_stickSmoothed, shaped, k);
+                if (_stickSmoothed.sqrMagnitude < 0.0001f) _stickSmoothed = Vector2.zero;
+            }
+            return _stickSmoothed;
+        }
+
         // ---------------- 主循环 ----------------
 
         void Update()
@@ -216,8 +278,18 @@ namespace FireSafety
             }
             else
             {
-                move = ReadMove();
-                turn = ReadTurn();
+                // 桌面模式不读摇杆：没有 XR 会话时，某些运行时仍会给出带零漂的假轴值，
+                // 以前这里照单全收，表现就是"没碰摇杆，人却慢慢走/慢慢转"。
+                if (xrControlMode)
+                {
+                    move = virtualMode ? ReadMove() : ShapeStick(ReadMove(), Time.deltaTime);
+                    turn = ReadTurn();
+                }
+                else
+                {
+                    move = Vector2.zero;
+                    turn = 0f;
+                }
 
                 // 键盘调试：只在没有真实摇杆输入时接管，避免两路互相打架
                 if (keyboardDebug && Keyboard.current != null)
@@ -232,35 +304,38 @@ namespace FireSafety
             }
 
             // ---- 转身 ----
-            float turnValue = Mathf.Abs(turn) > 0.6f ? Mathf.Sign(turn) : 0f;
+            float turnTarget = Mathf.Abs(turn) > turnDeadzone ? Mathf.Sign(turn) : 0f;
+            _turnAmount = Mathf.MoveTowards(_turnAmount, turnTarget, turnSmoothing * Time.deltaTime);
             _snapTimer += Time.deltaTime;
-            if (turnValue == 0f)
+            if (turnTarget == 0f)
             {
                 _turnLatch = 0f;
             }
             else if (useSnapTurn)
             {
-                if (_turnLatch != turnValue && _snapTimer >= snapCooldown)
+                if (_turnLatch != turnTarget && _snapTimer >= snapCooldown)
                 {
-                    _root.Rotate(0f, turnValue * snapAngle, 0f, Space.World);
+                    _root.Rotate(0f, turnTarget * snapAngle, 0f, Space.World);
                     _snapTimer = 0f;
                 }
-                _turnLatch = turnValue;
+                _turnLatch = turnTarget;
             }
             else
             {
-                _root.Rotate(0f, turn * turnSpeed * Time.deltaTime, 0f, Space.World);
-                _turnLatch = turnValue;
+                _root.Rotate(0f, _turnAmount * turnSpeed * Time.deltaTime, 0f, Space.World);
+                _turnLatch = turnTarget;
             }
 
             // ---- 移动 ----
             Vector3 dir = Vector3.zero;
-            Vector2 planar = new Vector2(Mathf.Abs(move.x) < deadzone ? 0f : move.x,
-                                         Mathf.Abs(move.y) < deadzone ? 0f : move.y);
+            Vector2 planar = virtualMode
+                ? new Vector2(Mathf.Abs(move.x) < deadzone ? 0f : move.x,
+                              Mathf.Abs(move.y) < deadzone ? 0f : move.y)
+                : move;      // 真实摇杆已在 ShapeStick 里做过径向死区与曲线，不能再按轴二次截断
 
-            // 小跑：推满摇杆即可（不需要额外按键，避免和 Grip 抓取抢键）
+            // 小跑：仅真机推满摇杆自动触发（键鼠用 Shift，避免桌面"一推就窜"）
             bool sprint = false;
-            if (sprintOnFullStick && planar.magnitude >= fullStickThreshold) sprint = true;
+            if (sprintOnFullStick && planar.magnitude >= fullStickThreshold && RuntimeDeviceMode.RealHeadset) sprint = true;
             if (!virtualMode)
             {
                 if (allowSprint && (Grip(XRNode.LeftHand) || Grip(XRNode.RightHand))) sprint = true;
@@ -274,29 +349,45 @@ namespace FireSafety
                 Vector3 right = Quaternion.Euler(0f, yaw, 0f) * Vector3.right;
                 dir = (forward * planar.y + right * planar.x);
                 if (dir.sqrMagnitude > 1f) dir.Normalize();
+                _lastDir = dir;
+            }
+            else if (_speedScale > 0.0001f && _lastDir.sqrMagnitude > 0.0001f)
+            {
+                // 松手后仍沿最后方向滑行，速度按 deceleration 收回：不瞬停，也不会一直漂。
+                dir = _lastDir;
             }
 
             IsCrawling = IsHeadLow();
             IsSprinting = sprint && !IsCrawling;
             float baseSpeed = IsCrawling ? crawlSpeed : moveSpeed;
             if (IsSprinting) baseSpeed *= sprintMultiplier;
-            CurrentSpeed = dir.magnitude * baseSpeed;
+
+            // 起步/停步不再瞬间到满速：按加速度斜坡把速度拉上去，松手后按减速度收回，
+            // 桌面键鼠和头显摇杆共用同一套，避免"一推就窜、一松就定住"的割裂感。
+            float targetScale = planar.sqrMagnitude > 0.0001f ? 1f : 0f;
+            float rate = targetScale > _speedScale ? acceleration : deceleration;
+            // 卡帧保护：编辑器/加载尖峰时单帧 deltaTime 可能到 0.3 秒，会把速度直接归零，
+            // 玩家看到的是"松手瞬停"甚至"位移丢失"。这里按 50 ms 上限积分，保证惯性仍能走完。
+            float dt = Mathf.Min(Time.deltaTime, 0.05f);
+            _speedScale = Mathf.MoveTowards(_speedScale, targetScale, rate * dt);
+
+            CurrentSpeed = dir.magnitude * baseSpeed * _speedScale;
 
             if (_cc != null && _cc.enabled)
             {
                 if (useGravity)
                 {
-                    _fallVelocity.y = _cc.isGrounded ? -1f : _fallVelocity.y + gravity * Time.deltaTime;
-                    _cc.Move((dir * baseSpeed + _fallVelocity) * Time.deltaTime);
+                    _fallVelocity.y = _cc.isGrounded ? -1f : _fallVelocity.y + gravity * dt;
+                    _cc.Move((dir * baseSpeed * _speedScale + _fallVelocity) * dt);
                 }
                 else
                 {
-                    _cc.Move(dir * baseSpeed * Time.deltaTime);
+                    _cc.Move(dir * baseSpeed * _speedScale * dt);
                 }
             }
             else
             {
-                _root.position += dir * baseSpeed * Time.deltaTime;
+                _root.position += dir * baseSpeed * _speedScale * dt;
             }
         }
 
