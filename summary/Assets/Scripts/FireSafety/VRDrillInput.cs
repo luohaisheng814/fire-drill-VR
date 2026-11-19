@@ -187,6 +187,10 @@ namespace FireSafety
                         Hint("压把已按下 · 对准火焰根部持续喷射，松开扳机停止");
                     }
                 }
+                else if (TryPickExtinguisherByRay())
+                {
+                    // 第 35 轮：扳机射线点中灭火器 —— 太远只提示距离，够近才答题/拿取
+                }
                 else if (TryCutPowerByRay())
                 {
                     // 未持灭火器时，扳机 = 指电源箱切断电源（电气火灾硬规则）
@@ -333,6 +337,51 @@ namespace FireSafety
             else if (_held != null) hint = "按 Trigger 压下压把喷射 · Grip 松开可放下灭火器";
             else hint = "左摇杆移动 · 右摇杆瞬转 · 靠近红色灭火器按 Grip 抓取 · 电源箱按 Trigger 断电";
             Hint(hint);
+        }
+
+        /// <summary>第 35 轮：未持灭火器时，右手射线指向灭火器 —— 先校验距离，再决定答题还是拿取。</summary>
+        bool TryPickExtinguisherByRay()
+        {
+            Transform src = rightHand != null ? rightHand : (Camera.main != null ? Camera.main.transform : null);
+            if (src == null) return false;
+
+            if (!Physics.Raycast(src.position, src.forward, out var hit, 30f, ~0, QueryTriggerInteraction.Collide))
+                return false;
+            if (hit.collider == null) return false;
+
+            var ext = hit.collider.GetComponentInParent<Extinguisher>();
+            if (ext == null) return false;
+
+            var coach = ext.coach != null ? ext.coach : ext.GetComponent<ExtinguisherCoach>();
+            float dist = Vector3.Distance(src.position, ext.transform.position);
+            if (coach != null && !coach.CanPickup(dist, out string reject))
+            {
+                coach.ShowPickupRejected(dist, reject);
+                Hint(reject);
+                return true;
+            }
+
+            if (ext.quizRequired && !ext.QuizPassed)
+            {
+                if (ext.quizPanel != null && !ext.quizPanel.IsOpen)
+                {
+                    ext.quizPanel.Open();
+                    Hint(DrillLocale.T("灭火器常识问答：5 题，每题 10 秒，答对 3 题即可拿取（扳机/A/B/C 作答）",
+                        "Extinguisher quiz: 5 questions, 10 s each, 3 correct to pass (Trigger / A / B / C)."));
+                }
+                else Hint(DrillLocale.T("请先完成正在进行的灭火器问答", "Finish the extinguisher quiz first."));
+                return true;
+            }
+
+            if (rightHand == null)
+            {
+                Hint(DrillLocale.T("没有找到右手手柄，无法拿取", "Right-hand controller not found."));
+                return true;
+            }
+            ext.grab.GrabExternal(rightHand, HandSide.Right);
+            Hint(DrillLocale.T("已拿起 " + ext.gameObject.name + " → 扳机拔销，再按一次压把",
+                "Picked up " + ext.gameObject.name + ". Trigger: pull pin, then squeeze lever."));
+            return true;
         }
 
         /// <summary>未持灭火器时，右手射线指向配电箱 → 切断电源。</summary>

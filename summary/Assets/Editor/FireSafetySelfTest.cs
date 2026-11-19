@@ -1045,11 +1045,12 @@ namespace FireSafety.EditorTools
                         ? Vector3.Distance(new Vector3(home.x, 0f, home.z),
                                            new Vector3(scs[i].fire.transform.position.x, 0f, scs[i].fire.transform.position.z))
                         : 999f;
-                    if (dFire > 3.6f) nearMisses.Add(scs[i].shortName + "(" + dFire.ToString("F1") + "m)");
+                    if (dFire > 2.6f || dFire < 1.6f)
+                        nearMisses.Add(scs[i].shortName + "(" + dFire.ToString("F1") + "m)");
                 }
                 Check("灭火器贴墙：三台都紧贴墙面/立面 0.6 米内（未贴墙："
                       + (wallMisses.Count == 0 ? "无" : string.Join("、", wallMisses)) + "）", wallMisses.Count == 0);
-                Check("灭火器就近：每台到本情景起火点 ≤3.6 米（超标："
+                Check("灭火器就近：每台到本情景起火点 1.6~2.6 米（超标："
                       + (nearMisses.Count == 0 ? "无" : string.Join("、", nearMisses)) + "）", nearMisses.Count == 0);
 
                 float minD = float.MaxValue;
@@ -1908,10 +1909,12 @@ namespace FireSafety.EditorTools
                     Check("第28轮：场景 " + e.name + " 灭火剂 = " + ExtinguisherKindInfo.Name(want),
                         e.kind == want);
 
-                var tag = e.GetComponentInChildren<ExtinguisherKindTag>(true);
-                Check("第28轮：" + e.name + " 瓶身挂了灭火剂类型标签", tag != null);
-                if (tag != null && known)
-                    Check("第28轮：" + e.name + " 标签内容与瓶一致", tag.kind == want);
+                var guide = e.GetComponent<ExtinguisherGuideMarker>();
+                Check("第35轮：" + e.name + " 已挂新的指导标识",
+                    guide != null && (!known || guide.kind == want));
+                Check("第35轮：" + e.name + " 旧的类型大标签已删除", e.GetComponent<ExtinguisherKindTag>() == null);
+                Check("第35轮：" + e.name + " 旧的光环/光柱组件已删除", e.GetComponent<ExtinguisherHighlight>() == null);
+                Check("第35轮：" + e.name + " 已挂距离/拾取反馈教练", e.GetComponent<ExtinguisherCoach>() != null);
 
                 var spray = e.GetComponentInChildren<ExtinguisherSpray>(true);
                 Check("第28轮：" + e.name + " 喷射组件的类型与瓶一致",

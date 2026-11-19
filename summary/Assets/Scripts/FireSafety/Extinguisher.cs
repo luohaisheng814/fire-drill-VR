@@ -73,6 +73,17 @@ namespace FireSafety
         public bool PinPulled { get; private set; }
         public bool IsSpraying { get; private set; }
 
+        /// <summary>第 35 轮：最近一次操作被拦下的具体原因（已按当前语言本地化）。</summary>
+        public string LastBlockReason { get; private set; }
+        public ExtinguisherCoach coach { get; private set; }
+
+        void SetBlocked(string chinese, string english = null)
+        {
+            LastBlockReason = DrillLocale.T(chinese, english);
+            coach?.ShowBlockedReason(LastBlockReason);
+            Debug.Log("[Extinguisher] " + LastBlockReason);
+        }
+
         /// <summary>
         /// 切换灭火剂类型：套用对应的喷射形态、颜色与合成喷射音效。
         /// 由装配脚本或情景切换调用（每套情景用一瓶对路的灭火器）。
@@ -107,6 +118,8 @@ namespace FireSafety
             // 兜底解析：场景里 pin / quizPanel 若是空的，从子物体里找回来（否则鼠标拔销会没有反应）
             if (pin == null) pin = GetComponentInChildren<SafetyPin>(true);
             if (quizPanel == null) quizPanel = GetComponentInChildren<ExtinguisherQuizPanel>(true);
+            coach = GetComponent<ExtinguisherCoach>();
+            if (coach == null) coach = gameObject.AddComponent<ExtinguisherCoach>();
         }
 
         private void OnEnable()
@@ -345,10 +358,11 @@ namespace FireSafety
             if (PinPulled) return;
             if (quizRequired && !QuizPassed)
             {
-                Debug.Log("[Extinguisher] 请先完成灭火器常识问答再拔销。");
+                SetBlocked("还没通过灭火器常识问答，暂时不能拔销。", "Pass the extinguisher quiz before pulling the pin.");
                 return;
             }
             PinPulled = true;
+            LastBlockReason = "";
 
             if (audioSource && pinPullClip) audioSource.PlayOneShot(pinPullClip, sfxVolume);
             onPinPulled?.Invoke();
@@ -382,14 +396,15 @@ namespace FireSafety
             {
                 if (handleLever == null && audioSource && blockedClip)
                     audioSource.PlayOneShot(blockedClip, sfxVolume);
-                Debug.Log("[Extinguisher] 请先拔出保险销！");
+                SetBlocked("保险销还没拔 → 喷不出来。先拔销再压把。", "Safety pin is still in — pull it before squeezing the lever.");
             }
 
             if (trigger && PinPulled)
             {
                 if (quizRequired && !QuizPassed)
                 {
-                    if (!_prevTrigger) Debug.Log("[Extinguisher] 请先完成灭火器常识问答再喷射！");
+                    if (!_prevTrigger)
+                        SetBlocked("灭火器常识问答还没通过，暂时不能喷射。", "The extinguisher quiz is not passed yet.");
                 }
                 else StartSpray();
             }
@@ -418,6 +433,18 @@ namespace FireSafety
         }
 
         /// <summary>
+        /// 桌面模式：手持时把喷嘴对齐到视线中心（玩家用鼠标转向来瞄准）。
+        /// VR 模式不调用，喷嘴仍由手柄真实朝向决定。
+        /// </summary>
+        public void AlignNozzleTo(Vector3 worldDir)
+        {
+            if (grab == null || !grab.IsHeld || nozzle == null) return;
+            if (worldDir.sqrMagnitude < 0.0001f) return;
+            Quaternion delta = Quaternion.FromToRotation(nozzle.forward, worldDir.normalized);
+            transform.rotation = delta * transform.rotation;
+        }
+
+        /// <summary>
         /// 外部输入（鼠标右键双击等）尝试开始喷射，逐项校验门控：
         /// 必须手持 → 已拔销 → 问答通过 → 压把已按下。返回是否成功起喷。
         /// </summary>
@@ -427,26 +454,27 @@ namespace FireSafety
 
             if (grab == null || !grab.IsHeld)
             {
-                Debug.Log("[Extinguisher] 需先拿起灭火器。");
+                SetBlocked("还没拿起灭火器：先走到瓶旁取用（距离太远也喷不到）。", "You are not holding the extinguisher yet. Pick it up first.");
                 return false;
             }
             if (!PinPulled)
             {
                 if (audioSource && blockedClip) audioSource.PlayOneShot(blockedClip, sfxVolume);
-                Debug.Log("[Extinguisher] 请先拔出保险销。");
+                SetBlocked("保险销还没拔 → 喷嘴出不了灭火剂。", "Safety pin is still in — no agent will come out.");
                 return false;
             }
             if (quizRequired && !QuizPassed)
             {
-                Debug.Log("[Extinguisher] 请先完成灭火器常识问答。");
+                SetBlocked("灭火器常识问答还没通过，先完成问答再喷射。", "Pass the extinguisher quiz before spraying.");
                 return false;
             }
             if (handleLever != null && !handleLever.PressedOnce)
             {
-                Debug.Log("[Extinguisher] 请先按下压把。");
+                SetBlocked("压把还没按下 → 先握紧压把再双击/扣扳机。", "The lever is not pressed. Squeeze the lever first.");
                 return false;
             }
 
+            LastBlockReason = "";
             StartSpray();
             return true;
         }
@@ -471,7 +499,9 @@ namespace FireSafety
             Vector3 forward = nozzle.forward;
             float cos = Mathf.Cos(sprayAngle * Mathf.Deg2Rad);
 
-            foreach (var fire in FireSource.Active)
+            // ApplyExtinguish 可能把火从 FireSource.Active 里移除；直接 foreach 会抛「集合被修改」并中断本帧伤害。
+            var snapshot = FireSource.Active.ToArray();
+            foreach (var fire in snapshot)
             {
                 if (fire == null || fire.IsExtinguished || !fire.IsBurning) continue;
 

@@ -1117,9 +1117,9 @@ namespace FireSafety.EditorTools
             // ============================================================
             // 灭火器一律「贴墙」摆放（第 25 轮）：靠近墙面、固定在自己的挂钩板上，
             // 不占走道中线 —— 玩家按就近原则取最近的那台。
-            Vector3 ext01Pos = new Vector3(0.85f, 0.16f, 3.45f);      // 情景一 电气：北墙，配电柜东边 3.3 米（兼操作演练取瓶）
-            Vector3 ext02Pos = new Vector3(3.45f, 0.16f, -3.55f);     // 情景二 纸张：大厅南墙，纸张火东南 2.0 米
-            Vector3 ext03Pos = new Vector3(5.95f, 0.16f, -3.80f);     // 情景三 茶水间：南墙贴边（原东南墙角被 stool_2 占住，瓶体会被顶飞），到小家电火 3.1 米
+            Vector3 ext01Pos = new Vector3(-0.20f, 0.16f, 3.42f);     // 第35轮 电气：北墙，距设备火 2.27 米
+            Vector3 ext02Pos = new Vector3(3.35f, 0.16f, -3.50f);     // 第35轮 纸张：大厅南墙，距纸张火 1.93 米
+            Vector3 ext03Pos = new Vector3(6.15f, 0.16f, -2.70f);     // 第35轮 茶水间：茶水台西侧立面，距小家电火 1.97 米（东/南侧被 stool_2 与 table 占满）
 
             // ---------------- 出生点：每套情景 3 个候选（随机取一个，尽量避开上一次） ----------------
             var spawnRoot = GameObject.Find("DrillSpawnPoints");
@@ -1280,12 +1280,12 @@ namespace FireSafety.EditorTools
             // 墙面挂钩板：让「贴墙」不只是坐标贴近，而是看起来就挂在墙上
             SetupExtinguisherWallBracket(ext01Pos, Vector3.forward, "Extinguisher01_Bracket");
             SetupExtinguisherWallBracket(ext02Pos, Vector3.back, "Extinguisher02_Bracket");
-            SetupExtinguisherWallBracket(ext03Pos, Vector3.back, "Extinguisher03_Bracket");
+            SetupExtinguisherWallBracket(ext03Pos, Vector3.right, "Extinguisher03_Bracket");
 
             float d12 = Vector3.Distance(new Vector3(ext01Pos.x, 0f, ext01Pos.z), new Vector3(ext02Pos.x, 0f, ext02Pos.z));
             float d23 = Vector3.Distance(new Vector3(ext02Pos.x, 0f, ext02Pos.z), new Vector3(ext03Pos.x, 0f, ext03Pos.z));
             Debug.Log("[Setup] ✔ 灭火器贴墙落位：01" + ext01Pos.ToString("F2") + "（北墙）/ 02" + ext02Pos.ToString("F2")
-                      + "（大厅南墙）/ 03" + ext03Pos.ToString("F2") + "（茶水间南墙）"
+                      + "（大厅南墙）/ 03" + ext03Pos.ToString("F2") + "（茶水台西侧立面）"
                       + "；01↔02=" + d12.ToString("F2") + " 米，02↔03=" + d23.ToString("F2") + " 米");
 
             // ---------------- 操作演练用的原地板火 ----------------
@@ -1984,12 +1984,19 @@ namespace FireSafety.EditorTools
             // 手部姿态匹配（抓握时手指贴合瓶身）
             if (root.GetComponent<GrabPoseMatcher>() == null) root.AddComponent<GrabPoseMatcher>();
 
-            // 视线高亮：灭火器进入玩家视野后发光 + 光环 + 光柱提示
-            var highlight = root.GetComponent<ExtinguisherHighlight>() ?? root.AddComponent<ExtinguisherHighlight>();
-            highlight.checkInterval = 0.15f;
-            highlight.gazeAngle = 60f;
-            highlight.maxDistance = 20f;
-            highlight.checkOcclusion = true;
+            // 第 35 轮：删除旧的「视线高亮 + 光环 + 光柱」标识
+            var oldHighlight = root.GetComponent<ExtinguisherHighlight>();
+            if (oldHighlight != null) UnityEngine.Object.DestroyImmediate(oldHighlight, true);
+
+            // 第 35 轮：距离/拾取/灭火失败教练（鼠标与手柄共用）
+            var coach = root.GetComponent<ExtinguisherCoach>() ?? root.AddComponent<ExtinguisherCoach>();
+            coach.pickupRange = 2.2f;
+            coach.pickupTooClose = 0.15f;
+            coach.safeMinDistance = 1.2f;
+            coach.goodMaxDistance = 3.0f;
+            coach.checkOcclusion = true;
+            coach.repeatInterval = 2.6f;
+            coach.evaluateInterval = 0.35f;
 
             // 保险销
             SetupSafetyPin(root, ext, leftHand, rightHand);
@@ -2045,17 +2052,21 @@ namespace FireSafety.EditorTools
             }
             if (has) top = Mathf.Max(0f, b.max.y - root.transform.position.y);
 
-            var tag = root.GetComponent<ExtinguisherKindTag>() ?? root.AddComponent<ExtinguisherKindTag>();
-            tag.kind = kind;
-            tag.localOffset = new Vector3(0f, top + 0.20f, 0f);
-            tag.sizeMeters = new Vector2(0.72f, 0.30f);
-            tag.fontSize = 48;
-            tag.pushFromWall = 0.10f;
-            tag.hideWhenHeld = true;
+            // 第 35 轮：删除旧的瓶身大标签，换成「瓶顶箭头 + 信息牌 + 地面双环」指导标识
+            var oldTag = root.GetComponent<ExtinguisherKindTag>();
+            if (oldTag != null) UnityEngine.Object.DestroyImmediate(oldTag, true);
+
+            var guide = root.GetComponent<ExtinguisherGuideMarker>() ?? root.AddComponent<ExtinguisherGuideMarker>();
+            guide.kind = kind;
+            guide.labelRise = 0.34f;
+            guide.sizeMeters = new Vector2(0.90f, 0.34f);
+            guide.ringRadius = 0.40f;
+            guide.pushFromWall = 0.28f;
+            guide.guideColor = new Color(0.18f, 0.92f, 0.98f);
 
             Debug.Log("[Setup] ✔ 灭火剂类型：" + root.name + " → " + ExtinguisherKindInfo.Name(kind)
-                      + "（适用 " + ExtinguisherKindInfo.SuitableFor(kind) + "），标签挂在瓶身上方 "
-                      + tag.localOffset.y.ToString("F2") + " 米处");
+                      + "（适用 " + ExtinguisherKindInfo.SuitableFor(kind) + "），新建指导标识，瓶顶 "
+                      + top.ToString("F2") + " 米、地面双环半径 " + guide.ringRadius.ToString("F2") + " 米");
         }
 
         /// <summary>装配压把（HandleLever）与喷射粒子（ExtinguisherSpray）。</summary>

@@ -28,6 +28,19 @@ namespace FireSafety
 
         public string buttonLabel = "开始演练";
 
+        [Header("English / 英文")]
+        public string titleEnglish = "Office Fire Safety Drill";
+        [TextArea(6, 14)]
+        public string instructionsEnglish =
+            "How to play:\n" +
+            "1. Click Start Drill. The fire alarm will sound.\n" +
+            "2. Find the extinguisher on the wall and pick it up.\n" +
+            "3. Answer the extinguisher quiz (3 of 5 correct to pass).\n" +
+            "4. Face the fire, pull the pin, squeeze the lever, and sweep at the base of the flame.";
+        public string buttonLabelEnglish = "START DRILL";
+        public string tutorialLabelEnglish = "Practice";
+        public string onboardingLabelEnglish = "Tutorial";
+
         [Header("操作演练入口（原第一阶段：拿瓶→答题→拔销→压把→喷射）")]
         [Tooltip("开始面板上的第三个按钮：进入可实操的操作演练")]
         public string tutorialLabel = "操作演练";
@@ -80,6 +93,8 @@ namespace FireSafety
         Text _titleText;
         Text _instText;
         Text _startLabel;
+        Button _languageButton;
+        Text _languageLabel;
         Transform _cam;
         AudioSource _alarmFallback;
 
@@ -193,19 +208,22 @@ namespace FireSafety
             _panelGroup = panel.GetComponent<CanvasGroup>();
 
             // 标题（带呼吸动画）
-            _titleText = MakeText(panel.transform, title, 64, new Color(1f, 0.85f, 0.2f), 110f);
+            _titleText = MakeText(panel.transform,
+                DrillLocale.T(title, titleEnglish), 64, new Color(1f, 0.85f, 0.2f), 110f);
             UIFX.Pulse(this, _titleText.transform, 1f, titlePulseAmplitude, titlePulseFrequency);
 
             // 玩法说明文本框（可在 Inspector 的 Instructions 里修改）
             // 面板总高 880：标题 110 + 说明 320 + 开始 100 + 情景行 54 + 演练 62 + 教学 62 + 间距 60 + 内边距 56
-            _instText = MakeText(panel.transform, instructions, 20, Color.white, 320f);
+            _instText = MakeText(panel.transform, DrillLocale.T(instructions, instructionsEnglish),
+                20, Color.white, 320f);
             _instText.horizontalOverflow = HorizontalWrapMode.Wrap;
             _instText.verticalOverflow = VerticalWrapMode.Truncate;
             _instText.lineSpacing = 1.15f;
             _instText.alignment = TextAnchor.UpperLeft;
 
             // 开始按钮（带呼吸动画）：随机挑一套起火情景（终点相同，只是起点与起火点不同）
-            _startButton = MakeButton(panel.transform, buttonLabel, 40,
+            _startButton = MakeButton(panel.transform,
+                DrillLocale.T(buttonLabel, buttonLabelEnglish), 40,
                 new Color(0.12f, 0.55f, 0.30f, 1f), 100f);
             _startLabel = _startButton.GetComponentInChildren<Text>();
             UIFX.Pulse(this, _startButton.transform, 1f, buttonPulseAmplitude, buttonPulseFrequency);
@@ -217,15 +235,85 @@ namespace FireSafety
             // 操作演练入口：原第一阶段的完整流程，玩家可先练熟再进正式演练
             if (showTutorialButton)
             {
-                var tutorialBtn = MakeButton(panel.transform, tutorialLabel, 30,
+                var tutorialBtn = MakeButton(panel.transform,
+                    DrillLocale.T(tutorialLabel, tutorialLabelEnglish), 30,
                     new Color(0.78f, 0.42f, 0.12f, 1f), 62f);
                 tutorialBtn.onClick.AddListener(OpenTutorial);
             }
 
             // 引导页入口（온보딩）：分页教学
-            var onboardBtn = MakeButton(panel.transform, onboardingLabel, 30,
+            var onboardBtn = MakeButton(panel.transform,
+                DrillLocale.T(onboardingLabel, onboardingLabelEnglish), 30,
                 new Color(0.2f, 0.34f, 0.62f, 1f), 62f);
             onboardBtn.onClick.AddListener(OpenOnboarding);
+
+            BuildLanguageButton(go.transform);
+        }
+
+        /// <summary>第 35 轮：开始界面右上角的中英文切换按钮（绝对定位，不参与竖排）。</summary>
+        void BuildLanguageButton(Transform canvasRoot)
+        {
+            _languageButton = MakeAbsoluteButton(canvasRoot, DrillLocale.SwitchButtonLabel, 26,
+                new Color(0.12f, 0.36f, 0.48f, 0.96f), new Vector2(148f, 54f));
+            var rt = _languageButton.GetComponent<RectTransform>();
+            rt.anchorMin = rt.anchorMax = new Vector2(1f, 1f);
+            rt.pivot = new Vector2(1f, 1f);
+            rt.anchoredPosition = new Vector2(-18f, -18f);
+            _languageLabel = _languageButton.GetComponentInChildren<Text>();
+            _languageButton.onClick.AddListener(ToggleLanguage);
+            _languageButton.gameObject.SetActive(!Started);
+        }
+
+        Button MakeAbsoluteButton(Transform parent, string label, int size, Color bg, Vector2 sizeDelta)
+        {
+            var b = new GameObject("Btn_Language", typeof(RectTransform), typeof(Image), typeof(Button));
+            b.transform.SetParent(parent, false);
+            var img = b.GetComponent<Image>();
+            img.color = bg;
+            img.raycastTarget = true;
+            var btn = b.GetComponent<Button>();
+            btn.targetGraphic = img;
+            var brt = b.GetComponent<RectTransform>();
+            brt.sizeDelta = sizeDelta;
+
+            var labelGo = new GameObject("Label", typeof(RectTransform), typeof(Text));
+            labelGo.transform.SetParent(b.transform, false);
+            var t = labelGo.GetComponent<Text>();
+            t.text = label;
+            t.fontSize = size;
+            t.fontStyle = FontStyle.Bold;
+            t.color = Color.white;
+            t.font = UIFont.Resolve();
+            if (t.font != null) t.material = t.font.material;
+            t.alignment = TextAnchor.MiddleCenter;
+            t.raycastTarget = false;
+            var lrt = labelGo.GetComponent<RectTransform>();
+            lrt.anchorMin = Vector2.zero;
+            lrt.anchorMax = Vector2.one;
+            lrt.offsetMin = Vector2.zero;
+            lrt.offsetMax = Vector2.zero;
+            return btn;
+        }
+
+        public void ToggleLanguage()
+        {
+            PlayClick();
+            DrillLocale.Toggle();
+            RebuildUI();
+        }
+
+        void RebuildUI()
+        {
+            if (_canvas != null)
+            {
+                Destroy(_canvas.gameObject);
+                _canvas = null;
+            }
+            _panelGroup = null;
+            _titleText = _instText = _startLabel = _languageLabel = null;
+            _startButton = _languageButton = null;
+            BuildUI();
+            PlayIntroAnimation();
         }
 
         /// <summary>
@@ -255,6 +343,7 @@ namespace FireSafety
                 new Color(0.20f, 0.42f, 0.55f, 1f)    // 茶水间
             };
             var names = new[] { "电气", "纸张", "茶水间" };
+            var namesEn = new[] { "Electrical", "Paper", "Pantry" };
             var dr = DrillScenario.Instance != null ? DrillScenario.Instance : FindObjectOfType<DrillScenario>();
             for (int i = 0; i < 3; i++)
             {
@@ -263,7 +352,8 @@ namespace FireSafety
                     && !string.IsNullOrEmpty(dr.scenarios[i].shortName))
                     label = "情景" + (i + 1) + " · " + dr.scenarios[i].shortName;
                 int idx = i;
-                var b = MakeButton(row.transform, label, 24, colors[i], 54f);
+                string labelEn = "Scenario " + (i + 1) + " · " + namesEn[i];
+                var b = MakeButton(row.transform, DrillLocale.T(label, labelEn), 24, colors[i], 54f);
                 var le = b.GetComponent<LayoutElement>();
                 if (le != null) { le.flexibleWidth = 1f; le.minWidth = 120f; }
                 b.onClick.AddListener(() => StartScenario(idx));
@@ -449,13 +539,14 @@ namespace FireSafety
             _canvas.gameObject.SetActive(true);
             PlaceInFrontOfCamera(1.25f);
 
-            if (_titleText != null) _titleText.text = "演练结算";
+            if (_titleText != null) _titleText.text = DrillLocale.T("演练结算", "DRILL SUMMARY");
             if (_instText != null)
             {
                 _instText.text = summary;
                 _instText.alignment = TextAnchor.UpperCenter;
             }
-            if (_startLabel != null) _startLabel.text = "重新演练";
+            if (_startLabel != null) _startLabel.text = DrillLocale.T("重新演练", "RESTART DRILL");
+            if (_languageButton != null) _languageButton.gameObject.SetActive(false);
 
             _startButton.onClick.RemoveAllListeners();
             _startButton.onClick.AddListener(RestartDrill);

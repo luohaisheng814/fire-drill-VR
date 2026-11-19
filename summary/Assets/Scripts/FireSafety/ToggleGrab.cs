@@ -50,6 +50,9 @@ namespace FireSafety
         public UnityEvent onPickedUp = new UnityEvent();
         public UnityEvent onDropped = new UnityEvent();
 
+        /// <summary>第 35 轮：Grip 按下但离瓶身太远时广播「手到瓶的距离」，由 ExtinguisherCoach 转成提示。</summary>
+        public event System.Action<float> GrabRejected;
+
         [Header("限制")]
         [Tooltip("勾选后放下即锁定，不能再抓（保险销拔出后可防止被塞回）")]
         public bool lockAfterRelease = false;
@@ -109,6 +112,7 @@ namespace FireSafety
                 if (!IsHeld)
                 {
                     if (!_locked && InRange(h)) Grab(h);
+                    else if (!InRange(h)) GrabRejected?.Invoke(Vector3.Distance(h.attachPoint.position, rangePivot.position));
                 }
                 else if (_holding == h)
                 {

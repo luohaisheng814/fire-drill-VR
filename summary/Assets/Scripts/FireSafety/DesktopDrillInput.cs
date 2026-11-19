@@ -256,6 +256,10 @@ namespace FireSafety
                 handAnchor.localRotation = Quaternion.Euler(handEuler);
             }
 
+            // 第 35 轮：桌面持瓶时喷嘴对齐视线中心，否则固定手部欧拉角会让喷流偏低 20° 以上
+            if (_active != null && _active.grab != null && _active.grab.IsHeld && cameraTransform != null)
+                _active.AlignNozzleTo(cameraTransform.forward);
+
             // 鼠标视角跟随：水平偏航、俯仰限幅，避免翻转。
             // 只有桌面模式才由鼠标拥有相机；进入 XR（真机 / 模拟器）后位姿归 DrillTrackedPose，
             // 这里再写 localRotation 会和头显位姿互相覆盖，表现就是"视角自己慢慢漂"。
@@ -453,10 +457,39 @@ namespace FireSafety
             if (target.pin == null) target.pin = target.GetComponentInChildren<SafetyPin>(true);
             if (target.quizPanel != null) quizPanel = target.quizPanel;
 
+            TryPickupExtinguisher(target);
+        }
+
+        /// <summary>
+        /// 第 35 轮：点击灭火器的完整判定（距离 → 问答 → 拿起）。
+        /// 抽成公开方法便于玩家视角探针复验同一套真实逻辑。
+        /// </summary>
+        public bool TryPickupExtinguisher(Extinguisher target)
+        {
+            if (target == null) return false;
+            _active = target;
+            if (target.pin == null) target.pin = target.GetComponentInChildren<SafetyPin>(true);
+            if (target.quizPanel != null) quizPanel = target.quizPanel;
+
+            // 点击不等于瞬移拿取：先校验玩家到瓶身的距离，太远就只提示，不弹问答也不吸附。
+            // 第 35 轮修正：用水平距离（XZ），否则眼睛高 1.6 米时站在瓶旁 1.7 米也会被判成 2.3 米而拿不到。
+            Vector3 camFlat = cameraTransform != null ? cameraTransform.position : transform.position;
+            camFlat.y = 0f;
+            Vector3 extFlat = target.transform.position;
+            extFlat.y = 0f;
+            float pickupDistance = Vector3.Distance(camFlat, extFlat);
+            var coach = target.coach != null ? target.coach : target.GetComponent<ExtinguisherCoach>();
+            if (coach != null && !coach.CanPickup(pickupDistance, out string reject))
+            {
+                coach.ShowPickupRejected(pickupDistance, reject);
+                Hint(reject);
+                return false;
+            }
+
             // 未通过常识问答 → 先弹出问答面板，答对 60% 才能拿起
             if (target.quizRequired && !target.QuizPassed && quizPanel != null)
             {
-                if (quizPanel.IsOpen) { Hint("请先完成正在进行的问答"); return; }
+                if (quizPanel.IsOpen) { Hint("请先完成正在进行的问答"); return false; }
                 if (quizPanel.Failed) quizPanel.ResetQuiz();
 
                 _pendingGrab = target;
@@ -465,11 +498,13 @@ namespace FireSafety
                 quizPanel.onPassed.AddListener(HandleQuizPassed);
                 quizPanel.onFailed.AddListener(HandleQuizFailed);
 
+                DrillToast.HideNow();   // 旧的「太远」提示别压在题目上
                 quizPanel.Open();
                 Hint("灭火器常识问答：5 题，每题 10 秒，答对 3 题即可拿起（点选项或按 1/2/3）");
-                return;
+                return false;
             }
             GrabActive(target);
+            return true;
         }
 
         private void GrabActive(Extinguisher target)
@@ -916,10 +951,14 @@ namespace FireSafety
             if (!force && Time.unscaledTime < _nextHudRefresh) return;
             _nextHudRefresh = Time.unscaledTime + 0.1f;
 
-            const string controls =
+            string controls = DrillLocale.T(
                 "【视角/移动】移动鼠标转头　｜　W/A/S/D 平移　｜　Q/E 转身　｜　Shift 加速　｜　C 蹲下　" +
                 "【鼠标操作】右键单击灭火器：答题/拿起　｜　右键单击电源箱：切断电源　｜　左键单击：拔销　" +
-                "｜　左键双击：压把　｜　右键双击：喷射（再双击停止）　｜　P：放下　｜　右键单击门：开门";
+                "｜　左键双击：压把　｜　右键双击：喷射（再双击停止）　｜　P：放下　｜　右键单击门：开门",
+                "[Look/Move] Mouse to look | W/A/S/D move | Q/E turn | Shift sprint | C crouch  " +
+                "[Mouse] Right-click extinguisher: quiz/pick up | Right-click breaker: cut power | " +
+                "Left-click: pull pin | Double left-click: press lever | Double right-click: spray (again to stop) | " +
+                "P: drop | Right-click door: open");
 
             string status = Time.unscaledTime < _statusUntil ? _status : "";
             string modeLine = RuntimeDeviceMode.HasInstance
@@ -945,6 +984,8 @@ namespace FireSafety
 
         private string StateText()
         {
+            if (DrillLocale.English) return EnglishStateText();
+
             // 新流程（操作演练 / 正式第 1 阶段 / 第 2 阶段）的状态优先
             var scenario = DrillScenario.Instance != null ? DrillScenario.Instance : FindObjectOfType<DrillScenario>();
             if (scenario != null && scenario.CurrentMode != DrillScenario.Mode.None)
@@ -1000,6 +1041,72 @@ namespace FireSafety
                 return "状态：已拔销 → 左键双击按下压把";
             if (ext.IsSpraying) return "状态：正在喷射 → 对准火焰根部，右键双击停止";
             return "状态：压把已按下 → 右键双击开始喷射";
+        }
+
+        /// <summary>底部 HUD 的英文状态行（与中文 StateText 一一对应）。</summary>
+        private string EnglishStateText()
+        {
+            var scenario = DrillScenario.Instance != null ? DrillScenario.Instance : FindObjectOfType<DrillScenario>();
+            if (scenario != null && scenario.CurrentMode != DrillScenario.Mode.None)
+            {
+                if (scenario.CurrentMode == DrillScenario.Mode.Tutorial)
+                {
+                    if (scenario.CurrentPhase == DrillScenario.Phase.Done)
+                        return "Status: practice complete — choose Start Drill or Practice again.";
+                    return "Status: practice — pick up > quiz > pull pin > press lever > spray.";
+                }
+                if (scenario.CurrentPhase == DrillScenario.Phase.Stage1)
+                {
+                    string power = scenario.requirePowerCutBeforeExtinguish
+                        ? (scenario.PowerCut ? "Power cut" : "Cut the power first")
+                        : "No power cut required";
+                    string hp = scenario.deviceFire != null
+                        ? " | fire HP " + Mathf.RoundToInt(scenario.deviceFire.progress01 * 100f) + "%"
+                        : "";
+                    return "Status: Stage 1 — extinguish the fire | " + power + hp;
+                }
+                if (scenario.CurrentPhase == DrillScenario.Phase.Stage2)
+                    return "Status: Stage 2 — evacuate to the exit, put out the door fire, open the door.";
+                return "Status: drill complete.";
+            }
+
+            if (stageTwo != null)
+            {
+                switch (stageTwo.CurrentStage)
+                {
+                    case StageTwoFlow.Stage.Evacuating:
+                        return "Status: Stage 2 — smoke evacuation | "
+                               + (stageTwo.IsCrouched ? "crouching, follow the EXIT arrows" : "standing in smoke — press C to crouch")
+                               + " (smoke exposure " + Mathf.CeilToInt(stageTwo.SmokeExposureSeconds) + " s)";
+                    case StageTwoFlow.Stage.StageThree:
+                        return "Status: Stage 3 — lobby re-ignition | pick up > pull pin > press lever > spray.";
+                    case StageTwoFlow.Stage.ExitOpen:
+                        return "Status: exit unlocked — walk through the EXIT door.";
+                    case StageTwoFlow.Stage.Done:
+                        return "Status: drill complete — evacuated.";
+                }
+            }
+
+            if (startScreen != null && !startScreen.DrillStarted)
+                return "Status: waiting — click START DRILL or press Enter / Space.";
+
+            if (quizPanel != null && quizPanel.IsOpen && !quizPanel.Passed && !quizPanel.Failed)
+            {
+                return "Status: quiz " + (quizPanel.QuestionIndex + 1) + "/" + quizPanel.QuestionCount +
+                       " | " + Mathf.CeilToInt(quizPanel.TimeLeft) + " s left (click or press 1/2/3)";
+            }
+            if (quizPanel != null && quizPanel.Failed)
+                return "Status: quiz failed (" + quizPanel.CorrectCount + "/" + quizPanel.QuestionCount +
+                       ") — right-click the extinguisher to retry.";
+
+            var ext = Current;
+            if (ext == null) return "Status: no extinguisher in scene.";
+            if (!Held) return "Status: find the extinguisher — right-click it to start the quiz.";
+            if (!ext.PinPulled) return "Status: holding — left-click to pull the safety pin.";
+            if (ext.handleLever != null && !ext.handleLever.PressedOnce)
+                return "Status: pin pulled — double left-click to press the lever.";
+            if (ext.IsSpraying) return "Status: spraying — aim at the base of the flame; double right-click to stop.";
+            return "Status: lever pressed — double right-click to spray.";
         }
     }
 }
