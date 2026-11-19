@@ -50,6 +50,12 @@ namespace FireSafety
         [Header("复燃火源参数")]
         public Vector3 stageTwoFireOffset = new Vector3(0f, 0.25f, 0.75f);
         public float stageTwoExtinguishThreshold = 2.2f;
+        [Tooltip("复燃火瞄准点高度。地面火必须抬到玩家持瓶高度附近，否则 20° 喷锥从 2 米外根本压不到 0.3 米的火根")]
+        public float stageTwoAimHeight = 0.85f;
+        [Tooltip("第三阶段灭火点位到火焰的水平距离（米）")]
+        public float stageThreeStandDistance = 2.0f;
+        [Tooltip("第三阶段灭火点位（留空则按门/火位置自动生成地面圆环）")]
+        public Transform stageThreeStandPoint;
         public bool autoCreateFire = true;
         [Tooltip("第三阶段开始时，把最近的一台空闲灭火器挪到 spareExtinguisherSpot")]
         public bool autoMoveSpareExtinguisher = false;
@@ -245,20 +251,103 @@ namespace FireSafety
             if (smoke != null) smoke.Stop();
 
             EnsureFire();
-            if (stageTwoFire != null && !stageTwoFire.IsExtinguished)
-            {
-                var fireGo = stageTwoFire.gameObject;
-                if (!fireGo.activeSelf) fireGo.SetActive(true);
-                foreach (var ps in stageTwoFire.particles)
-                    if (ps != null && !ps.isPlaying) ps.Play();
-                if (stageTwoFire.fireLight != null) stageTwoFire.fireLight.enabled = true;
-            }
+            ArmStageThreeFire();
+            EnsureStageThreePoint();
 
             MoveSpareExtinguisherToLobby();
 
-            Hint("出口前复燃！拿起出口旁的灭火器（需再答 5 题疏散情景题）→ 拔销 → 压把 → 对准门前火焰喷射", true);
+            Hint("出口前复燃！先站到地面青色圆环「灭火点位」，拿起出口旁的灭火器（需再答 5 题疏散情景题）→ 拔销 → 压把 → 对准门前火焰根部喷射", true);
             onStageThreeBegin?.Invoke();
             Debug.Log("[Stage2] 进入第三阶段：大厅复燃，重复灭火流程。");
+        }
+
+        /// <summary>
+        /// 第三阶段火源每次进入都必须重新“武装”：
+        /// 解锁、重挂熄灭事件、抬瞄准点、清零进度并重新点燃。
+        /// 否则同一 Play 会话里重开演练时，上一轮已熄灭的 stageTwoFire 会被直接跳过，
+        /// 表现为「门口火看着在、喷半天不灭、门也不开」。
+        /// </summary>
+        private void ArmStageThreeFire()
+        {
+            if (stageTwoFire == null) return;
+
+            var fire = stageTwoFire;
+            if (!fire.gameObject.activeSelf) fire.gameObject.SetActive(true);
+
+            fire.SetExtinguishLocked(false);       // 出口火不属于电气火，不能被任何模板残留锁住
+            fire.startUnlit = false;
+            fire.extinguishThreshold = stageTwoExtinguishThreshold;
+
+            if (fire.onExtinguished == null) fire.onExtinguished = new UnityEvent();
+            fire.onExtinguished.RemoveListener(OnStageTwoFireExtinguished);
+            fire.onExtinguished.AddListener(OnStageTwoFireExtinguished);
+
+            // 低瞄准点是第 3 阶段喷不中的主因：0.3 米火根 + 20° 喷锥 + 2 米站位，
+            // 喷嘴（约 1.2 米高）到瞄准点的俯角超过 22°，全程在锥外。
+            Transform aim = fire.aimTarget;
+            if (aim == null) aim = MakeAimPoint(fire.transform, stageTwoAimHeight);
+            Vector3 local = aim.localPosition;
+            if (local.y < stageTwoAimHeight)
+            {
+                local.y = stageTwoAimHeight;
+                aim.localPosition = local;
+            }
+            fire.aimTarget = aim;
+
+            fire.IgniteNow();                      // 清零 progress01 / IsExtinguished，重新开粒子与灯光
+
+            foreach (var ps in fire.particles)
+                if (ps != null && !ps.isPlaying) ps.Play();
+            if (fire.fireLight != null) fire.fireLight.enabled = true;
+
+            Debug.Log("[Stage2] 第三阶段火源已重新武装：锁定=" + fire.extinguishLocked
+                      + " 瞄准高度=" + fire.AimPoint.y.ToString("F2") + " 米");
+        }
+
+        /// <summary>生成/刷新第三阶段的地面灭火点位（在火源靠房间一侧 2 米处）。</summary>
+        private void EnsureStageThreePoint()
+        {
+            if (stageTwoFire == null) return;
+
+            Vector3 firePos = stageTwoFire.transform.position;
+            Vector3 standPos;
+            if (stageThreeStandPoint != null)
+            {
+                standPos = stageThreeStandPoint.position;
+            }
+            else
+            {
+                Vector3 fromDoor = firePos - (exitDoor != null ? exitDoor.transform.position : transform.position);
+                fromDoor.y = 0f;
+                if (fromDoor.sqrMagnitude < 0.04f)
+                {
+                    Vector3 fwd = exitDoor != null ? exitDoor.transform.forward : Vector3.forward;
+                    fromDoor = -fwd;
+                    fromDoor.y = 0f;
+                }
+                standPos = firePos + fromDoor.normalized * Mathf.Max(1.2f, stageThreeStandDistance);
+                standPos.y = 0.02f;
+
+                var go = transform.Find("StageThreeExtinguishPoint");
+                if (go == null)
+                {
+                    var pointGo = new GameObject("StageThreeExtinguishPoint");
+                    pointGo.transform.SetParent(transform, false);
+                    go = pointGo.transform;
+                }
+                stageThreeStandPoint = go;
+                go.position = standPos;
+            }
+
+            var point = stageThreeStandPoint.GetComponent<ExtinguishPoint>();
+            if (point == null) point = stageThreeStandPoint.gameObject.AddComponent<ExtinguishPoint>();
+            point.fire = stageTwoFire;
+            point.radius = 0.5f;
+            point.BuildRing();
+            stageThreeStandPoint.gameObject.SetActive(true);
+
+            Debug.Log("[Stage2] 第三阶段灭火点位：" + stageThreeStandPoint.position.ToString("F2")
+                      + "（距火 " + Vector3.Distance(stageThreeStandPoint.position, firePos).ToString("F2") + " 米）");
         }
 
         /// <summary>③ 复燃火源扑灭后解锁出口。</summary>
@@ -405,7 +494,7 @@ namespace FireSafety
                 if (cloneFire.onExtinguished == null) cloneFire.onExtinguished = new UnityEvent();
                 cloneFire.onExtinguished.RemoveAllListeners();   // 克隆会连事件表一起复制，先清掉模板留下的监听
                 cloneFire.onExtinguished.AddListener(OnStageTwoFireExtinguished);
-                cloneFire.aimTarget = MakeAimPoint(clone.transform);
+                cloneFire.aimTarget = MakeAimPoint(clone.transform, stageTwoAimHeight);
                 EnsureHealthBar(cloneFire);
                 // 模板本轮已改为「未点燃」外观（startUnlit=true），克隆会继承 IsBurning=false；
                 // 这里必须显式点燃，否则喷射会被 ApplySprayToFires 跳过 —— 火在烧但进度永远 0。
@@ -480,7 +569,7 @@ namespace FireSafety
             fire.extinguishThreshold = stageTwoExtinguishThreshold;
             if (fire.onExtinguished == null) fire.onExtinguished = new UnityEvent();
             fire.onExtinguished.AddListener(OnStageTwoFireExtinguished);
-            fire.aimTarget = MakeAimPoint(go.transform);
+            fire.aimTarget = MakeAimPoint(go.transform, stageTwoAimHeight);
             EnsureHealthBar(fire);
 
             stageTwoFire = fire;
@@ -502,12 +591,17 @@ namespace FireSafety
         /// </summary>
         private static Transform MakeAimPoint(Transform fireRoot)
         {
+            return MakeAimPoint(fireRoot, 0.32f);
+        }
+
+        private static Transform MakeAimPoint(Transform fireRoot, float localHeight)
+        {
             Transform t = fireRoot.Find("AimPoint");
             if (t == null)
             {
                 var go = new GameObject("AimPoint");
                 go.transform.SetParent(fireRoot, false);
-                go.transform.localPosition = new Vector3(0f, 0.32f, 0f);
+                go.transform.localPosition = new Vector3(0f, localHeight, 0f);
                 t = go.transform;
             }
             return t;

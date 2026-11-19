@@ -647,8 +647,24 @@ namespace FireSafety.EditorTools
                     Mathf.Abs(firePos.z - (doorZ + 0.75f)) < 0.06f);
                 Check("第三阶段：火源立在门前的走廊上（不是悬空）",
                     firePos.y >= 0f && firePos.y < 1f);
-                Check("第三阶段：火源瞄准点在火焰根部高度（喷射锥才压得住）",
-                    flow.stageTwoFire.AimPoint.y >= 0.2f && flow.stageTwoFire.AimPoint.y <= 0.6f);
+                Check("第三阶段：火源瞄准点抬到玩家持瓶高度（喷锥才压得住）",
+                    flow.stageTwoFire.AimPoint.y >= 0.65f && flow.stageTwoFire.AimPoint.y <= 1.10f);
+            }
+            Check("第三阶段：已生成地面灭火点位（青色圆环）",
+                flow.stageThreeStandPoint != null
+                && flow.stageThreeStandPoint.gameObject.activeInHierarchy
+                && flow.stageThreeStandPoint.GetComponent<ExtinguishPoint>() != null);
+            if (flow.stageTwoFire != null && flow.stageThreeStandPoint != null)
+            {
+                float dPoint = Vector3.Distance(
+                    new Vector3(flow.stageThreeStandPoint.position.x, 0f, flow.stageThreeStandPoint.position.z),
+                    new Vector3(flow.stageTwoFire.transform.position.x, 0f, flow.stageTwoFire.transform.position.z));
+                Check("第三阶段：灭火点位距火 " + dPoint.ToString("F2") + " 米（1.6~2.4，喷嘴角可控）",
+                    dPoint >= 1.6f && dPoint <= 2.4f);
+                var ep = flow.stageThreeStandPoint.GetComponent<ExtinguishPoint>();
+                Check("第三阶段：灭火点位绑定门前复燃火", ep != null && ep.fire == flow.stageTwoFire);
+                Check("第三阶段：复燃火已解除喷射锁定（非电气火不能被模板锁住）",
+                    !flow.stageTwoFire.extinguishLocked);
             }
             Check("第三阶段：安全出口仍然关闭（未解锁时不能通关）",
                 !door.IsUnlocked && door.TryEnter() == false);
@@ -963,6 +979,21 @@ namespace FireSafety.EditorTools
                         new Vector3(s.extinguisherHome.x, 0f, s.extinguisherHome.z));
                     Check("情景「" + s.shortName + "」：灭火器距起火点 " + dExt.ToString("F2") + " 米（需 ≤3.5）",
                         dExt <= 3.5f);
+
+                    var point = s.extinguishPoint;
+                    Check("情景「" + s.shortName + "」：配置了起火点旁的灭火点位",
+                        point != null && point.gameObject.activeSelf && point.GetComponent<ExtinguishPoint>() != null);
+                    if (point != null)
+                    {
+                        float dPoint = Vector3.Distance(
+                            new Vector3(point.position.x, 0f, point.position.z),
+                            new Vector3(s.fire.transform.position.x, 0f, s.fire.transform.position.z));
+                        Check("情景「" + s.shortName + "」：灭火点位距火 " + dPoint.ToString("F2")
+                              + " 米（1.6~2.4）", dPoint >= 1.6f && dPoint <= 2.4f);
+                        var ep = point.GetComponent<ExtinguishPoint>();
+                        Check("情景「" + s.shortName + "」：灭火点位绑定本情景火源",
+                            ep != null && ep.fire == s.fire);
+                    }
 
                     if (s.spawnPoints != null)
                         foreach (var p in s.spawnPoints)

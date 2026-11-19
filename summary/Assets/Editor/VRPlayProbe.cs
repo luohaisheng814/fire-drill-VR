@@ -69,6 +69,9 @@ namespace FireSafety.EditorTools
         // 用来逐套验收另外两套情景（主探针跑情景一完整流程）。
         static int _forceScenario = -1;
         static bool _scenShotSpawn, _scenShotFire;
+        // 第 3 阶段实喷验证（不是只拍照）
+        static float _s4Prog0;
+        static bool _s4SprayShot, _s4LoggedMid;
 
         // ------------------------------------------------------------------
         [MenuItem("FireSafety/VR 播放态探针（虚拟头显 · 玩家视角）")]
@@ -91,6 +94,7 @@ namespace FireSafety.EditorTools
             _shotThreshold = _walkedOut = _shotPlaza = false;
             _scenSkipChecked = false;
             _scenShotSpawn = _scenShotFire = false;
+            _s4Prog0 = 0f; _s4SprayShot = _s4LoggedMid = false;
             _held = null; _shotAt = 0f;
             EditorSceneManager.OpenScene(ScenePath);
             _clock0 = Time.realtimeSinceStartup;
@@ -1115,6 +1119,7 @@ namespace FireSafety.EditorTools
             float t = Time.realtimeSinceStartup - _phaseT;
             int si = _forceScenario;
             string shotName = si == 1 ? "vr9d_scenario2_exit_fire.png" : "vr11d_scenario3_exit_fire.png";
+            string shotSpray = si == 1 ? "vr9e_scenario2_exit_spray.png" : "vr11e_scenario3_exit_spray.png";
 
             if (!_scenSkipChecked)
             {
@@ -1130,24 +1135,102 @@ namespace FireSafety.EditorTools
 
             if (_sub == 0)
             {
-                var dt = _door != null ? _door.transform : null;
-                if (dt == null) { Fail(tag + "：安全出口门缺失"); NextPhase(); return; }
-                Teleport(dt.position + dt.forward * 3.2f, tag + "：安全出口门前 3.2 米");
-                LookAtPoint(dt.position + Vector3.up * 0.9f);
+                var f0 = _flow != null ? _flow.stageTwoFire : null;
+                Transform point = _flow != null ? _flow.stageThreeStandPoint : null;
+                if (point != null)
+                {
+                    Teleport(point.position, tag + "：站到门前「灭火点位」圆环内");
+                }
+                else
+                {
+                    var dt = _door != null ? _door.transform : null;
+                    if (dt == null) { Fail(tag + "：安全出口门缺失"); NextPhase(); return; }
+                    Teleport(dt.position + dt.forward * 3.2f, tag + "：安全出口门前 3.2 米（未找到点位）");
+                }
+                if (f0 != null) LookAtPoint(f0.AimPoint);
                 _sub = 1; _subT = Time.realtimeSinceStartup;
                 return;
             }
-            if (t < 1.1f) return;
+            if (_sub == 1)
+            {
+                if (t < 1.1f) return;
 
-            Shot(shotName);
-            var f = _flow != null ? _flow.stageTwoFire : null;
-            Say(tag + "：门前复燃火玩家视角 · 火位置=" + (f != null ? f.transform.position.ToString("F2") : "null")
-                + " · 燃烧=" + (f != null && f.IsBurning)
-                + " · 门解锁=" + (_door != null && _door.IsUnlocked)
-                + "（截图 " + shotName + "）");
-            if (f == null) Fail(tag + "：跳到第 3 阶段后门前没有复燃火");
-            if (_door != null && _door.IsUnlocked) Fail(tag + "：第 3 阶段火还没灭，门就已经解锁了");
-            NextPhase();
+                Shot(shotName);
+                var f = _flow != null ? _flow.stageTwoFire : null;
+                Say(tag + "：门前复燃火玩家视角 · 火位置=" + (f != null ? f.transform.position.ToString("F2") : "null")
+                    + " · 瞄准点=" + (f != null ? f.AimPoint.ToString("F2") : "null")
+                    + " · 燃烧=" + (f != null && f.IsBurning)
+                    + " · 锁定=" + (f != null && f.extinguishLocked)
+                    + " · 门解锁=" + (_door != null && _door.IsUnlocked)
+                    + "（截图 " + shotName + "）");
+                if (f == null) { Fail(tag + "：跳到第 3 阶段后门前没有复燃火"); NextPhase(); return; }
+                if (_door != null && _door.IsUnlocked) Fail(tag + "：第 3 阶段火还没灭，门就已经解锁了");
+
+                var ext = _flow.spareExtinguisher;
+                if (ext == null) { Fail(tag + "：第 3 阶段备用灭火器为空"); NextPhase(); return; }
+                SayExtState(tag + "（灭火前）", ext, f);
+
+                // 真实玩家视角：站进圆环 → 拿瓶 → 拔销 → 压把。这里跳过重复 5 题问答（问答链路已由 S3 验过）。
+                ext.MarkQuizPassed();
+                if (!ext.grab.IsHeld) ext.grab.GrabExternal(_rightHand, HandSide.Right);
+                if (!ext.PinPulled) ext.PullPin();
+                Say(tag + "：拿瓶+拔销完成 · IsHeld=" + ext.grab.IsHeld + " · PinPulled=" + ext.PinPulled);
+                _sub = 2; _subT = Time.realtimeSinceStartup;
+                _s4Prog0 = f.progress01;
+                return;
+            }
+            if (_sub == 2)
+            {
+                if (t < 0.5f) return;
+                var f = _flow.stageTwoFire;
+                var ext = _flow.spareExtinguisher;
+                AimAt(ext, f.AimPoint);
+                _vr.vTrigger = true;
+                Say(tag + "：压把保持喷射 · 喷嘴距瞄准点 " + DistanceNozzle(ext, f.AimPoint).ToString("F2") + " 米"
+                    + " · 火源进度起点 " + f.progress01.ToString("F3"));
+                _sub = 3; _subT = Time.realtimeSinceStartup;
+                return;
+            }
+            if (_sub == 3)
+            {
+                var f = _flow.stageTwoFire;
+                var ext = _flow.spareExtinguisher;
+                if (ext != null) AimAt(ext, f.AimPoint);
+                if (!_s4SprayShot && t > 0.8f)
+                {
+                    Shot(shotSpray);
+                    _s4SprayShot = true;
+                    Say(tag + "：喷射中玩家视角（截图 " + shotSpray + "）· 进度=" + f.progress01.ToString("F3"));
+                }
+                if (t > 1.2f && !_s4LoggedMid)
+                {
+                    _s4LoggedMid = true;
+                    Say(tag + "：喷射 1.2 秒 · 进度 " + _s4Prog0.ToString("F3") + " → " + f.progress01.ToString("F3")
+                        + " · 喷嘴距瞄准点 " + DistanceNozzle(ext, f.AimPoint).ToString("F2") + " 米");
+                    if (Mathf.Abs(f.progress01 - _s4Prog0) < 0.05f)
+                        Fail(tag + "：喷射 1.2 秒进度几乎不变（喷锥没打到火 / 火被锁定）");
+                }
+                if (f.IsExtinguished)
+                {
+                    _vr.vTrigger = false;
+                    Say(tag + "：门前复燃火已扑灭 · 最终进度=" + f.progress01.ToString("F3")
+                        + " · 门解锁=" + (_door != null && _door.IsUnlocked)
+                        + " · 阶段=" + (_flow != null ? _flow.CurrentStage.ToString() : "null"));
+                    if (_door == null || !_door.IsUnlocked) Fail(tag + "：火灭了但安全出口没有解锁");
+                    if (_flow == null || _flow.CurrentStage != StageTwoFlow.Stage.ExitOpen)
+                        Fail(tag + "：火灭了但阶段没有推进到 ExitOpen");
+                    Shot(si == 1 ? "vr9f_scenario2_exit_open.png" : "vr11f_scenario3_exit_open.png");
+                    NextPhase();
+                    return;
+                }
+                if (t > 12f)
+                {
+                    _vr.vTrigger = false;
+                    Fail(tag + "：持续喷射 12 秒仍未灭火（进度 " + f.progress01.ToString("F3") + "）");
+                    NextPhase();
+                }
+                return;
+            }
         }
 
         static void S5_ScenarioDone() => Finish(Fails.Count == 0 ? 0 : 1);

@@ -62,6 +62,8 @@ namespace FireSafety
             public bool skipEvacuation = false;
             [Tooltip("第 28 轮：本情景灭火器的灭火剂类型（电气=CO₂ / 纸张=ABC 干粉 / 小家电=水基）")]
             public ExtinguisherKind extinguisherKind = ExtinguisherKind.PowderABC;
+            [Tooltip("起火点旁的灭火点位：玩家站进地面青色圆环再对准火焰根部喷射")]
+            public Transform extinguishPoint;
         }
 
         [Header("起火情景（不同情景 = 不同起火点 + 不同灭火器 + 不同出生点，终点相同）")]
@@ -359,8 +361,8 @@ namespace FireSafety
         private string ScenarioStepHint()
         {
             if (requirePowerCutBeforeExtinguish)
-                return "先切断电源，再拿起旁边的灭火器答题、拔销、压把、对准火焰根部喷射";
-            return "拿起旁边的灭火器答题、拔销、压把、对准火焰根部喷射（本情景不需要断电）";
+                return "先切断电源，再站到起火点旁的地面青色圆环「灭火点位」，拿起灭火器答题、拔销、压把、对准火焰根部喷射";
+            return "站到起火点旁的地面青色圆环「灭火点位」，拿起灭火器答题、拔销、压把、对准火焰根部喷射（本情景不需要断电）";
         }
 
         /// <summary>随机挑一套情景：尽量不与上一次重复。</summary>
@@ -401,6 +403,7 @@ namespace FireSafety
                 }
                 if (other.smoke != null) other.smoke.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
                 if (other.roomSmoke != null) other.roomSmoke.Clear();
+                if (other.extinguishPoint != null) other.extinguishPoint.gameObject.SetActive(false);
             }
 
             // 本情景生效
@@ -414,7 +417,23 @@ namespace FireSafety
 
             // 第 25 轮：本情景是否跳过第 2 阶段（就近原则直达安全出口门）
             if (stageTwo == null) stageTwo = FindObjectOfType<StageTwoFlow>();
-            if (stageTwo != null) stageTwo.skipEvacuation = sc.skipEvacuation;
+            if (stageTwo != null)
+            {
+                stageTwo.skipEvacuation = sc.skipEvacuation;
+                if (stageTwo.stageThreeStandPoint != null)
+                    stageTwo.stageThreeStandPoint.gameObject.SetActive(false);
+            }
+
+            if (sc.extinguishPoint != null)
+            {
+                sc.extinguishPoint.gameObject.SetActive(true);
+                var point = sc.extinguishPoint.GetComponent<ExtinguishPoint>();
+                if (point != null)
+                {
+                    point.fire = sc.fire;
+                    point.BuildRing();
+                }
+            }
 
             if (deviceFire != null)
             {

@@ -1257,6 +1257,15 @@ namespace FireSafety.EditorTools
             var pantryZone = EnsureRoomSmoke("Stage1Smoke_Pantry",
                 new Vector3(5.60f, 1.55f, 0.40f), new Vector3(6.35f, 1.55f, -1.60f), 4, 15f);
 
+            // ---------------- 每套情景的「灭火点位」（地面青色圆环） ----------------
+            // 站在圆环里、正对火焰根部，喷嘴到瞄准点的俯角落在 20° 喷锥内。
+            var pointDevice = EnsureExtinguishPoint("ExtinguishPoint_Device",
+                new Vector3(devicePos.x, 0.02f, devicePos.z - 1.95f), fireSource);
+            var pointPaper = EnsureExtinguishPoint("ExtinguishPoint_Paper",
+                new Vector3(paperFirePos.x, 0.02f, paperFirePos.z + 2.00f), paperFire);
+            var pointPantry = EnsureExtinguishPoint("ExtinguishPoint_Pantry",
+                new Vector3(pantryFirePos.x - 1.95f, 0.02f, pantryFirePos.z), pantryFire);
+
             // ---------------- 三台灭火器等间距落位 ----------------
             // 原来 01 在西墙 (-6.26,0.83)、02 在 (-3.10,1.15)，两台只隔 3.2 米；03 在 (3.70,1.60)，
             // 与 02 隔 6.9 米 —— 一台挤在角落、一台孤零零。现在改成沿房间对角均匀铺开：
@@ -1335,7 +1344,8 @@ namespace FireSafety.EditorTools
                     extinguisherKind = ExtinguisherKind.CO2,   // 第 28 轮：电气火配二氧化碳
                     powerSwitch = powerSwitch,
                     requirePowerCut = true,
-                    spawnPoints = new[] { spawn0, spawn1, spawn2 }
+                    spawnPoints = new[] { spawn0, spawn1, spawn2 },
+                    extinguishPoint = pointDevice
                 },
                 new DrillScenario.FireScenario
                 {
@@ -1352,7 +1362,8 @@ namespace FireSafety.EditorTools
                     powerSwitch = null,
                     requirePowerCut = false,
                     skipEvacuation = true,            // 第 25 轮：就近原则，灭火后直奔安全出口门
-                    spawnPoints = new[] { spawnP0, spawnP1, spawnP2 }
+                    spawnPoints = new[] { spawnP0, spawnP1, spawnP2 },
+                    extinguishPoint = pointPaper
                 },
                 new DrillScenario.FireScenario
                 {
@@ -1369,7 +1380,8 @@ namespace FireSafety.EditorTools
                     powerSwitch = null,
                     requirePowerCut = false,
                     skipEvacuation = true,            // 第 25 轮：就近原则，灭火后直奔安全出口门
-                    spawnPoints = new[] { spawnK0, spawnK1, spawnK2 }
+                    spawnPoints = new[] { spawnK0, spawnK1, spawnK2 },
+                    extinguishPoint = pointPantry
                 }
             };
             sc.randomScenario = true;
@@ -1402,6 +1414,9 @@ namespace FireSafety.EditorTools
                 // 第 2 阶段开始时把备用瓶搬到门旁空位，玩家到大厅就能顺手拿到。
                 flow.autoMoveSpareExtinguisher = true;
                 flow.spareExtinguisherSpot = new Vector3(4.95f, 0f, 3.20f);
+                // 第 3 阶段地面火：瞄准点抬到 0.85 米，2 米站位时喷嘴角约 10°，稳定落在 20° 锥内
+                flow.stageTwoAimHeight = 0.85f;
+                flow.stageThreeStandDistance = 2.00f;
             }
 
             Debug.Log("[Setup] ✔ 新流程：操作演练 + 正式第 1 阶段（3 个随机出生点 / 设备火 / 电源箱 / 独立烟雾 / 火焰血量条）"
@@ -1422,6 +1437,26 @@ namespace FireSafety.EditorTools
             t.localRotation = Quaternion.identity;
             t.localScale = Vector3.one;
             return t;
+        }
+
+        /// <summary>起火点旁的地面灭火点位（青色圆环，运行时由 ExtinguishPoint 绘制）。</summary>
+        static Transform EnsureExtinguishPoint(string name, Vector3 pos, FireSource fire)
+        {
+            var go = GameObject.Find(name);
+            if (go == null) go = new GameObject(name);
+            go.transform.SetParent(null, true);
+            go.transform.position = new Vector3(pos.x, 0.02f, pos.z);
+            go.transform.rotation = Quaternion.identity;
+            go.transform.localScale = Vector3.one;
+
+            var point = go.GetComponent<ExtinguishPoint>();
+            if (point == null) point = go.AddComponent<ExtinguishPoint>();
+            point.fire = fire;
+            point.radius = 0.45f;
+            point.lineWidth = 0.055f;
+            Debug.Log("[Setup] ✔ 灭火点位 " + name + " @ " + go.transform.position.ToString("F2")
+                      + "（距火 " + (fire != null ? Vector3.Distance(go.transform.position, fire.transform.position).ToString("F2") : "?") + " 米）");
+            return go.transform;
         }
 
         /// <summary>情景火源：克隆 BaseFire000，清进度与事件表、去碰撞体、补瞄准点与血量条。</summary>
