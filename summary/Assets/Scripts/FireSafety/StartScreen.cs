@@ -221,11 +221,12 @@ namespace FireSafety
             _instText.lineSpacing = 1.15f;
             _instText.alignment = TextAnchor.UpperLeft;
 
-            // 开始按钮（点击反馈由 ButtonFeedback 统一处理，避免和呼吸动画同时改 localScale）
+            // 开始按钮：第 37 轮在按钮文案后标注默认情景；字号略降以容纳更长的中文/英文
             _startButton = MakeButton(panel.transform,
-                DrillLocale.T(buttonLabel, buttonLabelEnglish), 40,
+                DrillLocale.T(buttonLabel + "（默认：电器起火）", buttonLabelEnglish + " (Default: Electrical Fire)"), 34,
                 new Color(0.12f, 0.55f, 0.30f, 1f), 100f);
             _startLabel = _startButton.GetComponentInChildren<Text>();
+            if (_startLabel != null) _startLabel.fontSize = 34;
             _startButton.onClick.AddListener(StartGame);
 
             // 三套起火情景的快选行：随机 / 电气 / 纸张 / 茶水间
@@ -518,9 +519,10 @@ namespace FireSafety
             if (FireDrillManager.Instance != null)
                 FireDrillManager.Instance.ForceCompleteUpTo(DrillStep.AlarmRinging);
 
-            // 新流程：正式开始由 DrillScenario 负责（随机出生点 + 烟雾 + 设备起火 + 断电 + 灭火 → 出口）
+            // 新流程：正式开始由 DrillScenario 负责（烟雾 + 设备起火 + 断电 + 灭火 → 出口）
+            // 第 37 轮：主按钮默认固定「电气」情景（index 0），其他两套走下方的情景快选。
             var scenario = DrillScenario.Instance != null ? DrillScenario.Instance : FindObjectOfType<DrillScenario>();
-            if (scenario != null) scenario.BeginFormal();
+            if (scenario != null) scenario.StartFormal(-1, 0);
 
             // 退出动画后隐藏
             StartCoroutine(ExitRoutine());

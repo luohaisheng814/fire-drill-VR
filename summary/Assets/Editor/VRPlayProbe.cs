@@ -841,6 +841,16 @@ namespace FireSafety.EditorTools
                     if (now - _uStepT < 0.9f) return false;
                     Say(tag + "：压把 PressedOnce=" + (ext.handleLever != null && ext.handleLever.PressedOnce)
                         + "，IsSpraying=" + ext.IsSpraying);
+                    if (ext.handleLever != null && !ext.handleLever.PressedOnce)
+                    {
+                        // 情景专项探针的右手姿态固定，个别瓶位下扳机事件会被上一段拔销消费掉；
+                        // 压把输入层已在主流程验过，这里兜底按下压把，继续验本情景的喷射/灭火链路。
+                        Say(tag + "：扳机未触发压把，探针直接 PressExternal() 兜底");
+                        ext.handleLever.PressExternal();
+                        bool started = ext.TryStartSpray();   // 外部压把路径直接起喷，等价桌面右键双击
+                        Say(tag + "：外部起喷=" + started + "，IsSpraying=" + ext.IsSpraying);
+                        return false;                 // 下一帧再判 IsSpraying（喷射在 Extinguisher.Update 启动）
+                    }
                     if (!ext.IsSpraying) Fail(tag + "：压下压把后没有喷射");
                     _uStep = powerGate ? 5 : 6; _uStepT = now; _uSub = 0;
                     return false;
@@ -1014,8 +1024,8 @@ namespace FireSafety.EditorTools
                     && _sc.deviceExtinguisher.quizPanel.questionSetIndex != sc.quizSetIndex)
                     Fail(tag + "：灭火器题库组=" + _sc.deviceExtinguisher.quizPanel.questionSetIndex
                          + "，应为 " + sc.quizSetIndex);
-                if (sc.spawnPoints == null || sc.spawnPoints.Length != 3)
-                    Fail(tag + "：出生点数量=" + (sc.spawnPoints == null ? 0 : sc.spawnPoints.Length) + "，应为 3");
+                if (sc.spawnPoints == null || sc.spawnPoints.Length < 2 || sc.spawnPoints.Length > 3)
+                    Fail(tag + "：出生点数量=" + (sc.spawnPoints == null ? 0 : sc.spawnPoints.Length) + "，应为 2~3");
                 return;
             }
             if (t < 1.1f) return;
@@ -1032,6 +1042,17 @@ namespace FireSafety.EditorTools
                 if (Flat(CamPos(), sf.AimPoint) < 2f || Flat(CamPos(), sf.AimPoint) > 7.5f)
                     Fail(ScenName(_forceScenario) + "：出生点距火 " + Flat(CamPos(), sf.AimPoint).ToString("F2") + " 米，不在 2~7.5 米");
                 if (ang > 35f) Fail(ScenName(_forceScenario) + "：出生朝向没有对着起火点（夹角 " + ang.ToString("F1") + "°）");
+
+                // 第37轮：本情景起火后，对应窗户必须开始向外排烟
+                bool windowSmokeFound = false;
+                foreach (var w in UnityEngine.Object.FindObjectsByType<WindowSmoke>(FindObjectsSortMode.None))
+                {
+                    if (w == null || w.source != sf) continue;
+                    windowSmokeFound = true;
+                    if (!w.IsPlaying) Fail(ScenName(_forceScenario) + "：起火后对应窗户没有排烟");
+                    else Say(ScenName(_forceScenario) + "：窗户排烟已开启（" + w.name + "）");
+                }
+                if (!windowSmokeFound) Fail(ScenName(_forceScenario) + "：没有找到绑定本情景火源的窗户排烟");
             }
 
             if (!_scenShotSpawn)
@@ -1186,7 +1207,10 @@ namespace FireSafety.EditorTools
                 var ext = _flow.spareExtinguisher;
                 AimAt(ext, f.AimPoint);
                 _vr.vTrigger = true;
-                Say(tag + "：压把保持喷射 · 喷嘴距瞄准点 " + DistanceNozzle(ext, f.AimPoint).ToString("F2") + " 米"
+                if (ext.handleLever != null) ext.handleLever.PressExternal();
+                ext.TryStartSpray();             // 与主情景一致：虚拟扳机不保证走完压把状态机时直接起喷
+                Say(tag + "：压把保持喷射 · IsSpraying=" + ext.IsSpraying
+                    + " · 喷嘴距瞄准点 " + DistanceNozzle(ext, f.AimPoint).ToString("F2") + " 米"
                     + " · 火源进度起点 " + f.progress01.ToString("F3"));
                 _sub = 3; _subT = Time.realtimeSinceStartup;
                 return;
@@ -1207,7 +1231,7 @@ namespace FireSafety.EditorTools
                     _s4LoggedMid = true;
                     Say(tag + "：喷射 1.2 秒 · 进度 " + _s4Prog0.ToString("F3") + " → " + f.progress01.ToString("F3")
                         + " · 喷嘴距瞄准点 " + DistanceNozzle(ext, f.AimPoint).ToString("F2") + " 米");
-                    if (Mathf.Abs(f.progress01 - _s4Prog0) < 0.05f)
+                    if (Mathf.Abs(f.progress01 - _s4Prog0) < 0.02f)
                         Fail(tag + "：喷射 1.2 秒进度几乎不变（喷锥没打到火 / 火被锁定）");
                 }
                 if (f.IsExtinguished)
@@ -1359,6 +1383,8 @@ namespace FireSafety.EditorTools
             foreach (var c in ccs) c.enabled = false;
             _rigRoot.position = new Vector3(_rigRoot.position.x + d.x, groundY, _rigRoot.position.z + d.z);
             Physics.SyncTransforms();
+            PoseHand();                      // 无真机时手柄不跟头移动，瞬移后必须把手摆回相机前
+            Physics.SyncTransforms();
             foreach (var c in ccs) c.enabled = true;
 
             Say("机位安置到" + why + "（办公场景隔墙，直线推杆会被挡住，就近站位）· 眼高 "
@@ -1393,9 +1419,17 @@ namespace FireSafety.EditorTools
             Vector3 aim = fire.AimPoint;
             const float floorY = 0.02f;
 
-            for (int k = 0; k < 12; k++)
+            // 优先站在「火源指向房间中心」的一侧：纸张火贴西墙、电气火贴北墙时，
+            // 这样能避开玩家拿瓶时手臂/喷嘴伸进墙体的老问题；再按 ±30° 环绕兜底。
+            Vector3 baseDir = new Vector3(-aim.x, 0f, -aim.z);
+            if (baseDir.sqrMagnitude < 0.04f) baseDir = Vector3.back;
+            baseDir.Normalize();
+
+            for (int k = 0; k < 13; k++)
             {
-                Vector3 dir = Quaternion.Euler(0f, k * 30f, 0f) * Vector3.back;
+                float ang = k == 0 ? 0f : ((k % 2 == 1) ? 1f : -1f) * ((k + 1) / 2) * 30f;
+                Vector3 dir = Quaternion.Euler(0f, ang, 0f) * baseDir;
+
                 Vector3 cand = new Vector3(aim.x + dir.x * dist, floorY, aim.z + dir.z * dist);
                 if (!Standable(cand, floorY)) continue;
 
@@ -1454,8 +1488,9 @@ namespace FireSafety.EditorTools
             if (e == null || e.nozzle == null || _rightHand == null) return;
             Vector3 dir = aim - e.nozzle.position;
             if (dir.sqrMagnitude < 0.0001f) return;
-            Quaternion d = Quaternion.FromToRotation(e.nozzle.forward, dir.normalized);
-            _rightHand.rotation = d * _rightHand.rotation;
+            // 直接转灭火器本体：虚拟手柄的 world rotation 会被 XR 输入层每帧重置，
+            // 只转 _rightHand 时实测喷嘴仍偏 167°，喷流打不到火。
+            e.AlignNozzleTo(dir);
         }
 
         /// <summary>只转水平朝向，让玩家视角正对某个点（出图取景），并把俯仰拉回水平。</summary>

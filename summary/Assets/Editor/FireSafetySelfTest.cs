@@ -42,6 +42,7 @@ namespace FireSafety.EditorTools
             TestInputFeedbackRound30();
             TestConnectionRound31();
             TestDrillScenario();
+            TestRound37Ui();
             TestVrConfiguration();
 
             if (_fail == 0) Debug.Log("[TEST] ==== 全部通过 ====");
@@ -965,7 +966,7 @@ namespace FireSafety.EditorTools
                 Check("情景：三套起火点互不相同（实际 " + fireSet.Count + " 个）", fireSet.Count == 3);
                 Check("情景：三套灭火器互不相同（实际 " + extSet.Count + " 台）", extSet.Count == 3);
                 Check("情景：三套题库组互不相同（实际 " + setIdx.Count + " 组）", setIdx.Count == 3);
-                Check("情景：出生点合计 9 个、互不相同（实际 " + spawnId.Count + " 个）", spawnId.Count == 9);
+                Check("情景：出生点合计 8 个、互不相同（实际 " + spawnId.Count + " 个）", spawnId.Count == 8);
 
                 foreach (var s in scs)
                 {
@@ -1095,7 +1096,7 @@ namespace FireSafety.EditorTools
                 Check("情景切换：当前灭火器题库组自动切到 E 组(4)",
                     sc.deviceExtinguisher != null && sc.deviceExtinguisher.quizPanel != null
                     && sc.deviceExtinguisher.quizPanel.questionSetIndex == 4);
-                Check("情景切换：出生点换成情景二那 3 个", sc.SpawnCount == 3);
+                Check("情景切换：出生点换成情景二那 2 个", sc.SpawnCount == 2);
                 Check("情景切换：情景二不需要断电（不残留电气锁定）",
                     !sc.requirePowerCutBeforeExtinguish);
                 // 切回第 1 套，恢复默认状态
@@ -1116,12 +1117,131 @@ namespace FireSafety.EditorTools
                     baseFire != null && baseFire.startUnlit);
             }
 
+            // ---- 第37轮：纸张新址 / 三窗口 / 默认电气 ----
+            Check("第37轮：主按钮固定默认电气（randomScenario 已关闭）", !sc.randomScenario);
+            var paperFireObj = sc.scenarios != null && sc.scenarios.Length > 1 ? sc.scenarios[1].fire : null;
+            Check("第37轮：纸张火已迁到西侧档案室南工位",
+                paperFireObj != null
+                && Vector3.Distance(paperFireObj.transform.position,
+                    new Vector3(-5.71f, 1.06f, -4.54f)) < 0.12f);
+            var paperScenario = sc.scenarios != null && sc.scenarios.Length > 1 ? sc.scenarios[1] : null;
+            Check("第37轮：纸张情景出生点 2 个，且都在火点 2~7 米外",
+                paperScenario != null && paperScenario.spawnPoints != null
+                && paperScenario.spawnPoints.Length == 2
+                && paperScenario.spawnPoints[0] != null && paperScenario.spawnPoints[1] != null
+                && Vector3.Distance(paperScenario.spawnPoints[0].position, new Vector3(-5.71f, 0f, -4.54f)) >= 2f
+                && Vector3.Distance(paperScenario.spawnPoints[1].position, new Vector3(-5.71f, 0f, -4.54f)) >= 2f);
+            Check("第37轮：三套情景的出生点互不重叠（三条不同接近路线）",
+                sc.scenarios.Length >= 3
+                && Vector3.Distance(sc.scenarios[0].spawnPoints[0].position, sc.scenarios[1].spawnPoints[0].position) > 3f
+                && Vector3.Distance(sc.scenarios[1].spawnPoints[0].position, sc.scenarios[2].spawnPoints[0].position) > 3f);
+
+            var windowsRoot = GameObject.Find("OfficeWindows");
+            Check("第37轮：窗户根节点 OfficeWindows 已装配", windowsRoot != null);
+            var windowSmokes = windowsRoot != null
+                ? windowsRoot.GetComponentsInChildren<WindowSmoke>(true) : new WindowSmoke[0];
+            Check("第37轮：三个窗洞各挂一个 WindowSmoke（实际 " + windowSmokes.Length + "）",
+                windowSmokes.Length == 3);
+            int boundNorth = 0, boundPaper = 0, boundPantry = 0;
+            bool allSmokeReady = true;
+            foreach (var ws in windowSmokes)
+            {
+                if (ws == null || ws.source == null) { allSmokeReady = false; continue; }
+                if (sc.scenarios.Length >= 3 && ws.source == sc.scenarios[0].fire) boundNorth++;
+                else if (sc.scenarios.Length >= 2 && ws.source == sc.scenarios[1].fire) boundPaper++;
+                else if (sc.scenarios.Length >= 3 && ws.source == sc.scenarios[2].fire) boundPantry++;
+                if (ws.smoke == null || ws.GetComponent<ParticleSystem>() == null) allSmokeReady = false;
+            }
+            Check("第37轮：三个窗烟粒子均已配置", allSmokeReady);
+            Check("第37轮：北窗→电气 / 西窗→纸张 / 东窗→茶水间 一一绑定",
+                boundNorth == 1 && boundPaper == 1 && boundPantry == 1);
+            Check("第37轮：北/西/东窗洞原墙已停用并重建（无叠墙）",
+                GameObject.Find("WindowWall_North") != null
+                && GameObject.Find("WindowWall_West") != null
+                && GameObject.Find("WindowWall_East") != null);
+
             // ---- 开始界面：三个入口 ----
             var start = UnityEngine.Object.FindObjectOfType<StartScreen>();
             Check("开始界面：显示「操作演练」入口",
                 start != null && start.showTutorialButton && start.tutorialLabel == "操作演练");
             Check("开始界面：正式入口仍为「开始演练」",
                 start != null && start.buttonLabel == "开始演练");
+        }
+
+        // ------------------------------------------------------------
+        // 3.13 第 37 轮：距离提示 × / 结束页右下角入口
+        // ------------------------------------------------------------
+        static void TestRound37Ui()
+        {
+            var root = new GameObject("TEST_R37_Ext");
+            var coach = root.AddComponent<ExtinguisherCoach>();
+            var ext = root.AddComponent<Extinguisher>();
+            var qGo = new GameObject("TEST_R37_Quiz");
+            qGo.transform.SetParent(root.transform, false);
+            var quiz = qGo.AddComponent<ExtinguisherQuizPanel>();
+            ext.quizPanel = quiz;
+            InvokeAwake(quiz);                       // 编辑模式手动建 UI
+
+            quiz.Open(ext.transform);
+            InvokeMethod(quiz, "RefreshDistanceHint");   // 编辑模式不会跑 Update，手动刷新一次距离文案
+            Check("第37轮问答：距离提示行默认可见", quiz.DistanceHintVisible);
+            Check("第37轮问答：默认未关闭", !quiz.DistanceHintClosed);
+            Check("第37轮问答：距离文案含「距灭火器」与关闭提示（实际「"
+                  + quiz.DistanceText + "」）",
+                quiz.DistanceText.Contains("距灭火器") && quiz.DistanceText.Contains("关闭"));
+
+            quiz.HideDistanceHint();
+            Check("第37轮问答：点 × 后距离行隐藏", !quiz.DistanceHintVisible);
+            Check("第37轮问答：点 × 后标记为已关闭", quiz.DistanceHintClosed);
+            Check("第37轮问答：关闭距离时抑制教练 Toast/HUD", coach.HintsSuppressed);
+            Check("第37轮问答：题目仍可作答（关闭距离不影响答题）",
+                quiz.IsOpen && quiz.QuestionCount == 5 && !quiz.Passed);
+
+            quiz.Close();
+            Check("第37轮问答：关闭面板后恢复教练提示", !coach.HintsSuppressed);
+            quiz.Open(ext.transform);
+            Check("第37轮问答：重新打开面板，距离提示恢复显示",
+                quiz.DistanceHintVisible && !quiz.DistanceHintClosed);
+            quiz.Close();
+            UnityEngine.Object.DestroyImmediate(root);
+
+            // 结束页：「关闭」收成右下角入口，「重新演练」才切场景
+            var endGo = new GameObject("TEST_R37_Ending");
+            var ending = endGo.AddComponent<EndingScreen>();
+            InvokeAwake(ending);
+            ending.Show(true);
+            var mainCanvas = endGo.transform.Find("Canvas_Ending");
+            Check("第37轮结束页：弹出时主画布可见、右下角入口隐藏",
+                ending.IsOpen && !ending.IsMinimized
+                && mainCanvas != null && mainCanvas.gameObject.activeSelf);
+            var dock = endGo.transform.Find("Canvas_EndingDock");
+            Check("第37轮结束页：已生成右下角入口画布",
+                dock != null && dock.GetComponentInChildren<Button>(true) != null);
+            Check("第37轮结束页：弹出时右下角入口默认隐藏",
+                dock != null && !dock.gameObject.activeSelf);
+
+            ending.Minimize();
+            Check("第37轮结束页：关闭后主画布隐藏、收成右下角入口",
+                !ending.IsOpen && ending.IsMinimized
+                && mainCanvas != null && !mainCanvas.gameObject.activeSelf
+                && dock != null && dock.gameObject.activeSelf);
+            if (Camera.main != null && dock != null)
+            {
+                InvokeMethod(ending, "PlaceDockBottomRight");
+                var cam = Camera.main.transform;
+                Vector3 off = dock.position - cam.position;
+                Check("第37轮结束页：入口位于相机前下方偏右（right "
+                      + Vector3.Dot(off, cam.right).ToString("F2") + " / up "
+                      + Vector3.Dot(off, cam.up).ToString("F2") + "）",
+                    Vector3.Dot(off, cam.forward) > 0.4f
+                    && Vector3.Dot(off, cam.right) > 0.12f
+                    && Vector3.Dot(off, cam.up) < -0.08f);
+            }
+            ending.Hide();
+            Check("第37轮结束页：Hide 清掉右下角入口状态",
+                !ending.IsOpen && !ending.IsMinimized
+                && dock != null && !dock.gameObject.activeSelf);
+            UnityEngine.Object.DestroyImmediate(endGo);
         }
 
         static void TestSceneWiring()

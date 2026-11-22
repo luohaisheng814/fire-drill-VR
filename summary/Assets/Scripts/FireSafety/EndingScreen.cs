@@ -38,6 +38,8 @@ namespace FireSafety
 
         public bool IsOpen { get; private set; }
         public bool IsSuccess { get; private set; }
+        /// <summary>第 37 轮：点「关闭」后整页收成右下角小卡片，点卡片重选情景/重开。</summary>
+        public bool IsMinimized => _minimized;
 
         Canvas _canvas;
         CanvasGroup _group;
@@ -45,17 +47,29 @@ namespace FireSafety
         Text _bodyText;
         Text _restartLabel;
 
+        Canvas _dockCanvas;
+        Button _dockButton;
+        Text _dockLabel;
+        bool _minimized;
+
         private void Awake()
         {
             Instance = this;
             Resolve();
             BuildUI();
             _canvas.gameObject.SetActive(false);
+            if (_dockCanvas != null) _dockCanvas.gameObject.SetActive(false);
         }
 
         private void Start()
         {
             Subscribe();
+        }
+
+        private void Update()
+        {
+            if (!_minimized || _dockCanvas == null) return;
+            PlaceDockBottomRight();
         }
 
         private void OnDestroy()
@@ -132,6 +146,8 @@ namespace FireSafety
             else if (_group != null) _group.alpha = 1f;
 
             IsOpen = true;
+            _minimized = false;
+            if (_dockCanvas != null) _dockCanvas.gameObject.SetActive(false);
             Play(success ? "Sounds/SFX/quiz_correct" : "Sounds/SFX/fail_buzz", 0.7f);
             onShown?.Invoke();
             Debug.Log("[Ending] 结束页已弹出：" + (success ? "成功撤离" : "时间到失败"));
@@ -140,7 +156,27 @@ namespace FireSafety
         public void Hide()
         {
             IsOpen = false;
+            _minimized = false;
             if (_canvas != null) _canvas.gameObject.SetActive(false);
+            if (_dockCanvas != null) _dockCanvas.gameObject.SetActive(false);
+        }
+
+        /// <summary>
+        /// 第 37 轮：点「关闭」不再整页消失，而是收成屏幕右下方的小卡片；
+        /// 点小卡片重新加载场景，回到开始界面的三情景选择。
+        /// </summary>
+        public void Minimize()
+        {
+            Play("Sounds/SFX/ui_click", 0.5f);
+            IsOpen = false;
+            _minimized = true;
+            if (_canvas != null) _canvas.gameObject.SetActive(false);
+            if (_dockCanvas != null)
+            {
+                _dockCanvas.gameObject.SetActive(true);
+                PlaceDockBottomRight();
+            }
+            Debug.Log("[Ending] 结束页已缩到右下角「重新演练 / 选择情景」入口");
         }
 
         /// <summary>重新演练：重载当前场景，回到初始状态。</summary>
@@ -267,10 +303,70 @@ namespace FireSafety
             _restartLabel = restart.GetComponentInChildren<Text>();
             restart.onClick.AddListener(Restart);
             var close = MakeButton(row.transform, buttonClose, 34, new Color(0.28f, 0.32f, 0.4f, 1f), 86f);
-            close.onClick.AddListener(Hide);
+            close.onClick.AddListener(Minimize);
 
             MakeText(panel.transform, "手柄射线扣 Trigger 点按，桌面可用鼠标点击", 22,
                 new Color(0.72f, 0.72f, 0.72f), 38f);
+
+            BuildDock();
+        }
+
+        /// <summary>右下角常驻小卡片：整页关闭后出现，点一下重新演练并回到情景选择。</summary>
+        private void BuildDock()
+        {
+            var go = new GameObject("Canvas_EndingDock");
+            go.transform.SetParent(transform, false);
+            _dockCanvas = go.AddComponent<Canvas>();
+            _dockCanvas.renderMode = RenderMode.WorldSpace;
+            _dockCanvas.sortingOrder = 321;
+            var rt = go.GetComponent<RectTransform>();
+            rt.sizeDelta = new Vector2(360, 110);
+            rt.localScale = Vector3.one * 0.0009f;
+            go.AddComponent<CanvasScaler>();
+            go.AddComponent<GraphicRaycaster>();
+            go.AddComponent<TrackedDeviceGraphicRaycaster>();
+
+            var b = new GameObject("Btn_RestartDock", typeof(RectTransform), typeof(Image), typeof(Button));
+            b.transform.SetParent(go.transform, false);
+            var img = b.GetComponent<Image>();
+            img.color = new Color(0.10f, 0.46f, 0.30f, 0.96f);
+            img.raycastTarget = true;
+            var brt = b.GetComponent<RectTransform>();
+            brt.anchorMin = brt.anchorMax = new Vector2(0.5f, 0.5f);
+            brt.pivot = new Vector2(0.5f, 0.5f);
+            brt.sizeDelta = new Vector2(340, 92);
+            _dockButton = b.GetComponent<Button>();
+            _dockButton.targetGraphic = img;
+            _dockButton.onClick.AddListener(Restart);
+
+            var labelGo = new GameObject("Label", typeof(RectTransform), typeof(Text));
+            labelGo.transform.SetParent(b.transform, false);
+            _dockLabel = labelGo.GetComponent<Text>();
+            _dockLabel.text = DrillLocale.T("重新演练\n选择情景", "RESTART\nChoose scenario");
+            _dockLabel.fontSize = 25;
+            _dockLabel.color = Color.white;
+            _dockLabel.font = UIFont.Resolve();
+            if (_dockLabel.font != null) _dockLabel.material = _dockLabel.font.material;
+            _dockLabel.alignment = TextAnchor.MiddleCenter;
+            _dockLabel.raycastTarget = false;
+            var lrt = labelGo.GetComponent<RectTransform>();
+            lrt.anchorMin = Vector2.zero;
+            lrt.anchorMax = Vector2.one;
+            lrt.offsetMin = new Vector2(8f, 4f);
+            lrt.offsetMax = new Vector2(-8f, -4f);
+
+            b.AddComponent<ButtonFeedback>().Init(img.color);
+            go.SetActive(false);
+        }
+
+        /// <summary>把右下角小卡片放在相机前下方偏右，转头也保持在视野右下角。</summary>
+        private void PlaceDockBottomRight()
+        {
+            Camera cam = Camera.main;
+            Transform c = cam != null ? cam.transform : transform;
+            Vector3 pos = c.position + c.forward * 0.82f + c.right * 0.28f + c.up * -0.19f;
+            _dockCanvas.transform.position = pos;
+            _dockCanvas.transform.rotation = Quaternion.LookRotation(pos - c.position, c.up);
         }
 
         private Text MakeText(Transform parent, string content, int size, Color color, float height)

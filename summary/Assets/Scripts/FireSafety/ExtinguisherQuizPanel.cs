@@ -100,6 +100,19 @@ namespace FireSafety
         Vector3 _placeCamPos;
         Vector3 _placeCamFwd = Vector3.forward;
 
+        // 第 37 轮：答题面板里的「距灭火器 ×× 米」一行，可点右侧 × 暂时关闭。
+        GameObject _distanceRow;
+        Text _distanceText;
+        Button _distanceCloseButton;
+        Extinguisher _ext;
+        ExtinguisherCoach _coach;
+        Transform _anchor;
+        bool _distanceClosed;
+
+        public bool DistanceHintVisible => _distanceRow != null && _distanceRow.activeSelf;
+        public bool DistanceHintClosed => _distanceClosed;
+        public string DistanceText => _distanceText != null ? _distanceText.text : string.Empty;
+
         // ---------------- 题库 ----------------
 
         [Header("题库组（共 30 题，六组各 5 题，互不重复）")]
@@ -371,6 +384,7 @@ namespace FireSafety
         {
             if (!IsOpen) return;
             KeepInFrontOfCamera();
+            RefreshDistanceHint();
             AdvanceTime(Time.deltaTime);
         }
 
@@ -446,6 +460,14 @@ namespace FireSafety
             }
 
             if (_canvas == null) BuildUI();
+            _anchor = anchor != null ? anchor : transform;
+            _ext = _anchor.GetComponentInParent<Extinguisher>();
+            _coach = (_ext != null ? _ext.GetComponent<ExtinguisherCoach>() : null);
+            if (_coach == null) _coach = GetComponentInParent<ExtinguisherCoach>();
+            _distanceClosed = false;
+            if (_distanceRow != null) _distanceRow.SetActive(true);
+            SetCoachSuppressed(true);
+            DrillToast.HideNow();
             PlaceInFrontOfCamera();
             SetPeripheralHud(false);
             _canvas.gameObject.SetActive(true);
@@ -474,8 +496,48 @@ namespace FireSafety
             IsOpen = false;
             _finished = false;
             _answered = false;
+            _distanceClosed = false;
+            SetCoachSuppressed(false);
             SetPeripheralHud(true);
             if (_canvas != null) _canvas.gameObject.SetActive(false);
+        }
+
+        /// <summary>第 37 轮：点 × 暂时关闭「距灭火器 ×× 米」这一行，本次答题不再显示距离提示。</summary>
+        public void HideDistanceHint()
+        {
+            _distanceClosed = true;
+            if (_distanceRow != null) _distanceRow.SetActive(false);
+            SetCoachSuppressed(true);
+            DrillToast.HideNow();
+        }
+
+        void SetCoachSuppressed(bool suppressed)
+        {
+            if (_coach == null)
+            {
+                var ext = _ext != null ? _ext : GetComponentInParent<Extinguisher>();
+                if (ext != null) _coach = ext.GetComponent<ExtinguisherCoach>();
+            }
+            if (_coach != null) _coach.HintsSuppressed = suppressed;
+        }
+
+        void RefreshDistanceHint()
+        {
+            if (_distanceRow == null || _distanceText == null || _distanceClosed) return;
+            Camera cam = Camera.main;
+            Transform bottle = _ext != null ? _ext.transform : _anchor;
+            if (cam == null || bottle == null)
+            {
+                _distanceText.text = DrillLocale.T("距灭火器 — 米 · 点右侧「关闭」暂时隐藏",
+                    "Extinguisher distance: — m · tap Close to hide");
+                return;
+            }
+            float d = Vector3.Distance(cam.transform.position, bottle.position);
+            bool far = _coach != null && d > _coach.pickupRange;
+            _distanceText.color = far ? new Color(1f, 0.72f, 0.32f) : new Color(0.72f, 0.88f, 1f);
+            _distanceText.text = DrillLocale.T(
+                "距灭火器 " + d.ToString("F1") + " 米 · 点右侧「关闭」暂时隐藏",
+                "Extinguisher distance: " + d.ToString("F1") + " m · tap Close to hide");
         }
 
         /// <summary>
@@ -504,6 +566,8 @@ namespace FireSafety
             _advanceTimer = 0f;
             _finished = false;
             _closeTimer = 0f;
+            _distanceClosed = false;
+            SetCoachSuppressed(false);
             if (_canvas != null) _canvas.gameObject.SetActive(false);
         }
 
@@ -578,6 +642,33 @@ namespace FireSafety
 
             _progressText = AddTextTo(infoRow.transform, "", 28, new Color(0.6f, 0.8f, 1f), 40f);
             _timerText = AddTextTo(infoRow.transform, "", 28, new Color(1f, 0.9f, 0.4f), 40f);
+
+            // 第 37 轮：距离提示行（不用 Toast 盖住题目）；右侧 × 可临时关掉
+            _distanceRow = new GameObject("DistanceHintRow", typeof(RectTransform), typeof(HorizontalLayoutGroup));
+            _distanceRow.transform.SetParent(panel.transform, false);
+            var dh = _distanceRow.GetComponent<HorizontalLayoutGroup>();
+            dh.spacing = 10f;
+            dh.padding = new RectOffset(4, 0, 0, 0);
+            dh.childAlignment = TextAnchor.MiddleLeft;
+            dh.childControlWidth = true;
+            dh.childControlHeight = false;
+            dh.childForceExpandWidth = true;
+            dh.childForceExpandHeight = false;
+            var drt = _distanceRow.GetComponent<RectTransform>();
+            drt.sizeDelta = new Vector2(880, 38);
+            var dle = _distanceRow.AddComponent<LayoutElement>();
+            dle.preferredHeight = 38f;
+
+            _distanceText = AddTextTo(_distanceRow.transform, "", 23, new Color(0.72f, 0.88f, 1f), 38f);
+            _distanceText.alignment = TextAnchor.MiddleLeft;
+
+            _distanceCloseButton = AddButton(_distanceRow.transform, "关闭", 22,
+                new Color(0.52f, 0.20f, 0.20f, 1f), 38f, 76f);
+            var dcl = _distanceCloseButton.GetComponent<LayoutElement>();
+            if (dcl != null) { dcl.preferredWidth = 76f; dcl.flexibleWidth = 0f; }
+            var dct = _distanceCloseButton.GetComponentInChildren<Text>();
+            if (dct != null) dct.alignment = TextAnchor.MiddleCenter;
+            _distanceCloseButton.onClick.AddListener(HideDistanceHint);
 
             // 计时条
             var barBg = new GameObject("TimerBar", typeof(RectTransform), typeof(Image));
@@ -685,6 +776,7 @@ namespace FireSafety
             var labelGo = new GameObject("Label", typeof(RectTransform), typeof(Text));
             labelGo.transform.SetParent(b.transform, false);
             var t = labelGo.GetComponent<Text>();
+            t.text = label;
             t.fontSize = size;
             t.color = Color.white;
             t.font = UIFont.Resolve();

@@ -1123,7 +1123,9 @@ namespace FireSafety.EditorTools
             // 灭火器一律「贴墙」摆放（第 25 轮）：靠近墙面、固定在自己的挂钩板上，
             // 不占走道中线 —— 玩家按就近原则取最近的那台。
             Vector3 ext01Pos = new Vector3(-0.20f, 0.16f, 3.42f);     // 第35轮 电气：北墙，距设备火 2.27 米
-            Vector3 ext02Pos = new Vector3(3.35f, 0.16f, -3.50f);     // 第35轮 纸张：大厅南墙，距纸张火 1.93 米
+            // 第37轮：纸张火迁到西侧档案工位 (-4.76,-1.80)，02 号瓶跟着贴西墙，
+            // 让「电气→北线、纸张→西/南线、茶水间→东线」三套情景各有自己的起点与路径。
+            Vector3 ext02Pos = new Vector3(-6.25f, 0.16f, -2.95f);    // 纸张：西墙，距南工位纸张火约 1.7 米
             Vector3 ext03Pos = new Vector3(6.15f, 0.16f, -2.70f);     // 第35轮 茶水间：茶水台西侧立面，距小家电火 1.97 米（东/南侧被 stool_2 与 table 占满）
 
             // ---------------- 出生点：每套情景 3 个候选（随机取一个，尽量避开上一次） ----------------
@@ -1140,14 +1142,13 @@ namespace FireSafety.EditorTools
             var spawn1 = EnsureSpawn(g1, "Spawn02", new Vector3(1.00f, 0f, 1.60f), deviceLook);
             var spawn2 = EnsureSpawn(g1, "Spawn03", new Vector3(4.30f, 0f, 1.20f), deviceLook);
 
-            // 情景二（纸张 / 档案）：中部房间，站在南侧工位北面看向燃烧的办公桌
-            // 起火点必须避开这台打印机（printer 包围盒 x[0.20,0.96] z[-3.85,-2.89]）：
-            // 玩家视角实测放在桌子正中会被打印机整个挡住，只看得见一张浮在机器上方的血量条。
-            var paperFirePos = new Vector3(1.42f, 1.06f, -3.45f);
+            // 情景二（纸张 / 档案）：第37轮迁到西侧档案室南工位 desk_1_alternative，
+            // 桌面四周无隔断、正对西窗，烟能直接排出窗外；出生点分别放在北侧走道与南翼，
+            // 形成「西侧档案走廊 → 南工位」与「南翼 → 折回工位」两条不同接近路线。
+            var paperFirePos = new Vector3(-5.71f, 1.06f, -4.54f);
             var paperLook = new Vector3(paperFirePos.x, 1.0f, paperFirePos.z);
-            var spawnP0 = EnsureSpawn(g2, "Spawn01", new Vector3(3.30f, 0f, -1.20f), paperLook);
-            var spawnP1 = EnsureSpawn(g2, "Spawn02", new Vector3(4.20f, 0f, -1.40f), paperLook);
-            var spawnP2 = EnsureSpawn(g2, "Spawn03", new Vector3(2.60f, 0f, -1.60f), paperLook);
+            var spawnP0 = EnsureSpawn(g2, "Spawn01", new Vector3(-5.95f, 0f, -1.95f), paperLook);
+            var spawnP1 = EnsureSpawn(g2, "Spawn02", new Vector3(-3.35f, 0f, -5.55f), paperLook);
 
             // 情景三（茶水间）：东南侧，站在茶水台西/南面看向台面火
             var pantryFirePos = new Vector3(6.30f, 1.06f, -0.74f);
@@ -1248,14 +1249,14 @@ namespace FireSafety.EditorTools
             s1.ratePerSecond = 18f;
 
             // ---------------- 情景二 / 三的起火点（克隆 BaseFire000，不继承模板的进度与事件） ----------------
-            var paperFire = EnsureScenarioFire("PaperFire", paperFirePos, template, 0.50f,
+            var paperFire = EnsureScenarioFire("PaperFire", paperFirePos, template, 0.26f,
                 "桌面纸张、档案正在燃烧！这属于 A 类固体火灾");
             var paperSmoke = EnsureScenarioSmoke("PaperSmoke",
                 new Vector3(paperFirePos.x, 1.55f, paperFirePos.z), new Color(0.30f, 0.30f, 0.32f, 0.55f), 18f);
             var paperZone = EnsureRoomSmoke("Stage1Smoke_Paper",
-                new Vector3(2.40f, 1.55f, -2.10f), new Vector3(1.40f, 1.55f, -3.40f), 4, 15f);
+                new Vector3(-3.10f, 1.55f, -3.20f), new Vector3(-5.50f, 1.55f, -5.35f), 4, 15f);
 
-            var pantryFire = EnsureScenarioFire("PantryFire", pantryFirePos, template, 0.50f,
+            var pantryFire = EnsureScenarioFire("PantryFire", pantryFirePos, template, 0.38f,
                 "茶水间台面起火！先断电、再灭火，油类火灾不能用水");
             var pantrySmoke = EnsureScenarioSmoke("PantrySmoke",
                 new Vector3(pantryFirePos.x, 1.50f, pantryFirePos.z), new Color(0.34f, 0.33f, 0.31f, 0.55f), 18f);
@@ -1267,9 +1268,12 @@ namespace FireSafety.EditorTools
             var pointDevice = EnsureExtinguishPoint("ExtinguishPoint_Device",
                 new Vector3(devicePos.x, 0.02f, devicePos.z - 1.95f), fireSource);
             var pointPaper = EnsureExtinguishPoint("ExtinguishPoint_Paper",
-                new Vector3(paperFirePos.x, 0.02f, paperFirePos.z + 2.00f), paperFire);
+                new Vector3(paperFirePos.x, 0.02f, paperFirePos.z + 1.95f), paperFire);
             var pointPantry = EnsureExtinguishPoint("ExtinguishPoint_Pantry",
                 new Vector3(pantryFirePos.x - 1.95f, 0.02f, pantryFirePos.z), pantryFire);
+
+            // 第37轮：三面采光窗 + 起火时窗外排烟（北→电气、西→纸张、东→茶水间）
+            SetupWindowOpenings(fireSource, paperFire, pantryFire);
 
             // ---------------- 三台灭火器等间距落位 ----------------
             // 原来 01 在西墙 (-6.26,0.83)、02 在 (-3.10,1.15)，两台只隔 3.2 米；03 在 (3.70,1.60)，
@@ -1284,14 +1288,17 @@ namespace FireSafety.EditorTools
 
             // 墙面挂钩板：让「贴墙」不只是坐标贴近，而是看起来就挂在墙上
             SetupExtinguisherWallBracket(ext01Pos, Vector3.forward, "Extinguisher01_Bracket");
-            SetupExtinguisherWallBracket(ext02Pos, Vector3.back, "Extinguisher02_Bracket");
+            SetupExtinguisherWallBracket(ext02Pos, Vector3.left, "Extinguisher02_Bracket");
             SetupExtinguisherWallBracket(ext03Pos, Vector3.right, "Extinguisher03_Bracket");
 
             float d12 = Vector3.Distance(new Vector3(ext01Pos.x, 0f, ext01Pos.z), new Vector3(ext02Pos.x, 0f, ext02Pos.z));
             float d23 = Vector3.Distance(new Vector3(ext02Pos.x, 0f, ext02Pos.z), new Vector3(ext03Pos.x, 0f, ext03Pos.z));
             Debug.Log("[Setup] ✔ 灭火器贴墙落位：01" + ext01Pos.ToString("F2") + "（北墙）/ 02" + ext02Pos.ToString("F2")
-                      + "（大厅南墙）/ 03" + ext03Pos.ToString("F2") + "（茶水台西侧立面）"
-                      + "；01↔02=" + d12.ToString("F2") + " 米，02↔03=" + d23.ToString("F2") + " 米");
+                      + "（西墙·纸张）/ 03" + ext03Pos.ToString("F2") + "（茶水台西侧立面）"
+                      + "；01↔02=" + d12.ToString("F2") + " 米，02↔03=" + d23.ToString("F2") + " 米"
+                      + "；纸张火 " + paperFirePos.ToString("F2") + " → 02 号瓶 "
+                      + Vector3.Distance(new Vector3(paperFirePos.x, 0f, paperFirePos.z),
+                                          new Vector3(ext02Pos.x, 0f, ext02Pos.z)).ToString("F2") + " 米");
 
             // ---------------- 操作演练用的原地板火 ----------------
             if (template != null)
@@ -1356,7 +1363,7 @@ namespace FireSafety.EditorTools
                 {
                     title = "情景二 · 办公桌纸张起火",
                     shortName = "纸张",
-                    intro = "南侧工位上一摞打印纸和档案袋被引燃，属于 A 类固体火灾——用干粉灭火器对准火焰根部，灭后翻开纸堆防复燃。",
+                    intro = "西侧档案室南工位上的一摞打印纸和档案袋被引燃，属于 A 类固体火灾——用干粉灭火器对准火焰根部，灭后翻开纸堆防复燃。",
                     fire = paperFire,
                     smoke = paperSmoke,
                     roomSmoke = paperZone,
@@ -1367,7 +1374,7 @@ namespace FireSafety.EditorTools
                     powerSwitch = null,
                     requirePowerCut = false,
                     skipEvacuation = true,            // 第 25 轮：就近原则，灭火后直奔安全出口门
-                    spawnPoints = new[] { spawnP0, spawnP1, spawnP2 },
+                    spawnPoints = new[] { spawnP0, spawnP1 },
                     extinguishPoint = pointPaper
                 },
                 new DrillScenario.FireScenario
@@ -1389,7 +1396,7 @@ namespace FireSafety.EditorTools
                     extinguishPoint = pointPantry
                 }
             };
-            sc.randomScenario = true;
+            sc.randomScenario = false;   // 第37轮：主按钮固定默认电气起火（按钮已明示），纸张/茶水间走情景快选
 
             // 兼容字段：默认情景 = 第 1 套
             sc.spawnPoints = new[] { spawn0, spawn1, spawn2 };
@@ -1842,6 +1849,297 @@ namespace FireSafety.EditorTools
                 mat.name = name;
                 AssetDatabase.CreateAsset(mat, matPath);
             }
+            return mat;
+        }
+
+        /// <summary>
+        /// 第37轮：三面采光窗。把三处墙面改成「窗洞 + 窗框 + 玻璃 + 窗外天光板」，
+        /// 并在窗洞内侧加日光点光源；每个窗再绑一个 WindowSmoke，只有对应火源燃烧时才向外排烟。
+        ///   · 北窗 x=-3.65（电气设备上方）
+        ///   · 西窗 z=-1.20（纸张档案工位旁）
+        ///   · 东窗 z=-1.20（茶水间旁，利用第25轮补的走廊东墙开洞）
+        /// </summary>
+        static void SetupWindowOpenings(FireSource deviceFire, FireSource paperFire, FireSource pantryFire)
+        {
+            var old = GameObject.Find("OfficeWindows");
+            if (old != null) UnityEngine.Object.DestroyImmediate(old);
+            var root = new GameObject("OfficeWindows");
+            root.transform.position = Vector3.zero;
+            root.transform.rotation = Quaternion.identity;
+            root.transform.localScale = Vector3.one;
+
+            var wallMat = EnsureSetupMaterial("Assets/Materials/OfficeWallMat.mat",
+                new Color(0.855f, 0.845f, 0.805f), 0.10f);
+            var frameMat = EnsureSetupMaterial("Assets/Materials/WindowFrameMat.mat",
+                new Color(0.26f, 0.28f, 0.30f), 0.45f);
+            var skyMat = EnsureSetupMaterial("Assets/Materials/WindowSkyMat.mat",
+                new Color(0.72f, 0.86f, 0.97f), 0.1f,
+                emission: new Color(0.78f, 0.90f, 1f) * 1.45f);
+            var glassMat = EnsureWindowGlassMaterial();
+
+            // ---- 北窗：拆掉 wall_standard_wood_alt_3 (1)，换成四块围出洞口的墙板 ----
+            var northTarget = GameObject.Find("wall_standard_wood_alt_3 (1)");
+            MatRef northRef = CaptureWall(northTarget, wallMat);
+            BuildWallAroundOpening(root.transform, "WindowWall_North", northRef.mat,
+                Axis.Z, xWall: 0f, zWall: 3.995f, thickness: 0.39f,
+                uMin: -4.75f, uMax: -2.75f, openMin: -4.30f, openMax: -3.00f,
+                yMin: 0f, yMax: 3.0f, openBottom: 1.30f, openTop: 2.40f);
+            BuildWindowDressing(root.transform, "North", Axis.Z, 3.995f, 0.39f,
+                uCenter: -3.65f, width: 1.30f, yCenter: 1.85f, height: 1.10f,
+                frameMat, glassMat, skyMat, inward: Vector3.back,
+                outdoorBackdrop: true, smokeSource: deviceFire,
+                smokePos: new Vector3(-3.65f, 1.90f, 3.58f), smokeOut: Vector3.forward);
+
+            // ---- 西窗：开在 z -6~-4 这段西墙，窗中心 z=-4.60，正对南工位纸张火 ----
+            var westTarget = GameObject.Find("wall_standard_wood_alt_1 (4)");
+            MatRef westRef = CaptureWall(westTarget, wallMat);
+            BuildWallAroundOpening(root.transform, "WindowWall_West", westRef.mat,
+                Axis.X, xWall: -6.755f, zWall: 0f, thickness: 0.39f,
+                uMin: -6.0f, uMax: -4.0f, openMin: -5.15f, openMax: -4.05f,
+                yMin: 0f, yMax: 3.0f, openBottom: 1.30f, openTop: 2.40f);
+            BuildWindowDressing(root.transform, "West", Axis.X, -6.755f, 0.39f,
+                uCenter: -4.60f, width: 1.10f, yCenter: 1.85f, height: 1.10f,
+                frameMat, glassMat, skyMat, inward: Vector3.right,
+                outdoorBackdrop: true, smokeSource: paperFire,
+                smokePos: new Vector3(-6.38f, 1.90f, -4.60f), smokeOut: Vector3.left);
+
+            // ---- 东窗：第25轮补的走廊东墙开洞，正对茶水间 ----
+            var eastTarget = GameObject.Find("Wall_CorridorEast");
+            MatRef eastRef = CaptureWall(eastTarget, wallMat);
+            BuildWallAroundOpening(root.transform, "WindowWall_East", eastRef.mat,
+                Axis.X, xWall: 7.15f, zWall: 0f, thickness: 0.20f,
+                uMin: -4.00f, uMax: 0.10f, openMin: -1.90f, openMax: -0.55f,
+                yMin: 0f, yMax: 3.0f, openBottom: 1.30f, openTop: 2.40f);
+            BuildWindowDressing(root.transform, "East", Axis.X, 7.15f, 0.20f,
+                uCenter: -1.20f, width: 1.35f, yCenter: 1.85f, height: 1.10f,
+                frameMat, glassMat, skyMat, inward: Vector3.left,
+                outdoorBackdrop: false, smokeSource: pantryFire,
+                smokePos: new Vector3(6.86f, 1.90f, -1.20f), smokeOut: Vector3.right);
+
+            Debug.Log("[Setup] ✔ 窗户/采光：北(-3.65,z3.995)、西(x-6.755,z-4.60)、东(x7.15,z-1.20) 三处窗洞"
+                      + " + 窗框/玻璃/天光板 + 3 盏日光点光；窗口排烟分别绑电气/纸张/茶水间火源");
+        }
+
+        enum Axis { X, Z }
+
+        struct MatRef { public Material mat; }
+
+        static MatRef CaptureWall(GameObject target, Material fallback)
+        {
+            Material mat = fallback;
+            if (target != null)
+            {
+                var mr = target.GetComponent<MeshRenderer>();
+                if (mr != null && mr.sharedMaterial != null) mat = mr.sharedMaterial;
+                target.SetActive(false);   // 原墙整块停用，由下面的四块墙板重建
+            }
+            return new MatRef { mat = mat };
+        }
+
+        /// <summary>把一面墙拆成「洞口四周」四块：下、上、左、右。洞口保持真正通空。</summary>
+        static void BuildWallAroundOpening(Transform parent, string name, Material mat, Axis axis,
+            float xWall, float zWall, float thickness,
+            float uMin, float uMax, float openMin, float openMax,
+            float yMin, float yMax, float openBottom, float openTop)
+        {
+            var root = new GameObject(name);
+            root.transform.SetParent(parent, false);
+
+            float uMid = (uMin + uMax) * 0.5f;
+            float uLen = uMax - uMin;
+            float wallMidY = (yMin + yMax) * 0.5f;
+
+            // 下方（从地面到窗台）
+            AddWindowWallBox(root.transform, "Bottom", axis, xWall, zWall,
+                new Vector2(uMid, (yMin + openBottom) * 0.5f),
+                new Vector2(uLen, openBottom - yMin), thickness, mat);
+            // 上方（窗顶到墙顶）
+            AddWindowWallBox(root.transform, "Top", axis, xWall, zWall,
+                new Vector2(uMid, (openTop + yMax) * 0.5f),
+                new Vector2(uLen, yMax - openTop), thickness, mat);
+            // 左侧（uMin → openMin）
+            AddWindowWallBox(root.transform, "Left", axis, xWall, zWall,
+                new Vector2((uMin + openMin) * 0.5f, (openBottom + openTop) * 0.5f),
+                new Vector2(openMin - uMin, openTop - openBottom), thickness, mat);
+            // 右侧（openMax → uMax）
+            AddWindowWallBox(root.transform, "Right", axis, xWall, zWall,
+                new Vector2((openMax + uMax) * 0.5f, (openBottom + openTop) * 0.5f),
+                new Vector2(uMax - openMax, openTop - openBottom), thickness, mat);
+        }
+
+        /// <summary>在墙平面内放一块带碰撞的墙板。u 轴 = 墙面横向，v 轴 = 高度。</summary>
+        static void AddWindowWallBox(Transform parent, string name, Axis axis,
+            float xWall, float zWall, Vector2 uc, Vector2 size, float thickness, Material mat)
+        {
+            var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            go.name = name;
+            go.transform.SetParent(parent, false);
+            if (axis == Axis.X)
+            {
+                go.transform.position = new Vector3(xWall, uc.y, uc.x);
+                go.transform.localScale = new Vector3(thickness, size.y, size.x);
+            }
+            else
+            {
+                go.transform.position = new Vector3(uc.x, uc.y, zWall);
+                go.transform.localScale = new Vector3(size.x, size.y, thickness);
+            }
+            var mr = go.GetComponent<MeshRenderer>();
+            mr.sharedMaterial = mat;
+            mr.shadowCastingMode = ShadowCastingMode.On;
+            mr.receiveShadows = true;
+            var col = go.GetComponent<BoxCollider>();
+            if (col != null) col.enabled = true;
+        }
+
+        /// <summary>窗框 + 玻璃 + 窗外天光板 + 室内日光点光源 + 窗口排烟。</summary>
+        static void BuildWindowDressing(Transform parent, string tag, Axis axis,
+            float wallPlane, float thickness, float uCenter, float width,
+            float yCenter, float height, Material frameMat, Material glassMat, Material skyMat,
+            Vector3 inward, bool outdoorBackdrop, FireSource smokeSource,
+            Vector3 smokePos, Vector3 smokeOut)
+        {
+            var root = new GameObject("Window_" + tag);
+            root.transform.SetParent(parent, false);
+
+            float outwardSign = (axis == Axis.X)
+                ? (inward.x > 0f ? -1f : 1f)     // inward=+X 表示房间在 +X，窗外在 -X
+                : (inward.z > 0f ? -1f : 1f);
+            float outwardPlane = axis == Axis.X ? wallPlane + outwardSign * thickness * 0.5f
+                                                : wallPlane + outwardSign * thickness * 0.5f;
+
+            // 窗框：上下左右四条，略微凸出墙面
+            float frameDepth = thickness + 0.10f;
+            AddDressingBox(root.transform, "Frame_Top", axis, wallPlane,
+                uCenter, yCenter + height * 0.5f + 0.035f, width + 0.16f, 0.07f, frameDepth, frameMat);
+            AddDressingBox(root.transform, "Frame_Bottom", axis, wallPlane,
+                uCenter, yCenter - height * 0.5f - 0.035f, width + 0.16f, 0.07f, frameDepth, frameMat);
+            AddDressingBox(root.transform, "Frame_Left", axis, wallPlane,
+                uCenter - width * 0.5f - 0.035f, yCenter, 0.07f, height, frameDepth, frameMat);
+            AddDressingBox(root.transform, "Frame_Right", axis, wallPlane,
+                uCenter + width * 0.5f + 0.035f, yCenter, 0.07f, height, frameDepth, frameMat);
+
+            // 玻璃：薄薄一片，半透明，能看见窗外天光
+            AddDressingBox(root.transform, "Glass", axis, wallPlane,
+                uCenter, yCenter, width - 0.04f, height - 0.04f, 0.035f, glassMat, collider: false);
+
+            // 窗外天光板：给北/西窗一个亮的天空背景（东窗外面已有广场）
+            if (outdoorBackdrop)
+            {
+                float backDist = 0.85f;
+                if (axis == Axis.X)
+                {
+                    var b = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                    b.name = "SkyBackdrop";
+                    b.transform.SetParent(root.transform, false);
+                    b.transform.position = new Vector3(wallPlane + outwardSign * backDist, yCenter, uCenter);
+                    b.transform.localScale = new Vector3(0.05f, height + 0.9f, width + 0.9f);
+                    var c = b.GetComponent<Collider>();
+                    if (c != null) UnityEngine.Object.DestroyImmediate(c);
+                    var mr = b.GetComponent<MeshRenderer>();
+                    mr.sharedMaterial = skyMat;
+                    mr.shadowCastingMode = ShadowCastingMode.Off;
+                }
+                else
+                {
+                    var b = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                    b.name = "SkyBackdrop";
+                    b.transform.SetParent(root.transform, false);
+                    b.transform.position = new Vector3(uCenter, yCenter, wallPlane + outwardSign * backDist);
+                    b.transform.localScale = new Vector3(width + 0.9f, height + 0.9f, 0.05f);
+                    var c = b.GetComponent<Collider>();
+                    if (c != null) UnityEngine.Object.DestroyImmediate(c);
+                    var mr = b.GetComponent<MeshRenderer>();
+                    mr.sharedMaterial = skyMat;
+                    mr.shadowCastingMode = ShadowCastingMode.Off;
+                }
+            }
+
+            // 室内日光：不投影，只把窗边一小片提亮
+            var lightGo = new GameObject("Daylight_" + tag);
+            lightGo.transform.SetParent(root.transform, false);
+            Vector3 insidePos = axis == Axis.X
+                ? new Vector3(wallPlane - outwardSign * 0.55f, yCenter, uCenter)
+                : new Vector3(uCenter, yCenter, wallPlane - outwardSign * 0.55f);
+            lightGo.transform.position = insidePos;
+            var light = lightGo.AddComponent<Light>();
+            light.type = LightType.Point;
+            light.color = new Color(0.94f, 0.97f, 1f);
+            light.intensity = 1.45f;
+            light.range = 5.5f;
+            light.shadows = LightShadows.None;
+
+            // 窗洞排烟：粒子从室内侧出发，沿窗外方向飘，火灭后 WindowSmoke 自动停
+            var smokeGo = new GameObject("WindowSmoke_" + tag);
+            smokeGo.transform.SetParent(root.transform, false);
+            smokeGo.transform.position = smokePos;
+            smokeGo.transform.rotation = Quaternion.LookRotation(smokeOut, Vector3.up);
+            var ps = smokeGo.AddComponent<ParticleSystem>();
+            ConfigureSmoke(ps, new Color(0.10f, 0.10f, 0.12f, 0.74f),
+                rate: 34f, speed: 0.24f, size: 2.05f, life: 4.8f, additive: false, radius: 0.52f);
+            var ws = smokeGo.AddComponent<WindowSmoke>();
+            ws.source = smokeSource;
+            ws.smoke = ps;
+
+            Debug.Log("[Setup] ✔ 窗户 " + tag + "：窗洞中心 " + new Vector3(
+                axis == Axis.X ? wallPlane : uCenter, yCenter,
+                axis == Axis.X ? uCenter : wallPlane).ToString("F2")
+                + "，尺寸 " + width.ToString("F2") + "×" + height.ToString("F2") + " 米");
+        }
+
+        static void AddDressingBox(Transform parent, string name, Axis axis, float wallPlane,
+            float u, float y, float uSize, float ySize, float depth, Material mat, bool collider = false)
+        {
+            var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            go.name = name;
+            go.transform.SetParent(parent, false);
+            if (axis == Axis.X)
+            {
+                go.transform.position = new Vector3(wallPlane, y, u);
+                go.transform.localScale = new Vector3(depth, ySize, uSize);
+            }
+            else
+            {
+                go.transform.position = new Vector3(u, y, wallPlane);
+                go.transform.localScale = new Vector3(uSize, ySize, depth);
+            }
+            var mr = go.GetComponent<MeshRenderer>();
+            mr.sharedMaterial = mat;
+            mr.shadowCastingMode = ShadowCastingMode.Off;
+            mr.receiveShadows = false;
+            var c = go.GetComponent<Collider>();
+            if (c != null)
+            {
+                if (collider) c.enabled = true;
+                else UnityEngine.Object.DestroyImmediate(c);
+            }
+        }
+
+        /// <summary>URP Lit 的透明玻璃材质（浅蓝、低不透明度、不写深度）。</summary>
+        static Material EnsureWindowGlassMaterial()
+        {
+            const string path = "Assets/Materials/WindowGlassMat.mat";
+            var mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (mat == null)
+            {
+                var shader = Shader.Find("Universal Render Pipeline/Lit");
+                if (shader == null) shader = Shader.Find("Standard");
+                mat = new Material(shader);
+                mat.name = "WindowGlassMat";
+                AssetDatabase.CreateAsset(mat, path);
+            }
+            mat.SetOverrideTag("RenderType", "Transparent");
+            if (mat.HasProperty("_Surface")) mat.SetFloat("_Surface", 1f);
+            if (mat.HasProperty("_Blend")) mat.SetFloat("_Blend", 0f);
+            if (mat.HasProperty("_SrcBlend")) mat.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            if (mat.HasProperty("_DstBlend")) mat.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            if (mat.HasProperty("_ZWrite")) mat.SetFloat("_ZWrite", 0f);
+            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", new Color(0.72f, 0.86f, 0.95f, 0.20f));
+            if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.88f);
+            mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            mat.EnableKeyword("_ALPHAPREMULTIPLY_ON");
+            mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+            EditorUtility.SetDirty(mat);
             return mat;
         }
 

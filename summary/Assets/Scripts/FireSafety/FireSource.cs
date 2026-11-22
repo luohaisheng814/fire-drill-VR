@@ -51,7 +51,11 @@ namespace FireSafety
 
         private void Awake()
         {
-            if (startUnlit) IsBurning = false;
+            if (startUnlit)
+            {
+                IsBurning = false;
+                ClearFlame();          // 场景重新加载时粒子会 playOnAwake 复燃，这里强制收掉
+            }
         }
 
         private void OnEnable()

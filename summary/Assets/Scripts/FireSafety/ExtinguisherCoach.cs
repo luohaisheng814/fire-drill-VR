@@ -39,6 +39,8 @@ namespace FireSafety
         public FireBand Band { get; private set; } = FireBand.None;
         public float LastDistance { get; private set; }
         public FireSource LastFire { get; private set; }
+        /// <summary>问答面板打开时临时静音：避免距离提示条盖住题目，或与面板里的距离行重复。</summary>
+        public bool HintsSuppressed { get; set; }
 
         Extinguisher _ext;
         Camera _cam;
@@ -283,6 +285,7 @@ namespace FireSafety
 
         void Show(string message, float seconds = 3.2f)
         {
+            if (HintsSuppressed) return;
             DrillToast.ShowRaw(message, seconds);
             var desktop = DesktopDrillInput.Instance;
             if (desktop != null) desktop.PushHint(message);
