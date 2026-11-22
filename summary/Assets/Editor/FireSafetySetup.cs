@@ -2623,6 +2623,23 @@ namespace FireSafety.EditorTools
             // 场景里默认关掉：桌面模式不看这块面板，头显接通后由 VRDrillInput 打开
             hudGo.SetActive(true);
 
+            // ---- 第 38 轮：玩家生命值（20 点）+ 烟雾/火源伤害 HUD ----
+            var vitalsGo = GameObject.Find("PlayerVitals") ?? new GameObject("PlayerVitals");
+            vitalsGo.transform.SetParent(host.transform, false);
+            var vitals = vitalsGo.GetComponent<PlayerVitals>();
+            if (vitals == null) vitals = vitalsGo.AddComponent<PlayerVitals>();
+            vitals.head = cam;
+            vitals.maxHp = 20;
+            vitals.currentHp = 20;
+            vitals.smokeDamageInterval = 10f;
+            vitals.fireDangerRadius = 1.55f;
+            vitals.fireRepeatInterval = 2f;
+            vitals.distance = 0.78f;
+            vitals.rightOffset = -0.30f;
+            vitals.downOffset = -0.30f;
+            vitals.canvasScale = 0.00052f;
+            vitalsGo.SetActive(true);
+
             // ---- 第 30 轮：操作帮助 / 输入诊断面板（Y 或 F5 开关） ----
             var helpGo = GameObject.Find("VRHelpPanel");
             if (helpGo == null) helpGo = new GameObject("VRHelpPanel");

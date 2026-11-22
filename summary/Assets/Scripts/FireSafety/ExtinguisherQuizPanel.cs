@@ -42,6 +42,8 @@ namespace FireSafety
         public float verticalOffset = -0.05f;
         [Tooltip("面板打开时若玩家走开，自动重新放到正前方（避免走到墙角还在看远处的题）")]
         public bool followCamera = true;
+        [Tooltip("跟随平滑：越大越贴视线（第 38 轮改为连续平滑跟随，不再等移动 0.5 米才瞬移）")]
+        public float followSpeed = 12f;
         [Tooltip("前方有墙/家具时最近只能拉近到这个距离（米），再近会顶到脸上")]
         public float minDistance = 0.60f;
         [Tooltip("画布缩放（1 单位 ≈ 0.0009 米）：1000 单位 ≈ 0.9 米宽")]
@@ -400,15 +402,43 @@ namespace FireSafety
         /// <summary>玩家走出原位 / 转头过多时，把面板重新放回正前方（否则题目跑到视野外）。</summary>
         void KeepInFrontOfCamera()
         {
+            FollowCamera(Time.deltaTime);
+        }
+
+        /// <summary>
+        /// 第 38 轮：面板连续平滑跟随玩家视角，而不是等移动超过 0.5 米或转头 36° 才瞬移。
+        /// 公开给自检/探针按固定步长驱动，避免编辑模式下 Update 不跑导致无法断言。
+        /// </summary>
+        public void FollowCamera(float dt)
+        {
             if (!followCamera || _canvas == null) return;
             Camera cam = Camera.main;
             if (cam == null) return;
-            if (Vector3.Distance(cam.transform.position, _placeCamPos) > 0.5f
-                || Vector3.Dot(cam.transform.forward, _placeCamFwd) < 0.8f)
+
+            Transform c = cam.transform;
+            Vector3 target = c.position + c.forward * distanceFromCamera + c.up * verticalOffset;
+            Quaternion targetRot = Quaternion.LookRotation(target - c.position, Vector3.up);
+            float k = 1f - Mathf.Exp(-Mathf.Max(0.1f, followSpeed) * Mathf.Max(0f, dt));
+            _canvas.transform.position = Vector3.Lerp(_canvas.transform.position, target, k);
+            _canvas.transform.rotation = Quaternion.Slerp(_canvas.transform.rotation, targetRot, k);
+            _placeCamPos = c.position;
+            _placeCamFwd = c.forward;
+        }
+
+        /// <summary>面板世界坐标（自检 / 探针断言跟随用）。</summary>
+        public Vector3 PanelWorldPosition => _canvas != null ? _canvas.transform.position : Vector3.zero;
+        /// <summary>面板与相机的直线距离（应稳定在 distanceFromCamera 附近）。</summary>
+        public float PanelDistanceToCamera
+        {
+            get
             {
-                PlaceInFrontOfCamera();
+                var cam = Camera.main;
+                return cam != null && _canvas != null
+                    ? Vector3.Distance(cam.transform.position, _canvas.transform.position)
+                    : -1f;
             }
         }
+
 
         /// <summary>推进问答计时（Update 调用；自检里可用固定步长直接驱动）。</summary>
         public void AdvanceTime(float dt)

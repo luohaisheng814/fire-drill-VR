@@ -12,6 +12,9 @@ namespace FireSafety
     {
         public static SmokeZone Instance { get; private set; }
 
+        /// <summary>场景里所有烟雾区（第 38 轮生命值判定用，避免每帧 FindObjectsByType 分配数组）。</summary>
+        public static readonly List<SmokeZone> All = new List<SmokeZone>();
+
         [Header("布点（世界坐标，两点之间等距排布）")]
         public Vector3 start = new Vector3(-1.50f, 1.60f, 0.60f);
         public Vector3 end = new Vector3(2.20f, 1.60f, 1.60f);
@@ -29,6 +32,29 @@ namespace FireSafety
         public bool Active { get; private set; }
         public int EmitterCount => _systems != null ? _systems.Length : 0;
 
+        /// <summary>
+        /// 玩家是否处在烟雾覆盖带内（第 38 轮生命值判定用）。
+        /// 用 start→end 的走廊中心线做水平距离判定，宽度按粒子箱体 2.2 m 的一半再留一点余量；
+        /// 高度只取烟雾层附近，蹲下（1.05 m）和站立眼高（1.6 m）都算在烟雾里。
+        /// </summary>
+        public bool ContainsPlayer(Vector3 worldPos)
+        {
+            if (!Active) return false;
+
+            Vector2 a = new Vector2(start.x, start.z);
+            Vector2 b = new Vector2(end.x, end.z);
+            Vector2 p = new Vector2(worldPos.x, worldPos.z);
+            Vector2 ab = b - a;
+            float t = ab.sqrMagnitude < 0.0001f ? 0f : Mathf.Clamp01(Vector2.Dot(p - a, ab) / ab.sqrMagnitude);
+            Vector2 nearest = a + ab * t;
+            float horizontal = Vector2.Distance(p, nearest);
+            if (horizontal > 1.25f) return false;
+
+            float layerY = Mathf.Max(start.y, end.y);
+            return worldPos.y >= 0.2f && worldPos.y <= layerY + 1.15f;
+        }
+
+
         private ParticleSystem[] _systems;
         private Material _material;
         private Texture2D _softTex;
@@ -41,8 +67,19 @@ namespace FireSafety
             if (Instance == null) Instance = this;
         }
 
+        private void OnEnable()
+        {
+            if (!All.Contains(this)) All.Add(this);
+        }
+
+        private void OnDisable()
+        {
+            All.Remove(this);
+        }
+
         private void OnDestroy()
         {
+            All.Remove(this);
             if (Instance == this) Instance = null;
         }
 

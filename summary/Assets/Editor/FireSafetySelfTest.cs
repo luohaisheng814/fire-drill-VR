@@ -43,6 +43,7 @@ namespace FireSafety.EditorTools
             TestConnectionRound31();
             TestDrillScenario();
             TestRound37Ui();
+            TestRound38PlayerVitals();
             TestVrConfiguration();
 
             if (_fail == 0) Debug.Log("[TEST] ==== 全部通过 ====");
@@ -1244,6 +1245,93 @@ namespace FireSafety.EditorTools
             UnityEngine.Object.DestroyImmediate(endGo);
         }
 
+        static void TestRound38PlayerVitals()
+        {
+            // 1) 生命值初始 20 点
+            var root = new GameObject("TEST_R38_Vitals");
+            var vitals = root.AddComponent<PlayerVitals>();
+            InvokeAwake(vitals);
+            Check("第38轮生命值：上限为 20", vitals.maxHp == 20);
+            Check("第38轮生命值：初始为 20", vitals.currentHp == 20);
+            Check("第38轮生命值：初始未死亡", !vitals.IsDead);
+            Check("第38轮生命值：HUD 画布已生成（运行时会跟随头部）",
+                vitals.transform.Find("Canvas_PlayerVitals") != null);
+
+            // 2) 烟雾中每 10 秒扣 1：9.9 秒不扣，满 10 秒扣 1
+            vitals.EvaluateSignalsForTest(9.9f, true, false);
+            Check("第38轮生命值：烟雾 9.9 秒时仍为 20", vitals.currentHp == 20,
+                "实际 " + vitals.currentHp);
+            vitals.EvaluateSignalsForTest(0.2f, true, false);
+            Check("第38轮生命值：烟雾满 10 秒扣 1 点", vitals.currentHp == 19,
+                "实际 " + vitals.currentHp + "，计时 " + vitals.SmokeTimer.ToString("F2"));
+            Check("第38轮生命值：烟雾伤害计数为 1", vitals.SmokeDamageCount == 1);
+            vitals.EvaluateSignalsForTest(10f, true, false);
+            Check("第38轮生命值：再满 10 秒再扣 1 点", vitals.currentHp == 18,
+                "实际 " + vitals.currentHp);
+            vitals.EvaluateSignalsForTest(0.1f, false, false);
+            Check("第38轮生命值：离开烟雾后计时清零", Mathf.Approximately(vitals.SmokeTimer, 0f));
+
+            // 3) 火源：进入危险半径立即 -1，停留 2 秒再 -1，离开后停止
+            vitals.ResetVitals();
+            vitals.EvaluateSignalsForTest(0.1f, false, true);
+            Check("第38轮生命值：刚靠近火源立即烧伤 -1", vitals.currentHp == 19,
+                "实际 " + vitals.currentHp);
+            Check("第38轮生命值：靠近火源会标记 NearFire", vitals.NearFire);
+            vitals.EvaluateSignalsForTest(1.9f, false, true);
+            Check("第38轮生命值：停留 1.9 秒尚未二次扣血", vitals.currentHp == 19,
+                "实际 " + vitals.currentHp);
+            vitals.EvaluateSignalsForTest(0.2f, false, true);
+            Check("第38轮生命值：停留满 2 秒再扣 1 点", vitals.currentHp == 18,
+                "实际 " + vitals.currentHp);
+            vitals.EvaluateSignalsForTest(0.1f, false, false);
+            Check("第38轮生命值：离开火源后不再持续扣血", vitals.currentHp == 18);
+
+            // 4) 归零：进入死亡状态，HUD 状态为耗尽
+            vitals.ResetVitals();
+            vitals.showFailureOnZero = false;
+            vitals.Damage(20, "manual");
+            Check("第38轮生命值：扣到 0 点进入死亡", vitals.currentHp == 0 && vitals.IsDead);
+            Check("第38轮生命值：死亡后停止计时，不再继续扣成负数",
+                vitals.currentHp == 0);
+
+            UnityEngine.Object.DestroyImmediate(root);
+
+            // 5) 问答面板连续跟随：相机前进 0.3 米 + 转头 45°，面板应仍贴在视线前方
+            var qRoot = new GameObject("TEST_R38_Quiz");
+            var quiz = qRoot.AddComponent<ExtinguisherQuizPanel>();
+            InvokeAwake(quiz);
+            Camera cam = Camera.main;
+            if (cam == null)
+            {
+                Debug.Log("[TEST] 第38轮问答跟随：无主相机，跳过（仅批处理场景可用）");
+                UnityEngine.Object.DestroyImmediate(qRoot);
+                return;
+            }
+            var oldPos = cam.transform.position;
+            var oldRot = cam.transform.rotation;
+            cam.transform.position = new Vector3(0f, 1.6f, 0f);
+            cam.transform.rotation = Quaternion.identity;
+            quiz.Open(qRoot.transform);
+            float d0 = quiz.PanelDistanceToCamera;
+            Check("第38轮问答跟随：打开时面板在相机前 1.15 米", Mathf.Abs(d0 - 1.15f) < 0.10f,
+                "实际 " + d0.ToString("F2") + " 米");
+
+            cam.transform.position += cam.transform.right * 0.30f;
+            cam.transform.rotation = Quaternion.Euler(0f, 45f, 0f);
+            for (int i = 0; i < 30; i++) quiz.FollowCamera(0.05f);
+            float d1 = quiz.PanelDistanceToCamera;
+            Vector3 dir = quiz.PanelWorldPosition - cam.transform.position;
+            Check("第38轮问答跟随：移动/转头后仍在视线前方 1.15 米", Mathf.Abs(d1 - 1.15f) < 0.12f,
+                "实际 " + d1.ToString("F2") + " 米");
+            Check("第38轮问答跟随：面板中心落在相机正前方", Vector3.Dot(dir.normalized, cam.transform.forward) > 0.96f,
+                "dot=" + Vector3.Dot(dir.normalized, cam.transform.forward).ToString("F3"));
+
+            quiz.Close();
+            cam.transform.position = oldPos;
+            cam.transform.rotation = oldRot;
+            UnityEngine.Object.DestroyImmediate(qRoot);
+        }
+
         static void TestSceneWiring()
         {
             if (!Application.isBatchMode)
@@ -1654,6 +1742,19 @@ namespace FireSafety.EditorTools
                     && Mathf.Abs(stage1Smoke.end.z) >= 0.5f);
                 Check("场景：第 1 阶段烟雾发射点 ≥4 个（实际 " + stage1Smoke.emitterCount + "）",
                     stage1Smoke.emitterCount >= 4);
+            }
+
+            var playerVitals = UnityEngine.Object.FindObjectOfType<PlayerVitals>(true);
+            Check("场景：玩家生命值组件 PlayerVitals 已装配", playerVitals != null);
+            if (playerVitals != null)
+            {
+                Check("场景：生命值上限 20 / 初始 20",
+                    playerVitals.maxHp == 20 && playerVitals.currentHp == 20);
+                Check("场景：生命值 HUD 跟随头显相机", playerVitals.head != null,
+                    playerVitals.head == null ? "head 为空" : "");
+                Check("场景：烟雾伤害间隔 10 秒 / 火灾重复间隔 2 秒",
+                    Mathf.Approximately(playerVitals.smokeDamageInterval, 10f)
+                    && Mathf.Approximately(playerVitals.fireRepeatInterval, 2f));
             }
 
             var exitDoor = UnityEngine.Object.FindObjectOfType<ExitDoor>(true);
@@ -2278,6 +2379,19 @@ namespace FireSafety.EditorTools
         {
             if (ok) Debug.Log("[TEST] ✔ " + name);
             else { _fail++; Debug.LogError("[TEST] ✘ " + name); }
+        }
+
+        static void Check(string name, bool ok, string detail)
+        {
+            if (ok)
+            {
+                Debug.Log("[TEST] ✔ " + name + (string.IsNullOrEmpty(detail) ? "" : "（" + detail + "）"));
+            }
+            else
+            {
+                _fail++;
+                Debug.LogError("[TEST] ✘ " + name + (string.IsNullOrEmpty(detail) ? "" : " · " + detail));
+            }
         }
 
         /// <summary>编辑模式下 AddComponent 不会执行 Awake，自检里手动反射调用。</summary>

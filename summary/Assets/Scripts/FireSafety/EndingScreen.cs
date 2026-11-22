@@ -115,7 +115,10 @@ namespace FireSafety
         private void OnTimeExpired() => Show(false);
 
         /// <summary>弹出结束页；success=true 为成功撤离，false 为时间到失败。</summary>
-        public void Show(bool success)
+        public void Show(bool success) => Show(success, null);
+
+        /// <summary>第 38 轮：生命值耗尽等非时间原因的失败，用自定义原因替换「时间到」。</summary>
+        public void Show(bool success, string failureReason)
         {
             if (IsOpen) return;
             IsSuccess = success;
@@ -129,12 +132,14 @@ namespace FireSafety
 
             if (_titleText != null)
             {
-                _titleText.text = success ? titleSuccess : titleFailure;
+                _titleText.text = success
+                    ? titleSuccess
+                    : (string.IsNullOrEmpty(failureReason) ? titleFailure : "演练失败 · " + failureReason);
                 _titleText.color = success
                     ? new Color(0.45f, 0.95f, 0.55f)
                     : new Color(1f, 0.45f, 0.36f);
             }
-            if (_bodyText != null) _bodyText.text = BuildSummary(success);
+            if (_bodyText != null) _bodyText.text = BuildSummary(success, failureReason);
 
             PlaceInFrontOfCamera();
             _canvas.gameObject.SetActive(true);
@@ -191,7 +196,7 @@ namespace FireSafety
 
         // ---------------- 成绩 ----------------
 
-        private string BuildSummary(bool success)
+        private string BuildSummary(bool success, string failureReason = null)
         {
             float total = countdown != null ? countdown.durationSeconds : 180f;
             float remain = countdown != null ? Mathf.Max(0f, countdown.Remaining) : 0f;
@@ -225,14 +230,25 @@ namespace FireSafety
                 ? FireDrillManager.StepNames[(int)mgr.CurrentStep]
                 : "未知");
 
+            var vitals = PlayerVitals.Instance != null
+                ? PlayerVitals.Instance
+                : FindObjectOfType<PlayerVitals>();
+            string vitalLine = vitals != null
+                ? "生命值：" + vitals.currentHp + " / " + vitals.maxHp
+                  + (vitals.IsDead ? "（耗尽）" : "")
+                : "生命值：未接入";
+
             string head = success
                 ? "你已完成全流程：灭火 → 蹲姿穿过烟雾撤离大厅 → 处理大厅复燃 → 走进安全出口。"
-                : "倒计时已耗尽，演练未完成。可重新演练再试一次。";
+                : (string.IsNullOrEmpty(failureReason)
+                    ? "倒计时已耗尽，演练未完成。可重新演练再试一次。"
+                    : failureReason + "，演练未完成。可重新演练再试一次。");
 
             return head + "\n\n" +
                    "总用时 " + Format(used) + " · 剩余 " + Format(remain) + "\n" +
                    quizLine + "\n" +
                    fireLine + "\n" +
+                   vitalLine + "\n" +
                    stepLine + "\n\n" +
                    (success
                        ? "如需再练，点「重新演练」；点「关闭」可留在场景内自由观察。"

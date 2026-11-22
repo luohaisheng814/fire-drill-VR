@@ -768,6 +768,36 @@ Unity.exe -batchmode -projectPath D:\43763\VR\summary `
 - 纸张起火点迁到西南档案室办公桌，电气（北侧设备柜）、纸张（西南档案桌）、茶水间（东南台面）各有独立出生点与接近路线；纸张 02 号灭火器同步移位。
 - 北、西、东三处窗洞加窗框/玻璃/天光板与室内日光补光；每个窗绑定 `WindowSmoke`，只有对应情景火源燃烧时向窗外排烟，火灭即停。
 
+## 第 38 轮：问答面板连续跟随 + 玩家生命值（烟雾 / 烧伤）
+
+### 问答面板连续跟随
+
+- `ExtinguisherQuizPanel` 原来的「移动超过 0.5 米或转头超过约 37° 才瞬移回正前方」改为每帧连续跟随：`FollowCamera(dt)` 用 `1 - exp(-followSpeed * dt)` 做位置 Lerp 与旋转 Slerp，`followSpeed = 12`。
+- 目标点仍是相机前 `1.15 米`、视线下 `0.05 米`；打开面板时 `PlaceInFrontOfCamera()` 先即时定位，之后 `KeepInFrontOfCamera()` 每帧平滑跟随。
+- 自检与玩家视角探针会直接按固定步长驱动 `FollowCamera`，断言横移 0.3 米 + 转头 45°~50° 后，面板仍距相机 `1.15 米`、中心与相机前向 `dot > 0.96`。
+
+### 生命值系统（`PlayerVitals.cs`）
+
+| 规则 | 参数 / 行为 |
+|---|---|
+| 初始生命值 | `20 / 20` |
+| 烟雾伤害 | 进入任一激活的 `SmokeZone` 后累计，满 `10 秒` 扣 1 点，离开烟雾计时清零 |
+| 火源警告 | 进入燃烧火源水平距离 `1.55 米` 内立即扣 1 点，并弹出「离火源太近，已烧伤 -1 生命值；立即后退！」 |
+| 火源持续伤害 | 警告后仍停留在原地，每 `2 秒` 再扣 1 点；离开危险半径即停止 |
+| 生命值归零 | 进入死亡状态，弹出 `EndingScreen.Show(false, "生命值耗尽")`，结算页显示失败原因与「生命值：0 / 20（耗尽）」 |
+| HUD | 世界空间画布跟随头显，位于视线前约 `0.78 米`、左下偏移；显示 `当前 / 上限`、烟雾计时与最近火源距离 |
+
+- `SmokeZone.ContainsPlayer(Vector3)` 用「烟带中心线水平距离 ≤ 1.25 米 + 高度 0.2~烟层 +1.15 米」判定，站立眼高与蹲姿都算在烟雾内；仅 `Active` 时生效。
+- 火源距离取玩家相机水平位置到所有「正在燃烧」`FireSource.AimPoint` 的 XZ 最短距离；火灭后自动停止扣血。
+- `FireSafetySetup.SetupVrInput` 自动装配 `PlayerVitals` 并绑定主相机；重开场景会重置为 20 点。
+
+### 第 38 轮验收
+
+- 编辑器自检 `selftest38c.log`：`[TEST] ==== 全部通过 ====`，失败项 0；包含 20/20 初始值、烟雾 9.9 秒不扣 / 满 10 秒扣 1 / 离开清零、火源首次 -1 / 1.9 秒不重复 / 满 2 秒再 -1、归零死亡、问答面板跟随距离与朝向断言。
+- 玩家视角探针 `round38_vitals8.log`：`结果 DONE，失败数=0`；真实进入 `Stage1Smoke` 站立 10 秒后 HUD `20→19`，进入电气火 `0.86 米` 危险半径后 `20→19` 并显示烫伤警告，原地再停留 2 秒 `19→18`；转头 50° 后问答面板仍距 `1.15 米`、`dot=0.999`。
+- 截图：`vr38_start_hud.png`、`vr38_smoke_hp19.png`、`vr38_fire_warning.png`、`vr38_fire_repeat.png`、`vr38_quiz_follow_0.png`、`vr38_quiz_follow_45.png`、`vr38_hud_after.png`（均在 `summary/Logs/shots/`）。
+- 测试环境说明：未连接 Quest 2 真机，`XRSettings.isDeviceActive = False`；本轮为「虚拟头显 + 桌面输入 + 玩家相机视角」验收，不等同于真机佩戴测试。
+
 ## 目录结构
 
 ```
@@ -778,6 +808,7 @@ Assets/
 ├── Editor/FireSafetySelfTest.cs    # 自动化自检（400+ 项断言，菜单 FireSafety/自检）
 ├── Editor/VROpenXRConfig.cs        # OpenXR 运行时与手柄 profile 装配/校验
 ├── Editor/VRPlayProbe.cs           # 玩家视角验收探针（播放态离屏渲染 15+ 张截图 + 全流程断言）
+├── Editor/Round38VitalsProbe.cs     # 第 38 轮玩家视角验收（烟雾/火源扣血 + 问答面板跟随）
 └── Resources/Sounds/               # 背景音乐与音效（BGM/ SFX/）
 
 Docs/
@@ -807,6 +838,7 @@ Docs/
 - PaperFire / PaperSmoke / Stage1Smoke_Paper（情景二：办公桌纸张起火）
 - PantryFire / PantrySmoke / Stage1Smoke_Pantry（情景三：茶水间小家电起火）
 - Stage1Smoke 设备旁烟雾（开始即冒烟）与 SmokeZone 撤离通道雾
+- PlayerVitals 生命值 HUD（20 点 / 烟雾每 10 秒 -1 / 火源 1.55 米内警告并持续扣血）
 - FireHealthBar 火焰血量条（设备火 / 出口火各一条）
 - Extinguisher01 / Extinguisher02 / Extinguisher03（抓取/问答/拔销/压把/粒子喷射/手型匹配；分别绑定 CO₂ / ABC 干粉 / 水基湿化学，含瓶身类型标签）
 - OutdoorPlaza 知识墙（三块 2.00 × 1.55 m 展板 + 红标题条 + 地面标语）
