@@ -286,6 +286,8 @@ namespace FireSafety
         void Show(string message, float seconds = 3.2f)
         {
             if (HintsSuppressed) return;
+            // 第 44 轮：答题面板开着时不弹任何距离/操作提示（玩家截图里「还差 2.73 米」压在题目上）
+            if (ToggleGrab.QuizUiOpen()) return;
             DrillToast.ShowRaw(message, seconds);
             var desktop = DesktopDrillInput.Instance;
             if (desktop != null) desktop.PushHint(message);

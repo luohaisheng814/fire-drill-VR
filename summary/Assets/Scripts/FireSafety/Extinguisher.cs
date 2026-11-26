@@ -42,9 +42,9 @@ namespace FireSafety
         public bool checkOcclusion = false;
         public LayerMask blockingMask = ~0;
 
-        [Header("常识问答（拾取灭火器时弹出）")]
-        [Tooltip("拾取灭火器后必须先完成常识问答才能拔销/喷射")]
-        public bool quizRequired = true;
+        [Header("常识问答（第 44 轮起取消，保留字段兼容旧场景）")]
+        [Tooltip("第 44 轮：灭火器上的答题环节已取消，默认 false —— 拿起就能直接拔销/喷射")]
+        public bool quizRequired = false;
         public ExtinguisherQuizPanel quizPanel;
         public bool QuizPassed { get; private set; }
         public bool CanPullPin => !quizRequired || QuizPassed;

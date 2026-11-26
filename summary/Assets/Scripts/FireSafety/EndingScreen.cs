@@ -202,21 +202,8 @@ namespace FireSafety
             float remain = countdown != null ? Mathf.Max(0f, countdown.Remaining) : 0f;
             float used = Mathf.Max(0f, total - remain);
 
-            string quizLine;
+            // 第 44 轮：灭火器上的常识问答已取消，结算页不再统计「常识考核」。
             Resolve();
-            if (quiz == null)
-            {
-                quiz = FindObjectOfType<ExtinguisherQuizPanel>();
-                if (quiz == null)
-                    quiz = GetComponentInChildren<ExtinguisherQuizPanel>(true);
-            }
-            if (quiz != null && quiz.QuestionCount > 0)
-            {
-                quizLine = "常识考核：答对 " + quiz.CorrectCount + " / " + quiz.QuestionCount + " 题（"
-                           + (quiz.Passed ? "通过" : "未通过") + "，及格线 " + quiz.PassCorrectCount + " 题）";
-            }
-            else quizLine = "常识考核：未参与";
-
             int fireTotal = 0, fireDone = 0;
             foreach (var f in FindObjectsByType<FireSource>(FindObjectsSortMode.None))
             {
@@ -246,7 +233,6 @@ namespace FireSafety
 
             return head + "\n\n" +
                    "总用时 " + Format(used) + " · 剩余 " + Format(remain) + "\n" +
-                   quizLine + "\n" +
                    fireLine + "\n" +
                    vitalLine + "\n" +
                    stepLine + "\n\n" +

@@ -104,6 +104,13 @@ namespace FireSafety
         private void Update()
         {
             if (hands == null) return;
+            // 第 44 轮：答题面板开着时（事前教育 / 灭火器常识题均已取消，这里作为兜底）
+            // 一律不处理抓取按键，也就不会再弹「手柄离瓶身还差 X 米」压在题目上。
+            if (QuizUiOpen()) return;
+            // 第 44 轮：桌面鼠标操作时手柄按键不参与判定 —— 桌面右键点灭火器会被当成 Grip 按下，
+            // 手部锚点离瓶 2-3 米，于是每点一次就弹一次「还差 2.73 米」。桌面模式的距离提示交给
+            // DesktopDrillInput.TryPickupExtinguisher 的距离校验（点灭火器时才提示）。
+            if (DesktopInputActive) return;
             // 桌面鼠标接管时（_holding 为空），忽略手柄按键，避免两套输入互相打架
             if (IsHeld && _holding == null) return;
 
@@ -138,6 +145,43 @@ namespace FireSafety
         {
             if (!rangePivot) rangePivot = transform;
             return Vector3.Distance(h.attachPoint.position, rangePivot.position) <= grabRange;
+        }
+
+        /// <summary>桌面鼠标输入接管（没有头显控制器）时为真。</summary>
+        static bool DesktopInputActive
+        {
+            get
+            {
+                var desktop = DesktopDrillInput.Instance;
+                if (desktop != null && desktop.isActiveAndEnabled) return true;
+                return RuntimeDeviceMode.HasInstance && !RuntimeDeviceMode.XRControlActive;
+            }
+        }
+
+        static float _quizCheckAt = -10f;
+        static bool _quizOpenCache;
+
+        /// <summary>任答题面板（事前教育 / 灭火器常识）打开时为真（0.25 秒缓存，避免每帧全场查找）。</summary>
+        public static bool QuizUiOpen()
+        {
+            if (Time.unscaledTime - _quizCheckAt < 0.25f) return _quizOpenCache;
+            _quizCheckAt = Time.unscaledTime;
+            bool open = false;
+            var pre = PreTrainingQuiz.Instance;
+            if (pre != null && pre.IsOpen) open = true;
+            if (!open)
+            {
+                var desktops = FindObjectsByType<DesktopDrillInput>(FindObjectsSortMode.None);
+                foreach (var d in desktops)
+                    if (d != null && d.quizPanel != null && d.quizPanel.IsOpen) { open = true; break; }
+            }
+            if (!open)
+            {
+                foreach (var e in FindObjectsByType<Extinguisher>(FindObjectsSortMode.None))
+                    if (e != null && e.quizPanel != null && e.quizPanel.IsOpen) { open = true; break; }
+            }
+            _quizOpenCache = open;
+            return open;
         }
 
         /// <summary>

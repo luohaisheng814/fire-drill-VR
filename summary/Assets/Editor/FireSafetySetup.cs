@@ -138,6 +138,20 @@ namespace FireSafety.EditorTools
 
             // 10. 清理历史遗留的「缺失脚本」组件
             RemoveMissingScripts();
+
+            // 10.5 第 44 轮：灭火器上的答题环节统一取消（含场景里后来补的备用瓶），
+            //      无论哪一台灭火器，拿起即可拔销/喷射，问答组件一律停用。
+            int quizCleared = 0;
+            foreach (var e in UnityEngine.Object.FindObjectsByType<Extinguisher>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                if (e == null) continue;
+                e.quizRequired = false;
+                if (e.quizPanel == null) e.quizPanel = e.GetComponentInChildren<ExtinguisherQuizPanel>(true);
+                if (e.quizPanel != null) e.quizPanel.enabled = false;
+                quizCleared++;
+            }
+            Debug.Log("[Setup] ✔ 灭火器答题环节已取消：" + quizCleared + " 台灭火器 quizRequired=false，问答面板停用");
+
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene, ScenePath);
             AssetDatabase.SaveAssets();
@@ -2191,9 +2205,10 @@ namespace FireSafety.EditorTools
             BuildWindowDressing(root.transform, "North", Axis.Z, 3.995f, 0.39f,
                 uCenter: -3.65f, width: 1.30f, yCenter: 1.85f, height: 1.10f,
                 frameMat, glassMat, skyMat, inward: Vector3.back,
-                outdoorBackdrop: true, smokeSource: deviceFire,
-                // 第 43 轮：排烟起点移到墙外表面之外（原 3.58 落在窗内侧 0.4 米处，
-                // 大颗粒一直贴着玻璃跳动，玩家看到的就是「窗户一闪一闪」）。
+                // 第 44 轮：玩家两次反馈「这扇窗还在闪」。北窗旁边就是电源总闸，是必看的一扇窗，
+                // 这里不再挂任何窗内/窗外烟粒子（smokeSource = null → 不生成 WindowSmoke 与 WindowFeed），
+                // 窗洞只剩玻璃 + 天光板 + 日光点光，画面恒定不闪；房间里的烟由全局 SmokeZone 表现。
+                outdoorBackdrop: true, smokeSource: null,
                 smokePos: new Vector3(-3.65f, 1.90f, 4.32f), smokeOut: Vector3.forward);
 
             // ---- 西墙：第 43 轮按需求改回「实墙」 ----
@@ -2206,6 +2221,36 @@ namespace FireSafety.EditorTools
             BuildSolidWall(root.transform, "WindowWall_West_Solid", westRef.mat,
                 Axis.X, xWall: -6.755f, zWall: 0f, thickness: 0.39f,
                 uMin: -6.0f, uMax: -4.0f, yMin: 0f, yMax: 3.0f);
+
+            // ---- 第 44 轮：纸张起火点背后的墙只砌到 1.75 米 ----
+            // 纸张火 (-5.71, 1.06, -4.54) 背后是 wall_small (2)：x -6.75~-4.75、z≈-5.0、高只有 1.75 米
+            // 的半高隔断。火苗上方 1.75~3.00 米整段是透空的，玩家站在桌前看纸火时，
+            // 火上方直接透出远处/天光 —— 这就是反复反馈的「纸张起火那块的墙壁缺了」。
+            // 这里按同一块隔板的材质把它补到天花板（3.00 米），墙面上沿与原有墙齐平。
+            var paperBack = GameObject.Find("wall_small (2)");
+            Material paperBackMat = wallMat;
+            if (paperBack != null)
+            {
+                var mr = paperBack.GetComponent<MeshRenderer>();
+                if (mr != null && mr.sharedMaterial != null) paperBackMat = mr.sharedMaterial;
+            }
+            BuildSolidWall(root.transform, "PaperWall_BackUpper", paperBackMat,
+                Axis.Z, xWall: 0f, zWall: -5.00f, thickness: 0.12f,
+                uMin: -6.75f, uMax: -4.75f, yMin: 1.75f, yMax: 3.00f);
+
+            // 同一道隔断的东半段 wall_small (3)（x -2.75~-0.75、z≈-5.0）也只有 1.75 米高。
+            // 玩家从大厅/纸火桌东侧往南看，这段墙顶上同样透出天空盒（实测 g44v_paper_far 右上角
+            // 的浅蓝就是它）。两段补齐后，纸张起火房间南侧除中间 2 米通道外整面封到 3 米。
+            var paperBackEast = GameObject.Find("wall_small (3)");
+            Material paperBackEastMat = paperBackMat;
+            if (paperBackEast != null)
+            {
+                var mr = paperBackEast.GetComponent<MeshRenderer>();
+                if (mr != null && mr.sharedMaterial != null) paperBackEastMat = mr.sharedMaterial;
+            }
+            BuildSolidWall(root.transform, "PaperWall_BackUpperEast", paperBackEastMat,
+                Axis.Z, xWall: 0f, zWall: -5.00f, thickness: 0.12f,
+                uMin: -2.75f, uMax: -0.75f, yMin: 1.75f, yMax: 3.00f);
 
             // ---- 东窗：第25轮补的走廊东墙开洞，正对茶水间 ----
             var eastTarget = GameObject.Find("Wall_CorridorEast");
@@ -2235,8 +2280,11 @@ namespace FireSafety.EditorTools
 
             Debug.Log("[Setup] ✔ 窗户/采光：北(-3.65,z3.995)、东(x7.15,z-1.20)"
                       + " + 茶水间南侧补窗(x7.15,z-3.33，窗下放 03 号灭火器)"
-                      + " + 窗框/玻璃/天光板 + 3 盏日光点光；窗口排烟绑电气/茶水间火源"
-                      + "；第43轮西窗(x-6.755,z-4.60)已整面封成实墙（纸张火背后不再有窗洞）");
+                      + " + 窗框/玻璃/天光板 + 3 盏日光点光"
+                      + "；第43轮西窗(x-6.755,z-4.60)已整面封成实墙"
+                      + "；第44轮北窗取消窗烟粒子（电源总闸旁的窗不再闪），排烟只剩茶水间东窗"
+                      + "；纸张起火点背后墙(PaperWall_BackUpper)补齐到 3 米"
+                      + "，同一道隔断东半段(PaperWall_BackUpperEast)也补齐");
         }
 
         enum Axis { X, Z }
@@ -2634,7 +2682,9 @@ namespace FireSafety.EditorTools
             ext.blockedClip = Resources.Load<AudioClip>("Sounds/SFX/quiz_wrong");   // 未拔销就喷射的提示音
             ext.leftActivateAction = GetOrCreateRef("XRI Left Interaction", "Activate");
             ext.rightActivateAction = GetOrCreateRef("XRI Right Interaction", "Activate");
-            ext.quizRequired = true;
+            // 第 44 轮：灭火器上的答题环节取消 —— 拿起即可拔销/喷射，不再弹问答面板。
+            // 组件仍挂在根上（旧存档/结算统计兼容），但对象保持 inactive，永远不会被打开。
+            ext.quizRequired = false;
             ext.sprayRange = 3f;
             ext.sprayAngle = 20f;
             ext.extinguishRate = 1f;                 // 火焰 extinguishThreshold=2.5 → 连续喷射约 2.5 秒扑灭
@@ -2650,7 +2700,7 @@ namespace FireSafety.EditorTools
             }
             ext.nozzle = nozzle;
 
-            // 常识问答面板（挂在灭火器根上）
+            // 常识问答面板（挂在灭火器根上；第 44 轮取消答题环节 → 组件保留但不启用）
             var quiz = root.GetComponent<ExtinguisherQuizPanel>() ?? root.AddComponent<ExtinguisherQuizPanel>();
             // 三台灭火器各 5 题，共 30 道（六组）且互不重复，按「情景」绑定题库组：
             // Extinguisher01 → C 组（2）电气设备起火·先断电（同时兼任操作演练的取瓶，运行时切 A 组）
@@ -2663,6 +2713,8 @@ namespace FireSafety.EditorTools
             quiz.distanceFromCamera = 1.15f;                // 一臂外阅读距离：字够大、按钮不挡手
             quiz.verticalOffset = -0.05f;                   // 略低于视线，不用仰头
             quiz.followCamera = true;                       // 玩家站起走动后自动回到正前方
+            quiz.gameObject.SetActive(true);                // 组件挂在灭火器根上，不能关对象
+            quiz.enabled = false;                           // 第 44 轮：答题环节取消，组件禁用（不再更新/不会弹面板）
             ext.quizPanel = quiz;
 
             // 手部姿态匹配（抓握时手指贴合瓶身）

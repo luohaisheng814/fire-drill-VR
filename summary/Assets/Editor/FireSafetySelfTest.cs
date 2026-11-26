@@ -623,7 +623,7 @@ namespace FireSafety.EditorTools
                     Check("第三阶段：备用灭火器原地仍是直立姿态（不横躺）",
                         b.size.y >= b.size.x && b.size.y >= b.size.z);
                 }
-                Check("第三阶段：备用灭火器问答已重置（重新拾取要再答题）",
+                Check("第三阶段：备用灭火器的问答状态已重置（旧进度不残留）",
                     spareExt != null && !spareExt.QuizPassed);
             }
             Check("第三阶段：大厅复燃火源已生成且尚未熄灭",
@@ -701,7 +701,7 @@ namespace FireSafety.EditorTools
                 Check("第三阶段：备用灭火器问答已重置为未通过", !ext.QuizPassed && !q2.Passed);
                 Check("第三阶段：重置后仍是 5 道新题", q2.QuestionCount == 5
                     && q2.questions[0].question.Contains("有效喷射距离"));
-                Check("第三阶段：重置后不能直接拔销（必须重新答题）", !ext.CanPullPin);
+                Check("第44轮：灭火器答题环节已取消，重置后仍可直接拔销", ext.CanPullPin);
 
                 // 换成 B 组再重置：题目必须换成另一套 5 题
                 q2.questionSetIndex = 1;
@@ -976,14 +976,17 @@ namespace FireSafety.EditorTools
                     paperZoneComp != null ? ("发射点 " + paperZoneComp.emitterCount
                         + "，alpha×" + paperZoneComp.alphaScale.ToString("F2")
                         + "，每秒 " + paperZoneComp.ratePerSecond.ToString("F0")) : "null");
-                foreach (var tag in new[] { "North", "East" })
+                // 第 44 轮：北窗（电源总闸旁）取消导流烟带，只保留茶水间东窗那一套
+                foreach (var tag in new[] { "East" })
                 {
                     var feedGo = GameObject.Find("WindowFeed_" + tag);
                     var feedComp = feedGo != null ? feedGo.GetComponent<SmokeZone>() : null;
-                    Check("第40轮：窗内导流烟带 WindowFeed_" + tag + " 存在且朝窗外漂",
+                    Check("第44轮：茶水间东窗仍有导流烟带 WindowFeed_" + tag + " 且朝窗外漂",
                         feedComp != null && feedComp.autoFollow && feedComp.driftPerSecond.magnitude > 0.3f,
                         feedComp != null ? ("漂移 " + feedComp.driftPerSecond.ToString("F2")) : "null");
                 }
+                Check("第44轮：北窗不再有窗内导流烟带（窗前干净不闪）",
+                    GameObject.Find("WindowFeed_North") == null);
                 var doorSmokeComp = UnityEngine.Object.FindObjectOfType<DoorSmokeSpread>();
                 Check("第40轮：门口烟雾扩散组件已挂在 ExitDoor 上",
                     doorSmokeComp != null && doorSmokeComp.door != null
@@ -1228,8 +1231,9 @@ namespace FireSafety.EditorTools
             var windowSmokes = windowsRoot != null
                 ? windowsRoot.GetComponentsInChildren<WindowSmoke>(true) : new WindowSmoke[0];
             // 第 43 轮：西墙（纸张火正背后）按要求改回实墙，采光/排烟窗只剩北、东两扇。
-            Check("第43轮：窗洞只剩北/东两扇（实际 " + windowSmokes.Length + " 个 WindowSmoke）",
-                windowSmokes.Length == 2);
+            // 第 44 轮：北窗（电源总闸旁）两次反馈仍在闪 → 取消它的窗内/窗外烟粒子，只剩茶水间东窗排烟。
+            Check("第44轮：只有茶水间东窗还挂排烟粒子（" + windowSmokes.Length + " 个 WindowSmoke）",
+                windowSmokes.Length == 1);
             int boundNorth = 0, boundPaper = 0, boundPantry = 0;
             bool allSmokeReady = true;
             foreach (var ws in windowSmokes)
@@ -1240,9 +1244,9 @@ namespace FireSafety.EditorTools
                 else if (sc.scenarios.Length >= 3 && ws.source == sc.scenarios[2].fire) boundPantry++;
                 if (ws.smoke == null || ws.GetComponent<ParticleSystem>() == null) allSmokeReady = false;
             }
-            Check("第37轮：两个窗烟粒子均已配置", allSmokeReady);
-            Check("第43轮：北窗→电气 / 东窗→茶水间 一一绑定（西窗已封墙）",
-                boundNorth == 1 && boundPantry == 1 && boundPaper == 0,
+            Check("第44轮：唯一的窗烟粒子已配置", allSmokeReady);
+            Check("第44轮：排烟只绑茶水间火源（北窗取消、西窗已封墙）",
+                boundNorth == 0 && boundPaper == 0 && boundPantry == 1,
                 "北=" + boundNorth + " 纸=" + boundPaper + " 茶=" + boundPantry);
             Check("第43轮：北/东窗洞原墙已停用并重建（无叠墙）",
                 GameObject.Find("WindowWall_North") != null
@@ -1270,9 +1274,8 @@ namespace FireSafety.EditorTools
 
             var northSmoke = GameObject.Find("WindowSmoke_North");
             var eastSmoke = GameObject.Find("WindowSmoke_East");
-            Check("第43轮：北窗排烟起点已在墙外表面之外（z > 4.19）",
-                northSmoke != null && northSmoke.transform.position.z > 4.19f,
-                northSmoke != null ? northSmoke.transform.position.ToString("F2") : "null");
+            Check("第44轮：北窗（电源总闸旁）不再挂任何窗烟粒子",
+                northSmoke == null);
             Check("第43轮：东窗排烟起点已在墙外表面之外（x > 7.25）",
                 eastSmoke != null && eastSmoke.transform.position.x > 7.25f,
                 eastSmoke != null ? eastSmoke.transform.position.ToString("F2") : "null");
@@ -1280,6 +1283,64 @@ namespace FireSafety.EditorTools
             Check("第43轮：窗玻璃渲染队列固定在排烟粒子之前（< 3000）",
                 glassMat != null && glassMat.renderQueue < 3000,
                 glassMat != null ? glassMat.renderQueue.ToString() : "null");
+
+            // ---- 第 44 轮：纸张起火点背后的墙补齐到天花板 ----
+            var paperPatch = GameObject.Find("PaperWall_BackUpper");
+            var paperPatchR = paperPatch != null ? paperPatch.GetComponentInChildren<Renderer>() : null;
+            Check("第44轮：纸张起火点背后补了上半截墙（PaperWall_BackUpper 存在）",
+                paperPatch != null && paperPatchR != null);
+            if (paperPatchR != null)
+            {
+                var pb = paperPatchR.bounds;
+                Check("第44轮：补墙覆盖火苗上方 1.75~3.00 米、x -6.75~-4.75",
+                    Mathf.Abs(pb.min.y - 1.75f) < 0.2f && Mathf.Abs(pb.max.y - 3.0f) < 0.2f
+                    && pb.min.x < -6.4f && pb.max.x > -4.9f,
+                    string.Format("y[{0:F2},{1:F2}] x[{2:F2},{3:F2}]", pb.min.y, pb.max.y, pb.min.x, pb.max.x));
+            }
+            bool paperUpperHit = Physics.Raycast(new Vector3(-5.71f, 2.40f, -4.20f), Vector3.back,
+                1.4f, ~0, QueryTriggerInteraction.Ignore);
+            Check("第44轮：从纸张火苗上方往背后的墙打射线命中（不再透空）", paperUpperHit);
+
+            // 同一道 z≈-5 隔断的东半段（wall_small (3)，x -2.75~-0.75）原先也只剩 1.75 米，
+            // 玩家在大厅/纸火桌东侧往南看能直接透出天空盒，这里一并校验是否补到 3 米。
+            var paperPatchEast = GameObject.Find("PaperWall_BackUpperEast");
+            var paperPatchEastR = paperPatchEast != null ? paperPatchEast.GetComponentInChildren<Renderer>() : null;
+            Check("第44轮：纸张房间隔断东半段也补了上半截墙（PaperWall_BackUpperEast 存在）",
+                paperPatchEast != null && paperPatchEastR != null);
+            if (paperPatchEastR != null)
+            {
+                var pe = paperPatchEastR.bounds;
+                Check("第44轮：东半段补墙覆盖 1.75~3.00 米、x -2.75~-0.75",
+                    Mathf.Abs(pe.min.y - 1.75f) < 0.2f && Mathf.Abs(pe.max.y - 3.0f) < 0.2f
+                    && pe.min.x < -2.4f && pe.max.x > -1.1f,
+                    string.Format("y[{0:F2},{1:F2}] x[{2:F2},{3:F2}]", pe.min.y, pe.max.y, pe.min.x, pe.max.x));
+            }
+            bool paperEastHit = Physics.Raycast(new Vector3(-2.40f, 2.40f, -4.20f), Vector3.back,
+                1.4f, ~0, QueryTriggerInteraction.Ignore);
+            Check("第44轮：从纸张房间东段上方往南打射线命中（不再看到天空）", paperEastHit);
+
+            // ---- 第 44 轮：灭火器上的答题环节取消 ----
+            int noQuiz = 0, quizOff = 0, canPull = 0, extTotal = 0;
+            var stillQuiz = new List<string>();
+            foreach (var e in UnityEngine.Object.FindObjectsByType<Extinguisher>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                if (e == null) continue;
+                extTotal++;
+                if (!e.quizRequired) noQuiz++;
+                else stillQuiz.Add(e.gameObject.name + "(" + e.transform.position.ToString("F1") + ")");
+                if (e.quizPanel == null || !e.quizPanel.enabled) quizOff++;
+                if (e.CanPullPin) canPull++;
+            }
+            Check("第44轮：所有灭火器都不再要求答题（" + noQuiz + "/" + extTotal + "）",
+                extTotal > 0 && noQuiz == extTotal, string.Join(" ", stillQuiz.ToArray()));
+            Check("第44轮：所有灭火器的问答面板已停用", extTotal > 0 && quizOff == extTotal);
+            Check("第44轮：所有灭火器都能直接拔销（无需答题）", extTotal > 0 && canPull == extTotal);
+            var quizUiMethod = typeof(ToggleGrab).GetMethod("QuizUiOpen", BindingFlags.Public | BindingFlags.Static);
+            Check("第44轮：ToggleGrab 提供答题期屏蔽判定 QuizUiOpen()", quizUiMethod != null);
+            var desktopProp = typeof(ToggleGrab).GetMethod("get_DesktopInputActive", BindingFlags.NonPublic | BindingFlags.Static);
+            Check("第44轮：桌面模式下不处理手柄 Grip（不会再误弹距离）", desktopProp != null);
+            var endingSrc = System.IO.File.ReadAllText("Assets/Scripts/FireSafety/EndingScreen.cs");
+            Check("第44轮：结算页不再统计灭火器问答", !endingSrc.Contains("quizLine"));
 
             // ---- 开始界面：三个入口 ----
             var start = UnityEngine.Object.FindObjectOfType<StartScreen>();
@@ -1988,14 +2049,15 @@ namespace FireSafety.EditorTools
                 if (e1.pin != null) InvokeAwake(e1.pin);
                 if (e1.handleLever != null) InvokeAwake(e1.handleLever);
 
-                // 门槛：未通过常识问答时不能拔销/喷射
-                e1.quizRequired = true;
+                // 第 44 轮：灭火器上的答题环节已取消 —— 无论问答状态如何都能直接拔销/喷射。
+                // 这三条旧断言（"未通过时 CanPullPin 为假 / 拔销被拒绝 / 通过后才可"）随之改写。
+                // 注意这里不能真的调 PullPin()（会把后续鼠标链路 ⑥ 拔销测例的初始状态弄坏）。
                 e1.MarkQuizFailed();
-                Check("门槛：问答未通过时 CanPullPin 为假", !e1.CanPullPin);
-                e1.PullPin();                       // 直接调用拔销，应被问答门控拒绝
-                Check("门槛：问答未通过时拔销被拒绝", !e1.PinPulled);
+                Check("第44轮：问答未通过也能直接拔销（无答题门槛）", e1.CanPullPin);
+                Check("第44轮：问答未通过时保险销仍完好（留给后续链路测试）", !e1.PinPulled);
                 e1.MarkQuizPassed();
-                Check("门槛：问答通过后 CanPullPin 为真", e1.CanPullPin);
+                Check("第44轮：问答状态不再影响 CanPullPin", e1.CanPullPin);
+                e1.quizRequired = false;            // 恢复场景默认（第44轮取消了问答门控）
 
                 var mgrGo = new GameObject("TEST_SceneManager");
                 var mgr = mgrGo.AddComponent<FireDrillManager>();
