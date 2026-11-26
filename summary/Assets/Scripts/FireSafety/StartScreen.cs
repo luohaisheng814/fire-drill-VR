@@ -78,6 +78,8 @@ namespace FireSafety
         public bool switchBgmToAlarm = true;
         [Tooltip("警报响起时火焰从无到有点燃（缩放+灯光闪动动画）")]
         public bool igniteFiresOnBegin = true;
+        [Tooltip("第 41 轮：开始演练前先做 10 题事前教育（60% 通过）")]
+        public bool requirePreTraining = true;
 
         [Header("动画参数")]
         public float panelFadeIn = 0.35f;
@@ -330,6 +332,13 @@ namespace FireSafety
             PlayIntroAnimation();
         }
 
+        /// <summary>第 41 轮：语言选择页选完之后按新语言重建一次界面。</summary>
+        public void RefreshLanguage()
+        {
+            if (_canvas == null) return;
+            RebuildUI();
+        }
+
         /// <summary>
         /// 三套起火情景的快选行。文案直接读 DrillScenario.scenarios，避免界面与场景配置写两份对不上。
         /// </summary>
@@ -378,26 +387,10 @@ namespace FireSafety
         public void StartScenario(int index)
         {
             PlayClick();
-            var scenario = DrillScenario.Instance != null ? DrillScenario.Instance : FindObjectOfType<DrillScenario>();
-            if (scenario == null)
-            {
-                Debug.LogWarning("[StartScreen] 场景中没有 DrillScenario，无法开始演练。");
-                return;
-            }
-
-            // 关键：情景快选同样是「正式开始」。以前这里只调 StartFormal、没置 Started，
-            // 导致 DesktopDrillInput / VRDrillInput 的「先把鼠标对准…请先开始演练」门禁一直生效，
-            // 情景二/三的灭火器右键拿不起、问答面板也弹不出来（情景一因为走主按钮所以正常）。
-            Started = true;
-            if (FireDrillManager.Instance != null)
-                FireDrillManager.Instance.ForceCompleteUpTo(DrillStep.AlarmRinging);
-
-            if (scenario.ScenarioCount > 0)
-                scenario.StartFormal(-1, Mathf.Clamp(index, 0, scenario.ScenarioCount - 1));
-            else
-                scenario.StartFormal(-1);
-            StartCoroutine(ExitRoutine());
+            BeginWithPreTraining(index);
         }
+
+        /// <summary>第 41 轮：情景快选真正开始（已通过事前教育）。</summary>
 
         /// <summary>
         /// 演练是否真的已经开始：主按钮 / 操作演练 / 情景快选都算。
@@ -521,9 +514,32 @@ namespace FireSafety
         public void StartGame()
         {
             if (Started) return;
+            PlayClick();
+            BeginWithPreTraining(0);
+        }
+
+        /// <summary>
+        /// 第 41 轮：正式开始前先过「事前教育」10 题（60% 通过）。
+        /// 通过后才真正点燃火、拉警报、进情景；未通过时面板自己给「重新答题」。
+        /// </summary>
+        void BeginWithPreTraining(int scenarioIndex)
+        {
+            var pre = PreTrainingQuiz.Instance != null ? PreTrainingQuiz.Instance : FindObjectOfType<PreTrainingQuiz>();
+            if (requirePreTraining && pre != null && !pre.Passed)
+            {
+                Started = false;
+                pre.Open(transform, () => ActuallyStart(scenarioIndex));
+                return;
+            }
+            ActuallyStart(scenarioIndex);
+        }
+
+        /// <summary>真正开始演练：点火 / 警报 / BGM / 情景初始化。</summary>
+        public void ActuallyStart(int scenarioIndex)
+        {
+            if (Started) return;
             Started = true;
 
-            PlayClick();
             FireAlarm();
             SwitchBgm();
             if (igniteFiresOnBegin) IgniteFires();
@@ -532,11 +548,15 @@ namespace FireSafety
                 FireDrillManager.Instance.ForceCompleteUpTo(DrillStep.AlarmRinging);
 
             // 新流程：正式开始由 DrillScenario 负责（烟雾 + 设备起火 + 断电 + 灭火 → 出口）
-            // 第 37 轮：主按钮默认固定「电气」情景（index 0），其他两套走下方的情景快选。
             var scenario = DrillScenario.Instance != null ? DrillScenario.Instance : FindObjectOfType<DrillScenario>();
-            if (scenario != null) scenario.StartFormal(-1, 0);
+            if (scenario != null)
+            {
+                if (scenario.ScenarioCount > 0)
+                    scenario.StartFormal(-1, Mathf.Clamp(scenarioIndex, 0, scenario.ScenarioCount - 1));
+                else
+                    scenario.StartFormal(-1);
+            }
 
-            // 退出动画后隐藏
             StartCoroutine(ExitRoutine());
         }
 

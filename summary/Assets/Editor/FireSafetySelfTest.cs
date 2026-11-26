@@ -21,6 +21,7 @@ namespace FireSafety.EditorTools
         public static void RunAll()
         {
             _fail = 0;
+            DrillLocale.Language = DrillLocale.Lang.Chinese;   // 自检统一用中文口径（避免上次运行留下的语言影响断言）
             Debug.Log("[TEST] ==== 开始自检 ====");
 
             // 顺序：先测不依赖全局状态的部分，最后测状态链（会建立并销毁单例）
@@ -44,6 +45,7 @@ namespace FireSafety.EditorTools
             TestDrillScenario();
             TestRound37Ui();
             TestRound38PlayerVitals();
+            TestRound41LanguageAndFlow();
             TestVrConfiguration();
 
             if (_fail == 0) Debug.Log("[TEST] ==== 全部通过 ====");
@@ -2460,6 +2462,109 @@ namespace FireSafety.EditorTools
         static bool HasField(System.Type t, string name)
         {
             return t.GetField(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic) != null;
+        }
+
+        // ------------------------------------------------------------
+        // 第 41 轮：语言 / 事前教育 / 情景知识板 / 报告按钮 / 7 步流程
+        // ------------------------------------------------------------
+        static void TestRound41LanguageAndFlow()
+        {
+            // 1) 三语本地化
+            var oldLang = DrillLocale.Language;
+            DrillLocale.Language = DrillLocale.Lang.Chinese;
+            Check("第41轮：中文取文案", DrillLocale.T("中文", "English", "한국어") == "中文");
+            DrillLocale.Language = DrillLocale.Lang.English;
+            Check("第41轮：英文取文案", DrillLocale.T("中文", "English", "한국어") == "English");
+            DrillLocale.Language = DrillLocale.Lang.Korean;
+            Check("第41轮：韩文取文案", DrillLocale.T("中文", "English", "한국어") == "한국어");
+            Check("第41轮：韩文缺失回退英文", DrillLocale.T("中文", "English") == "English");
+            Check("第41轮：语言枚举含三语", Enum.GetNames(typeof(DrillLocale.Lang)).Length == 3);
+            DrillLocale.Language = oldLang;
+
+            // 2) 语言选择页
+            var lang = UnityEngine.Object.FindFirstObjectByType<LanguageSelectScreen>();
+            Check("第41轮：场景里有语言选择页", lang != null);
+            if (lang != null)
+            {
+                Check("第41轮：语言页三个语言按钮", lang.OptionCount == 3, "选项=" + lang.OptionCount);
+                Check("第41轮：语言页会先拦住开始界面", lang.hideStartScreen);
+            }
+
+            // 3) 事前教育 10 题 / 60%
+            var pre = UnityEngine.Object.FindFirstObjectByType<PreTrainingQuiz>();
+            Check("第41轮：场景里有事前教育面板", pre != null);
+            if (pre != null)
+            {
+                pre.EnsureQuestions();
+                Check("第41轮：事前教育 10 题", pre.questions.Count == 10, "题数=" + pre.questions.Count);
+                Check("第41轮：通过率 60%", Mathf.Abs(pre.passRatio - 0.6f) < 0.01f, "passRatio=" + pre.passRatio);
+                Check("第41轮：60% 需答对 6 题", pre.RequiredCorrect == 6, "需答对=" + pre.RequiredCorrect);
+                Check("第41轮：每题限时 20 秒", Mathf.Abs(pre.timePerQuestion - 20f) < 0.01f);
+                bool allHave = true;
+                foreach (var q in pre.questions)
+                {
+                    if (string.IsNullOrEmpty(q.qCn) || q.optionsCn == null || q.optionsCn.Length != 3
+                        || q.correctIndex < 0 || q.correctIndex > 2) allHave = false;
+                    if (string.IsNullOrEmpty(q.qEn) || string.IsNullOrEmpty(q.qKo)) allHave = false;
+                }
+                Check("第41轮：10 题都有中英韩与三选项", allHave);
+            }
+
+            // 4) 情景专属知识板
+            var kb = UnityEngine.Object.FindFirstObjectByType<ScenarioKnowledgeBoards>();
+            Check("第41轮：场景里有情景专属知识板", kb != null);
+            if (kb != null)
+            {
+                kb.EnsureDefaults();
+                Check("第41轮：三块情景展板", kb.boards.Length == 3, "块数=" + kb.boards.Length);
+                bool distinct = true;
+                var firsts = new List<string>();
+                foreach (var b in kb.boards)
+                {
+                    if (b.linesCn == null || b.linesCn.Length < 5) distinct = false;
+                    string first = (b.linesCn != null && b.linesCn.Length > 0) ? b.linesCn[0] : "";
+                    if (firsts.Contains(first)) distinct = false;
+                    firsts.Add(first);
+                }
+                Check("第41轮：三块板内容互不重复且各 ≥5 条", distinct);
+                Check("第41轮：展板都在出口外广场（x ≥ 8 米）",
+                      kb.boards[0].center.x >= 8f && kb.boards[1].center.x >= 8f && kb.boards[2].center.x >= 8f);
+            }
+            Check("第41轮：第28轮通用知识墙仍在",
+                  UnityEngine.Object.FindFirstObjectByType<PlazaKnowledgeBoard>() != null);
+
+            // 5) 手动报警按钮
+            var btn = UnityEngine.Object.FindFirstObjectByType<AlarmCallButton>();
+            Check("第41轮：场景里有手动报警按钮", btn != null);
+            if (btn != null)
+            {
+                Check("第41轮：报警按钮初始未按下", !btn.Triggered);
+                btn.PressByScript();
+                Check("第41轮：报警按钮可触发", btn.Triggered);
+                var alarm = UnityEngine.Object.FindFirstObjectByType<FireAlarm>();
+                Check("第41轮：按下报警会拉响警报", alarm != null && alarm.IsRinging);
+                btn.ResetButton();
+            }
+
+            // 6) 7 步流程编排
+            var dir = UnityEngine.Object.FindFirstObjectByType<DrillFlowDirector>();
+            Check("第41轮：场景里有流程编排", dir != null);
+            if (dir != null)
+            {
+                Check("第41轮：集合点在门外（x ≥ 9 米）", dir.assemblyPoint.x >= 9f,
+                      "集合点=" + dir.assemblyPoint.ToString("F2"));
+                Check("第41轮：集合点半径合理（1.5~4 米）",
+                      dir.assemblyRadius >= 1.5f && dir.assemblyRadius <= 4f);
+                Check("第41轮：超时转疏散阈值存在", dir.maxExtinguishSeconds > 20f);
+                Check("第41轮：初始阶段为 Idle", dir.CurrentStage == DrillFlowDirector.Stage.Idle);
+            }
+            Check("第41轮：开始界面已开启事前教育拦截",
+                  UnityEngine.Object.FindFirstObjectByType<StartScreen>() != null
+                  && UnityEngine.Object.FindFirstObjectByType<StartScreen>().requirePreTraining);
+
+            // 7) 三套情景都有警报音源
+            var alarm2 = UnityEngine.Object.FindFirstObjectByType<FireAlarm>();
+            Check("第41轮：火灾警报音源存在且有警笛 Clip", alarm2 != null && alarm2.sirenClip != null);
         }
 
         static void Check(string name, bool ok)

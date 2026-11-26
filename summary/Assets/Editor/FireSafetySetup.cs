@@ -133,6 +133,9 @@ namespace FireSafety.EditorTools
             // 10. 新流程编排：操作演练 + 正式两阶段（随机出生点 / 设备火 / 电源 / 火焰血量 / 出口火）
             SetupDrillScenario(rig != null ? rig.gameObject : null);
 
+            // 11. 第 41 轮：语言选择页 / 事前教育 10 题 / 情景专属知识板 / 手动报警按钮 / 7 步流程编排
+            SetupRound41(rightHand);
+
             // 10. 清理历史遗留的「缺失脚本」组件
             RemoveMissingScripts();
             EditorSceneManager.MarkSceneDirty(scene);
@@ -147,8 +150,158 @@ namespace FireSafety.EditorTools
         }
 
         // ================================================================
-        // 1. XR 锚点
+        // 第 41 轮：语言选择页 / 事前教育 / 情景知识板 / 手动报警按钮 / 流程编排
         // ================================================================
+
+        static void SetupRound41(Transform rightHand)
+        {
+            // 1) 启动语言选择页（世界空间面板，运行时构建）
+            var langGo = GameObject.Find("LanguageSelectScreen") ?? new GameObject("LanguageSelectScreen");
+            var lang = langGo.GetComponent<LanguageSelectScreen>() ?? langGo.AddComponent<LanguageSelectScreen>();
+            lang.distanceFromCamera = 1.15f;
+            lang.verticalOffset = -0.02f;
+            lang.hideStartScreen = true;
+            Debug.Log("[Setup] ✔ 语言选择页：中文 / 한국어 / English（启动时先于开始界面）");
+
+            // 2) 事前教育 10 题（60% 通过）
+            var preGo = GameObject.Find("PreTrainingQuiz") ?? new GameObject("PreTrainingQuiz");
+            var pre = preGo.GetComponent<PreTrainingQuiz>() ?? preGo.AddComponent<PreTrainingQuiz>();
+            pre.passRatio = 0.6f;
+            pre.timePerQuestion = 20f;
+            pre.EnsureQuestions();
+            Debug.Log("[Setup] ✔ 事前教育：" + pre.questions.Count + " 题，通过线 "
+                      + UnityEngine.Mathf.RoundToInt(pre.questions.Count * pre.passRatio) + " 题（60%）");
+
+            // 3) 三套情景的专属知识板（第 28 轮通用知识墙保持不动）
+            var kbGo = GameObject.Find("ScenarioKnowledgeBoards") ?? new GameObject("ScenarioKnowledgeBoards");
+            var kb = kbGo.GetComponent<ScenarioKnowledgeBoards>() ?? kbGo.AddComponent<ScenarioKnowledgeBoards>();
+            kb.EnsureDefaults();
+            Debug.Log("[Setup] ✔ 情景专属知识板：" + kb.boards.Length + " 块（电气 / 纸张 / 茶水间）");
+
+            // 4) 手动火灾报警按钮（走廊，玩家必经位置）
+            var btn = BuildAlarmCallButton(new Vector3(2.55f, 0f, 1.92f), 180f);
+            Debug.Log("[Setup] ✔ 手动报警按钮：走廊 " + btn.transform.position.ToString("F2"));
+
+            // 5) 7 步流程编排
+            var dirGo = GameObject.Find("DrillFlowDirector") ?? new GameObject("DrillFlowDirector");
+            var dir = dirGo.GetComponent<DrillFlowDirector>() ?? dirGo.AddComponent<DrillFlowDirector>();
+            dir.scenario = UnityEngine.Object.FindFirstObjectByType<DrillScenario>();
+            dir.vitals = UnityEngine.Object.FindFirstObjectByType<PlayerVitals>();
+            dir.exitDoor = UnityEngine.Object.FindFirstObjectByType<ExitDoor>();
+            dir.alarmButton = btn;
+            dir.fireAlarm = UnityEngine.Object.FindFirstObjectByType<FireAlarm>();
+            dir.preTraining = pre;
+            dir.assemblyPoint = new Vector3(10.40f, 0f, 1.35f);
+            dir.assemblyRadius = 2.4f;
+            Debug.Log("[Setup] ✔ 流程编排：发现火灾 → 警示报告 → 判断 → 初期灭火 → 疏散 → 集合点报告");
+
+            // 6) 开始界面：先过事前教育
+            var start = UnityEngine.Object.FindFirstObjectByType<StartScreen>();
+            if (start != null)
+            {
+                start.requirePreTraining = true;
+                start.startAlarmOnBegin = true;
+                start.switchBgmToAlarm = true;
+            }
+        }
+
+        /// <summary>走廊里的手动火灾报警按钮：灰色立柱 + 红色报警面板 + 世界空间文字牌。</summary>
+        static AlarmCallButton BuildAlarmCallButton(Vector3 pos, float yaw)
+        {
+            var existing = GameObject.Find("AlarmCallButton");
+            if (existing != null) UnityEngine.Object.DestroyImmediate(existing);
+
+            var root = new GameObject("AlarmCallButton");
+            root.transform.position = pos;
+            root.transform.rotation = Quaternion.Euler(0f, yaw, 0f);
+
+            var column = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            column.name = "Column";
+            column.transform.SetParent(root.transform, false);
+            column.transform.localPosition = new Vector3(0f, 0.55f, 0f);
+            column.transform.localScale = new Vector3(0.18f, 1.10f, 0.18f);
+            UnityEngine.Object.DestroyImmediate(column.GetComponent<Collider>());
+            Tint(column, new Color(0.30f, 0.31f, 0.33f));
+
+            var plate = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            plate.name = "AlarmPlate";
+            plate.transform.SetParent(root.transform, false);
+            plate.transform.localPosition = new Vector3(0f, 1.26f, 0f);
+            plate.transform.localScale = new Vector3(0.46f, 0.46f, 0.12f);
+            UnityEngine.Object.DestroyImmediate(plate.GetComponent<Collider>());
+            var plateRenderer = plate.GetComponent<Renderer>();
+            if (plateRenderer != null)
+            {
+                var mat = new Material(Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard"));
+                mat.color = new Color(0.72f, 0.12f, 0.10f);
+                plateRenderer.sharedMaterial = mat;
+            }
+
+            // 按钮圆心（凸起的小方块）
+            var knob = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            knob.name = "AlarmKnob";
+            knob.transform.SetParent(root.transform, false);
+            knob.transform.localPosition = new Vector3(0f, 1.26f, -0.08f);
+            knob.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+            knob.transform.localScale = new Vector3(0.16f, 0.03f, 0.16f);
+            UnityEngine.Object.DestroyImmediate(knob.GetComponent<Collider>());
+            Tint(knob, new Color(0.92f, 0.24f, 0.18f));
+
+            // 文字牌（世界空间 Canvas）
+            var labelGo = new GameObject("AlarmLabel", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler));
+            labelGo.transform.SetParent(root.transform, false);
+            labelGo.transform.localPosition = new Vector3(0f, 1.62f, 0f);
+            labelGo.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);   // 面向从走廊过来的玩家
+            var canvas = labelGo.GetComponent<Canvas>();
+            canvas.renderMode = RenderMode.WorldSpace;
+            canvas.sortingOrder = 260;
+            var rt = labelGo.GetComponent<RectTransform>();
+            rt.sizeDelta = new Vector2(1000f, 320f);
+            float s = 0.62f / 1000f;
+            rt.localScale = new Vector3(s, s, s);
+
+            var bg = labelGo.AddComponent<UnityEngine.UI.Image>();
+            bg.color = new Color(0.55f, 0.07f, 0.06f, 0.92f);
+            bg.raycastTarget = false;
+
+            var txtGo = new GameObject("Text", typeof(RectTransform), typeof(UnityEngine.UI.Text));
+            txtGo.transform.SetParent(labelGo.transform, false);
+            var txt = txtGo.GetComponent<UnityEngine.UI.Text>();
+            txt.font = UIFont.Resolve();
+            if (txt.font != null) txt.material = txt.font.material;
+            txt.text = DrillLocale.T("手动火灾报警按钮\nFIRE ALARM CALL POINT", "FIRE ALARM CALL POINT", "수동 화재 발신기");
+            txt.fontSize = 60;
+            txt.fontStyle = FontStyle.Bold;
+            txt.color = Color.white;
+            txt.alignment = TextAnchor.MiddleCenter;
+            txt.raycastTarget = false;
+            var trt = txtGo.GetComponent<RectTransform>();
+            trt.anchorMin = Vector2.zero;
+            trt.anchorMax = Vector2.one;
+            trt.offsetMin = Vector2.zero;
+            trt.offsetMax = Vector2.zero;
+
+            var comp = root.AddComponent<AlarmCallButton>();
+            comp.alarm = UnityEngine.Object.FindFirstObjectByType<FireAlarm>();
+            comp.engageDistance = 2.0f;
+            comp.dwellSeconds = 0.8f;
+            var audio = root.AddComponent<AudioSource>();
+            audio.playOnAwake = false;
+            audio.spatialBlend = 1f;
+            comp.clickSource = audio;
+            comp.ConfigureVisual(plate.transform, plateRenderer);
+            return comp;
+        }
+
+        static void Tint(GameObject go, Color color)
+        {
+            var r = go.GetComponent<Renderer>();
+            if (r == null) return;
+            var mat = new Material(Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard"));
+            mat.color = color;
+            r.sharedMaterial = mat;
+        }
+
 
         static XROrigin FindOrCreateRig()
         {

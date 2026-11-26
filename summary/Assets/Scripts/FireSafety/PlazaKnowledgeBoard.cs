@@ -7,6 +7,7 @@ namespace FireSafety
     /// 第 28 轮：门外广场上的「消防演练知识墙」。
     /// 三块立式展板 + 一块地面喷涂字，玩家从安全出口走出来抬头就能复习：
     /// 灭火剂怎么选、灭火器四步、疏散与集合要点。
+    /// 第 41 轮：跟随语言选择（中 / 英 / 韩）重建文案。
     /// 全部用世界空间 Canvas 在运行时构建（中文字体走 UIFont），不依赖预制体。
     /// </summary>
     public class PlazaKnowledgeBoard : MonoBehaviour
@@ -31,7 +32,7 @@ namespace FireSafety
         [Tooltip("地面字朝向（绕 Y 轴）：90 = 字头朝东，玩家朝东走时正读")]
         public float floorTextYaw = 90f;
 
-        [Header("内容")]
+        [Header("内容（当前语言，运行时填充）")]
         public string wallTitle = "办公室消防演练 · 安全知识";
         public string[] panelTitles = { "一、灭火器要对路", "二、灭火器四步", "三、疏散与集合" };
         [System.NonSerialized] public string[][] panelLines;   // 代码内初始化（交错数组不支持序列化）
@@ -43,30 +44,48 @@ namespace FireSafety
         /// <summary>自检用：已经生成的文字块数量（标题 + 每块展板 5 行 + 地面字）。</summary>
         public int TextCount => _texts.Count;
 
-        /// <summary>自检用：取三块展板的要点（编辑模式 Awake 不跑，这里保证内容已初始化）。</summary>
+        /// <summary>自检用：取三块展板的要点（始终返回中文原文，避免切换语言后断言失效）。</summary>
         public string[][] PanelLines()
         {
-            EnsureContent();
-            return panelLines;
+            return ChineseLines();
         }
 
         void Awake()
         {
-            EnsureContent();
+            ApplyLanguageContent();
             Build();
         }
 
+        void OnEnable() { DrillLocale.Changed += Rebuild; }
+        void OnDisable() { DrillLocale.Changed -= Rebuild; }
+
         void OnDestroy()
         {
+            DrillLocale.Changed -= Rebuild;
+            DestroyRoot();
+        }
+
+        /// <summary>语言变化：清掉旧展板，按新语言重建成同样的位置布局。</summary>
+        void Rebuild()
+        {
+            if (!isActiveAndEnabled) return;
+            DestroyRoot();
+            ApplyLanguageContent();
+            Build();
+        }
+
+        void DestroyRoot()
+        {
+            _texts.Clear();
             if (_root == null) return;
             if (Application.isPlaying) Destroy(_root.gameObject);
             else DestroyImmediate(_root.gameObject);
+            _root = null;
         }
 
-        void EnsureContent()
+        static string[][] ChineseLines()
         {
-            if (panelLines != null && panelLines.Length == 3) return;
-            panelLines = new[]
+            return new[]
             {
                 new[]
                 {
@@ -93,6 +112,106 @@ namespace FireSafety
                     "※ 撤离时不折返取物，生命第一"
                 }
             };
+        }
+
+        static string[] EnglishLines(int i)
+        {
+            switch (i)
+            {
+                case 0:
+                    return new[]
+                    {
+                        "Electrical fire → CO₂ / dry powder (cut power first)",
+                        "Paper / wood (Class A) → water-based / ABC powder",
+                        "Cooking oil / appliances (Class F) → wet chemical / powder",
+                        "※ Never pour water on oil fires — violent splashing",
+                        "Aim at the base of the flames, not the tips"
+                    };
+                case 1:
+                    return new[]
+                    {
+                        "① Pull: lift the extinguisher, stand upwind",
+                        "② Pin: pull the safety pin (never point at people)",
+                        "③ Aim: grip the hose, aim at the base of the fire",
+                        "④ Squeeze: press the lever, sweep side to side",
+                        "※ Watch the area afterwards to prevent re-ignition"
+                    };
+                default:
+                    return new[]
+                    {
+                        "Keep low, cover nose and mouth with a wet towel",
+                        "Follow green EXIT signs, never use the lift",
+                        "Report to the assembly point, count people, call 119",
+                        "Feel the door before opening — don't open it blindly",
+                        "※ Never go back for belongings — life first"
+                    };
+            }
+        }
+
+        static string[] KoreanLines(int i)
+        {
+            switch (i)
+            {
+                case 0:
+                    return new[]
+                    {
+                        "전기 화재 → 이산화탄소 / 분말 (먼저 전원 차단)",
+                        "종이·목재(A급) → 수계 / ABC 분말",
+                        "식용유·소형 가전(F급) → 습식 화학 / 분말",
+                        "※ 기름 화재에 물을 붓지 마세요 — 폭발적 비산",
+                        "불꽃 끝이 아니라 불꽃 밑동을 향해 분사"
+                    };
+                case 1:
+                    return new[]
+                    {
+                        "① 들기: 소화기를 들고 상풍 위치에 서기",
+                        "② 뽑기: 안전핀을 뽑기 (사람에게 겨눔 금지)",
+                        "③ 겨냥: 호스를 잡고 불꽃 밑동을 겨냥",
+                        "④ 누르기: 손잡이를 눌러 좌우로 훑으며 접근",
+                        "※ 소화 후 잔불 감시로 재점화 방지"
+                    };
+                default:
+                    return new[]
+                    {
+                        "낮은 자세로 몸을 숙이고 습한 수건으로 코와 입을 가리기",
+                        "녹색 비상구 표지를 따라 이동, 엘리베이터 사용 금지",
+                        "집결지에서 인원 확인 후 119에 신고",
+                        "문이 안 열리면 손등으로 온도를 확인, 무작정 열지 않기",
+                        "※ 대피 중 물건을 가지러 돌아가지 않기 — 생명 우선"
+                    };
+            }
+        }
+
+        /// <summary>把三套语言的文案按当前语言写进序列化字段（重建时再调一次）。</summary>
+        void ApplyLanguageContent()
+        {
+            var lang = DrillLocale.Language;
+
+            wallTitle = DrillLocale.T("办公室消防演练 · 安全知识",
+                                      "Office Fire Drill · Safety Facts",
+                                      "사무실 소방 훈련 · 안전 상식");
+
+            panelTitles = new[]
+            {
+                DrillLocale.T("一、灭火器要对路", "1 · Match the extinguisher", "1 · 소화기 종류 선택"),
+                DrillLocale.T("二、灭火器四步", "2 · Four steps of use", "2 · 소화기 사용 4단계"),
+                DrillLocale.T("三、疏散与集合", "3 · Evacuate & assemble", "3 · 대피와 집결")
+            };
+
+            var zh = ChineseLines();
+            var lines = new string[3][];
+            for (int i = 0; i < 3; i++)
+            {
+                lines[i] = lang == DrillLocale.Lang.Korean ? KoreanLines(i)
+                         : lang == DrillLocale.Lang.English ? EnglishLines(i)
+                         : zh[i];
+            }
+            panelLines = lines;
+
+            floorText = DrillLocale.T(
+                "灭火器四步：提 · 拔 · 握 · 压　｜　疏散：低姿 · 湿毛巾 · 到集合点",
+                "Extinguisher: Pull · Pin · Aim · Squeeze  |  Evacuate: low · wet towel · assembly point",
+                "소화기: 들기 · 뽑기 · 겨냥 · 누르기  |  대피: 낮은 자세 · 습한 수건 · 집결지");
         }
 
         void Build()
@@ -248,3 +367,4 @@ namespace FireSafety
         }
     }
 }
+

@@ -4,13 +4,12 @@ using UnityEngine;
 namespace FireSafety
 {
     /// <summary>
-    /// 第 35 轮：全局中英文切换。
-    /// 只存一个枚举 + PlayerPrefs，所有新 UI 通过 T(中文, English) 取文案；
-    /// 旧的中文业务文案仍可原样调用 T("中文")（省略英文时回退中文）。
+    /// 全局语言切换（第 35 轮中英，第 41 轮加韩文）。
+    /// 所有 UI 通过 T(中文, English, 한국어) 取文案；韩文缺失时回退英文，再回退中文。
     /// </summary>
     public static class DrillLocale
     {
-        public enum Lang { Chinese = 0, English = 1 }
+        public enum Lang { Chinese = 0, English = 1, Korean = 2 }
 
         const string PrefKey = "fire_drill_language";
 
@@ -27,7 +26,7 @@ namespace FireSafety
                 if (!_loaded)
                 {
                     _loaded = true;
-                    _lang = (Lang)Mathf.Clamp(PlayerPrefs.GetInt(PrefKey, 0), 0, 1);
+                    _lang = (Lang)Mathf.Clamp(PlayerPrefs.GetInt(PrefKey, 0), 0, 2);
                 }
                 return _lang;
             }
@@ -42,35 +41,63 @@ namespace FireSafety
             }
         }
 
-        public static bool English => Language == Lang.English;
+        public static void SetLanguage(Lang lang) => Language = lang;
 
-        public static void Toggle() => Language = English ? Lang.Chinese : Lang.English;
+        public static bool English => Language == Lang.English;
+        public static bool Korean => Language == Lang.Korean;
+        public static bool Chinese => Language == Lang.Chinese;
+
+        /// <summary>三语切换按钮的下一站（中 → 英 → 韩 → 中）。</summary>
+        public static void Cycle()
+        {
+            Language = Language == Lang.Chinese ? Lang.English
+                     : Language == Lang.English ? Lang.Korean
+                     : Lang.Chinese;
+        }
+
+        public static void Toggle() => Cycle();
 
         public static void SetEnglish(bool english) => Language = english ? Lang.English : Lang.Chinese;
 
         /// <summary>语言未变也强制广播一次，用于运行时首次显示、需要重建文本网格的 UI。</summary>
         public static void NotifyChanged() => Changed?.Invoke();
 
-        /// <summary>按当前语言返回文案；英文缺失时回退中文。</summary>
-        public static string T(string chinese, string english = null)
+        /// <summary>按当前语言返回文案：韩文 → 韩文/英文/中文依次回退；英文 → 英文/中文。</summary>
+        public static string T(string chinese, string english = null, string korean = null)
         {
-            if (!English) return chinese;
-            return string.IsNullOrEmpty(english) ? chinese : english;
+            if (Language == Lang.Korean)
+                return !string.IsNullOrEmpty(korean) ? korean
+                     : !string.IsNullOrEmpty(english) ? english : chinese;
+            if (Language == Lang.English)
+                return string.IsNullOrEmpty(english) ? chinese : english;
+            return chinese;
         }
 
-        public static string SwitchButtonLabel => English ? "中文" : "English";
+        /// <summary>语言名称（用各自语言书写）。</summary>
+        public static string LanguageName(Lang lang)
+        {
+            switch (lang)
+            {
+                case Lang.English: return "English";
+                case Lang.Korean: return "한국어";
+                default: return "中文";
+            }
+        }
 
-        /// <summary>类型名（短）。</summary>
+        public static string SwitchButtonLabel => Language == Lang.Chinese ? "English / 한국어"
+                                               : Language == Lang.English ? "한국어 / 中文"
+                                               : "中文 / English";
+
         public static string KindName(ExtinguisherKind kind)
         {
             switch (kind)
             {
                 case ExtinguisherKind.CO2:
-                    return T("二氧化碳 CO₂", "CO₂");
+                    return T("二氧化碳 CO₂", "CO₂", "이산화탄소 CO₂");
                 case ExtinguisherKind.WetChemical:
-                    return T("水基灭火器", "Wet chemical");
+                    return T("水基灭火器", "Wet chemical", "수계 소화기");
                 default:
-                    return T("ABC 干粉", "ABC powder");
+                    return T("ABC 干粉", "ABC powder", "ABC 분말");
             }
         }
 
@@ -79,11 +106,11 @@ namespace FireSafety
             switch (kind)
             {
                 case ExtinguisherKind.CO2:
-                    return T("电气设备 / 精密仪器", "Electrical / electronics");
+                    return T("电气设备 / 精密仪器", "Electrical / electronics", "전기 설비 / 정밀 기기");
                 case ExtinguisherKind.WetChemical:
-                    return T("食用油 / 小家电（F 类）", "Cooking oil / appliances");
+                    return T("食用油 / 小家电（F 类）", "Cooking oil / appliances", "식용유 / 소형 가전 (F급)");
                 default:
-                    return T("纸张 / 木材（A 类）", "Paper / wood (Class A)");
+                    return T("纸张 / 木材（A 类）", "Paper / wood (Class A)", "종이 / 목재 (A급)");
             }
         }
     }
