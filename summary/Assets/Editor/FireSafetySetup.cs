@@ -892,7 +892,8 @@ namespace FireSafety.EditorTools
         /// 灭火器墙面挂钩板：背板 + 挂钩横杆两块装饰，让「灭火器贴墙」在画面上真实成立。
         /// wallNormal：从瓶心指向墙面的方向（+Z / -Z / -X 等）。
         /// </summary>
-        static void SetupExtinguisherWallBracket(Vector3 bottlePos, Vector3 wallNormal, string name)
+        static void SetupExtinguisherWallBracket(Vector3 bottlePos, Vector3 wallNormal, string name,
+            float plateOffset = 0.30f, float hookOffset = 0.20f)
         {
             var root = GameObject.Find("ExtinguisherBrackets");
             if (root == null) root = new GameObject("ExtinguisherBrackets");
@@ -916,7 +917,7 @@ namespace FireSafety.EditorTools
                 var c = go.GetComponent<Collider>();
                 if (c != null) UnityEngine.Object.DestroyImmediate(c);
             }
-            plate.position = new Vector3(bottlePos.x, 0.55f, bottlePos.z) + wallNormal * 0.30f;
+            plate.position = new Vector3(bottlePos.x, 0.55f, bottlePos.z) + wallNormal * plateOffset;
             plate.rotation = Quaternion.identity;
             plate.localScale = alongZ ? new Vector3(0.50f, 0.90f, 0.03f) : new Vector3(0.03f, 0.90f, 0.50f);
             var mr = plate.GetComponent<MeshRenderer>();
@@ -933,7 +934,7 @@ namespace FireSafety.EditorTools
                 var c = go.GetComponent<Collider>();
                 if (c != null) UnityEngine.Object.DestroyImmediate(c);
             }
-            hook.position = new Vector3(bottlePos.x, 0.70f, bottlePos.z) + wallNormal * 0.20f;
+            hook.position = new Vector3(bottlePos.x, 0.70f, bottlePos.z) + wallNormal * hookOffset;
             hook.rotation = Quaternion.identity;
             hook.localScale = alongZ ? new Vector3(0.36f, 0.05f, 0.05f) : new Vector3(0.05f, 0.05f, 0.36f);
             var hmr = hook.GetComponent<MeshRenderer>();
@@ -1128,7 +1129,7 @@ namespace FireSafety.EditorTools
             // 第39轮：02/03 号瓶原先距火源只有 1.69 / 1.97 米，玩家从火源一侧靠近取瓶时
             // 会踩进 PlayerVitals.fireDangerRadius=1.55 米，触发「火焰烧伤 -1」。
             // 现在各外推约 0.7 / 0.45 米，留出取瓶站位与 1.55 米危险半径之间的安全余量。
-            Vector3 ext02Pos = new Vector3(-6.25f, 0.16f, -2.05f);    // 纸张：西墙北段，距南工位纸张火约 2.55 米
+            Vector3 ext02Pos = new Vector3(-6.33f, 0.46f, -1.20f);    // 第40轮：西墙北段、避开青色办公椅的那段墙，挂在挂钩上（瓶底离地 0.30 米），距南工位纸张火约 3.4 米
             Vector3 ext03Pos = new Vector3(6.15f, 0.16f, -3.33f);     // 茶水间：东墙南段新窗下方，距小家电火约 2.59 米，避开茶水桌与吧凳
 
             // ---------------- 出生点：每套情景 3 个候选（随机取一个，尽量避开上一次） ----------------
@@ -1240,31 +1241,80 @@ namespace FireSafety.EditorTools
             BuildPowerBox(boxRoot, powerSwitch);
 
             // ---------------- 正式第 1 阶段独立烟雾区 ----------------
+            // 第 40 轮：原来 5 个点、1.0 米粒子、18/秒，玩家基本感觉不到"有烟"。
+            // 现在铺满设备区 → 大厅走廊的一段，粒子放大、发射率提高、透明度加倍。
             var s1Go = GameObject.Find("Stage1Smoke");
             if (s1Go == null) s1Go = new GameObject("Stage1Smoke");
             var s1 = s1Go.GetComponent<SmokeZone>();
             if (s1 == null) s1 = s1Go.AddComponent<SmokeZone>();
-            s1.emitterCount = 5;
-            s1.start = new Vector3(-2.90f, 1.55f, 1.20f);
-            s1.end = new Vector3(-1.60f, 1.55f, 3.30f);
+            s1.emitterCount = 9;
+            ClearSmokeEmitters(s1.transform);
+            s1.start = new Vector3(-2.95f, 1.55f, 1.05f);
+            s1.end = new Vector3(-1.55f, 1.55f, 3.55f);
             s1.floorClearance = 1.00f;
-            s1.particleSize = 1.00f;
-            s1.ratePerSecond = 18f;
+            s1.particleSize = 1.45f;
+            s1.ratePerSecond = 26f;
+            s1.emitterShape = new Vector3(3.2f, 0.55f, 1.0f);
+            s1.alphaScale = 1.10f;
+            s1.particleCap = 320;
+            s1.sizeGrowth = 1.55f;
+            s1.driftPerSecond = new Vector3(0.18f, 0.05f, 0.10f);
 
             // ---------------- 情景二 / 三的起火点（克隆 BaseFire000，不继承模板的进度与事件） ----------------
             var paperFire = EnsureScenarioFire("PaperFire", paperFirePos, template, 0.26f,
                 "桌面纸张、档案正在燃烧！这属于 A 类固体火灾");
             var paperSmoke = EnsureScenarioSmoke("PaperSmoke",
                 new Vector3(paperFirePos.x, 1.55f, paperFirePos.z), new Color(0.30f, 0.30f, 0.32f, 0.55f), 18f);
+            // 第 40 轮：房间级烟雾从 4 个点、15/秒 扩到 9 个点、24/秒，并往东北方向摊开，
+            // 让玩家一进档案室就看到明显的烟层（原来只是火旁边一小团）。
             var paperZone = EnsureRoomSmoke("Stage1Smoke_Paper",
-                new Vector3(-3.10f, 1.55f, -3.20f), new Vector3(-5.50f, 1.55f, -5.35f), 4, 15f);
+                new Vector3(-2.60f, 1.55f, -3.10f), new Vector3(-5.60f, 1.55f, -5.60f), 9, 20f);
+            paperZone.particleSize = 1.30f;
+            paperZone.emitterShape = new Vector3(2.8f, 0.45f, 0.9f);
+            paperZone.alphaScale = 1.05f;
+            paperZone.particleCap = 340;
+            paperZone.sizeGrowth = 1.60f;
+            paperZone.driftPerSecond = new Vector3(-0.30f, 0.04f, -0.12f);   // 向西窗方向（第 40 轮：烟往窗户流）
+            paperZone.autoFollow = true;
+            paperZone.followFires = new[] { paperFire };
 
             var pantryFire = EnsureScenarioFire("PantryFire", pantryFirePos, template, 0.38f,
                 "茶水间台面起火！先断电、再灭火，油类火灾不能用水");
             var pantrySmoke = EnsureScenarioSmoke("PantrySmoke",
                 new Vector3(pantryFirePos.x, 1.50f, pantryFirePos.z), new Color(0.34f, 0.33f, 0.31f, 0.55f), 18f);
             var pantryZone = EnsureRoomSmoke("Stage1Smoke_Pantry",
-                new Vector3(5.60f, 1.55f, 0.40f), new Vector3(6.35f, 1.55f, -1.60f), 4, 15f);
+                new Vector3(5.20f, 1.55f, 0.60f), new Vector3(6.50f, 1.55f, -2.10f), 9, 20f);
+            pantryZone.particleSize = 1.30f;
+            pantryZone.emitterShape = new Vector3(2.4f, 0.45f, 0.9f);
+            pantryZone.alphaScale = 1.05f;
+            pantryZone.particleCap = 340;
+            pantryZone.sizeGrowth = 1.60f;
+            pantryZone.driftPerSecond = new Vector3(0.34f, 0.04f, 0f);        // 向东窗方向
+            pantryZone.autoFollow = true;
+            pantryZone.followFires = new[] { pantryFire };
+
+            // ---------- 第 40 轮：全局烟雾层（大厅 + 走廊整条，任一火源在烧就起雾） ----------
+            var lobbyGo = GameObject.Find("LobbyGlobalSmoke");
+            if (lobbyGo == null) lobbyGo = new GameObject("LobbyGlobalSmoke");
+            var lobbySmoke = lobbyGo.GetComponent<SmokeZone>();
+            if (lobbySmoke == null) lobbySmoke = lobbyGo.AddComponent<SmokeZone>();
+            lobbySmoke.start = new Vector3(-1.20f, 1.62f, 0.10f);
+            lobbySmoke.end = new Vector3(6.20f, 1.62f, -2.20f);
+            lobbySmoke.emitterCount = 12;
+            lobbySmoke.floorClearance = 1.10f;
+            lobbySmoke.particleSize = 2.30f;
+            lobbySmoke.ratePerSecond = 32f;
+            lobbySmoke.lifetime = 9f;
+            lobbySmoke.emitterShape = new Vector3(3.6f, 1.05f, 1.6f);
+            lobbySmoke.alphaScale = 1.90f;
+            lobbySmoke.particleCap = 420;
+            lobbySmoke.sizeGrowth = 1.7f;
+            lobbySmoke.smokeColor = new Color(0.58f, 0.60f, 0.63f, 0.55f);
+            lobbySmoke.driftPerSecond = new Vector3(0.22f, 0.06f, 0.10f);
+            lobbySmoke.autoFollow = true;
+            lobbySmoke.followFires = new[] { fireSource, paperFire, pantryFire };
+            Debug.Log("[Setup] ✔ 全局烟雾层 LobbyGlobalSmoke：10 个发射点，覆盖大厅与走廊");
+
 
             // ---------------- 每套情景的「灭火点位」（地面青色圆环） ----------------
             // 站在圆环里、正对火焰根部，喷嘴到瞄准点的俯角落在 20° 喷锥内。
@@ -1286,12 +1336,27 @@ namespace FireSafety.EditorTools
             var ext02 = GameObject.Find("Extinguisher02");
             var ext03 = GameObject.Find("Extinguisher03");
             if (ext01 != null) PlaceExtinguisher(ext01.transform, ext01Pos);
-            if (ext02 != null) PlaceExtinguisher(ext02.transform, ext02Pos);
+            // 第 40 轮：02 号瓶不再落地，而是挂到西墙的挂钩板上（dropToFloor=false）
+            if (ext02 != null)
+            {
+                PlaceExtinguisher(ext02.transform, ext02Pos, false);
+                // 挂着就必须关物理：不然一进 Play，刚体重力会把它直接摔到地面，
+                // 又变回"躺在柜子/椅子夹缝里"的状态（第 40 轮实测复现过）。
+                var rb = ext02.GetComponent<Rigidbody>();
+                if (rb == null) rb = ext02.GetComponentInChildren<Rigidbody>();
+                if (rb != null)
+                {
+                    rb.isKinematic = true;
+                    rb.useGravity = false;
+                    rb.linearVelocity = Vector3.zero;
+                    rb.angularVelocity = Vector3.zero;
+                }
+            }
             if (ext03 != null) PlaceExtinguisher(ext03.transform, ext03Pos);
 
             // 墙面挂钩板：让「贴墙」不只是坐标贴近，而是看起来就挂在墙上
             SetupExtinguisherWallBracket(ext01Pos, Vector3.forward, "Extinguisher01_Bracket");
-            SetupExtinguisherWallBracket(ext02Pos, Vector3.left, "Extinguisher02_Bracket");
+            SetupExtinguisherWallBracket(ext02Pos, Vector3.left, "Extinguisher02_Bracket", 0.18f, 0.10f);
             SetupExtinguisherWallBracket(ext03Pos, Vector3.right, "Extinguisher03_Bracket");
 
             float d12 = Vector3.Distance(new Vector3(ext01Pos.x, 0f, ext01Pos.z), new Vector3(ext02Pos.x, 0f, ext02Pos.z));
@@ -1534,6 +1599,9 @@ namespace FireSafety.EditorTools
             if (go == null) go = new GameObject(name);
             var zone = go.GetComponent<SmokeZone>();
             if (zone == null) zone = go.AddComponent<SmokeZone>();
+            // 第 40 轮：发射点数量/位置改了，先把上一次在 Play 模式里生成的旧发射器清掉，
+            // 否则 SmokeZone 会认为「已 Build 过」而一直用旧的 4 个点。
+            ClearSmokeEmitters(zone.transform);
             zone.emitterCount = emitters;
             zone.start = start;
             zone.end = end;
@@ -1541,6 +1609,52 @@ namespace FireSafety.EditorTools
             zone.particleSize = 0.90f;
             zone.ratePerSecond = rate;
             return zone;
+        }
+
+        /// <summary>
+        /// 第 40 轮：安全出口「门内 → 门外」烟雾扩散组件（幂等，重复调用只更新引用）。
+        /// </summary>
+        static void EnsureDoorSmokeSpread()
+        {
+            var door = UnityEngine.Object.FindFirstObjectByType<ExitDoor>();
+            if (door == null)
+            {
+                Debug.LogWarning("[Setup] 场景里没有 ExitDoor，跳过门口烟雾扩散");
+                return;
+            }
+            var go = GameObject.Find("DoorSmokeSpread");
+            if (go == null) go = new GameObject("DoorSmokeSpread");
+            var d = go.GetComponent<DoorSmokeSpread>();
+            if (d == null) d = go.AddComponent<DoorSmokeSpread>();
+            d.door = door;
+            // 场景里已有组件会保留旧序列化值，这里显式写一遍，保证「门内 → 门外」覆盖到位
+            d.insideStart = -1.6f;
+            d.outsideEnd = 7.0f;
+            d.emitterCount = 9;
+            d.layerHeight = 1.05f;
+            d.driftSpeed = 1.60f;
+            d.ratePerSecond = 18f;
+            d.particleSize = 2.60f;
+            for (int i = go.transform.childCount - 1; i >= 0; i--)
+            {
+                var c = go.transform.GetChild(i);
+                if (c != null && c.name.StartsWith("DoorSmoke_"))
+                    UnityEngine.Object.DestroyImmediate(c.gameObject);
+            }
+            UnityEditor.EditorUtility.SetDirty(go);
+            Debug.Log("[Setup] ✔ 门口烟雾扩散 DoorSmokeSpread 已挂到 ExitDoor（门解锁后自动起烟）");
+        }
+
+        /// <summary>清掉烟雾区里上一次运行留下的发射点子物体。</summary>
+        static void ClearSmokeEmitters(Transform zone)
+        {
+            if (zone == null) return;
+            for (int i = zone.childCount - 1; i >= 0; i--)
+            {
+                var c = zone.GetChild(i);
+                if (c != null && (c.name.StartsWith("Smoke_") || c.name.StartsWith("DoorSmoke_")))
+                    UnityEngine.Object.DestroyImmediate(c.gameObject);
+            }
         }
 
         /// <summary>出生点：位置 + 朝向设备（yaw 取水平朝向）。</summary>
@@ -2097,12 +2211,50 @@ namespace FireSafety.EditorTools
                 smokeGo.transform.position = smokePos;
                 smokeGo.transform.rotation = Quaternion.LookRotation(smokeOut, Vector3.up);
                 var ps = smokeGo.AddComponent<ParticleSystem>();
+                // 第 40 轮：窗外排烟原来是 34/秒、0.24 米/秒 的慢喷，几乎看不出来。
+                // 现在加大发射量、初速与粒子尺寸，形成一条明显往窗外抽出去的烟柱。
                 ConfigureSmoke(ps, new Color(0.10f, 0.10f, 0.12f, 0.74f),
-                    rate: 34f, speed: 0.24f, size: 2.05f, life: 4.8f, additive: false, radius: 0.52f);
+                    rate: 64f, speed: 1.15f, size: 2.75f, life: 6.0f, additive: false, radius: 0.62f);
                 var ws = smokeGo.AddComponent<WindowSmoke>();
                 ws.source = smokeSource;
                 ws.smoke = ps;
             }
+
+            // 第 40 轮：室内侧导流烟带 —— 让房间里的烟看得见地「往窗洞方向流」，
+            // 而不只是窗外凭空冒一坨。火一灭，导流和排烟同时停。
+            if (smokeSource != null)
+            {
+                var feedGo = GameObject.Find("WindowFeed_" + tag);
+                if (feedGo == null) feedGo = new GameObject("WindowFeed_" + tag);
+                feedGo.transform.SetParent(root.transform, false);
+                var feed = feedGo.GetComponent<SmokeZone>();
+                if (feed == null) feed = feedGo.AddComponent<SmokeZone>();
+                ClearSmokeEmitters(feed.transform);
+
+                Vector3 inA = new Vector3(smokePos.x, 1.50f, smokePos.z) - smokeOut * 3.20f;
+                Vector3 inB = new Vector3(smokePos.x, 1.50f, smokePos.z) - smokeOut * 0.35f;
+                feed.start = inA;
+                feed.end = inB;
+                feed.emitterCount = 5;
+                feed.floorClearance = 1.05f;
+                feed.particleSize = 1.45f;
+                feed.ratePerSecond = 18f;
+                feed.lifetime = 7f;
+                feed.emitterShape = new Vector3(2.6f, 0.70f, 1.2f);
+                feed.alphaScale = 1.30f;
+                feed.particleCap = 260;
+                feed.sizeGrowth = 1.5f;
+                feed.smokeColor = new Color(0.34f, 0.35f, 0.38f, 0.60f);
+                feed.driftPerSecond = smokeOut * 0.95f + Vector3.up * 0.05f;
+                feed.driftJitter = 0.12f;
+                feed.countsForDamage = true;
+                feed.autoFollow = true;
+                feed.followFires = new[] { smokeSource };
+                Debug.Log("[Setup] ✔ 窗内导流烟带 WindowFeed_" + tag + "：从室内 3.2 米处向窗洞流动");
+            }
+
+            // 第 40 轮：门内 → 门外扩散（挂在大厅出口上，门一解锁就起烟）
+            EnsureDoorSmokeSpread();
 
             Debug.Log("[Setup] ✔ 窗户 " + tag + "：窗洞中心 " + new Vector3(
                 axis == Axis.X ? wallPlane : uCenter, yCenter,
@@ -2167,13 +2319,13 @@ namespace FireSafety.EditorTools
         }
 
         /// <summary>把灭火器摆到指定地面位置（保持直立、贴地）。</summary>
-        static void PlaceExtinguisher(Transform ext, Vector3 pos)
+        static void PlaceExtinguisher(Transform ext, Vector3 pos, bool dropToFloor = true)
         {
             if (ext == null) return;
             ext.position = pos;
             ext.rotation = Quaternion.identity;
             var eb = ext.GetComponent<Extinguisher>();
-            if (eb != null) eb.EnsureUprightStanding(true);
+            if (eb != null) eb.EnsureUprightStanding(dropToFloor);
             EditorUtility.SetDirty(ext.gameObject);
         }
 

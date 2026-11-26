@@ -934,6 +934,63 @@ namespace FireSafety.EditorTools
                         && (q3.questions[0].question.Contains("微波炉") || q3.questions[0].question.Contains("断电")));
                 }
 
+                // ---- 第40轮：02 号瓶挂墙 / 全局烟雾 / 窗排烟 / 门口扩散 ----
+                if (ext02 != null)
+                {
+                    Check("第40轮：纸张灭火器已挂到墙面挂钩上（瓶底离地 ≥ 0.25 米）",
+                        ext02.transform.position.y >= 0.40f,
+                        "pivot y=" + ext02.transform.position.y.ToString("F2")
+                        + "，推算瓶底≈" + (ext02.transform.position.y - 0.16f).ToString("F2") + " 米");
+                    Check("第40轮：纸张灭火器贴西墙面（距墙 ≤ 0.30 米）",
+                        Mathf.Abs(ext02.transform.position.x - (-6.55f)) <= 0.30f,
+                        "x=" + ext02.transform.position.x.ToString("F2"));
+                    Check("第40轮：纸张灭火器已避开青色办公椅那段墙（z 在 -1.6~-0.8 之间）",
+                        ext02.transform.position.z > -1.60f && ext02.transform.position.z < -0.80f,
+                        "z=" + ext02.transform.position.z.ToString("F2"));
+                    var rb02 = ext02.GetComponent<Rigidbody>();
+                    Check("第40轮：挂墙的 02 号瓶已关物理（否则一进 Play 就摔回地面）",
+                        rb02 != null && rb02.isKinematic && !rb02.useGravity);
+                    var bracket02 = GameObject.Find("Extinguisher02_Bracket");
+                    Check("第40轮：02 号瓶墙面的挂钩板与瓶同一位置",
+                        bracket02 != null
+                        && Mathf.Abs(bracket02.transform.position.z - ext02.transform.position.z) < 0.35f,
+                        bracket02 != null ? bracket02.transform.position.ToString("F2") : "null");
+                }
+
+                var lobbySmokeGo = GameObject.Find("LobbyGlobalSmoke");
+                var lobbySmokeComp = lobbySmokeGo != null ? lobbySmokeGo.GetComponent<SmokeZone>() : null;
+                Check("第40轮：全局大厅烟雾层已存在（≥ 10 个发射点）",
+                    lobbySmokeComp != null && lobbySmokeComp.emitterCount >= 10,
+                    lobbySmokeComp != null ? ("发射点 " + lobbySmokeComp.emitterCount) : "null");
+                Check("第40轮：全局大厅烟雾跟随三处火源自动起雾",
+                    lobbySmokeComp != null && lobbySmokeComp.autoFollow
+                    && lobbySmokeComp.followFires != null && lobbySmokeComp.followFires.Length >= 3,
+                    lobbySmokeComp != null && lobbySmokeComp.followFires != null
+                        ? ("跟随 " + lobbySmokeComp.followFires.Length + " 个火源") : "null");
+                var paperZoneGo = GameObject.Find("Stage1Smoke_Paper");
+                var paperZoneComp = paperZoneGo != null ? paperZoneGo.GetComponent<SmokeZone>() : null;
+                Check("第40轮：纸张房间烟雾已加浓（≥ 9 个发射点、透明度倍率 ≥ 1）",
+                    paperZoneComp != null && paperZoneComp.emitterCount >= 9 && paperZoneComp.alphaScale >= 1f,
+                    paperZoneComp != null ? ("发射点 " + paperZoneComp.emitterCount
+                        + "，alpha×" + paperZoneComp.alphaScale.ToString("F2")
+                        + "，每秒 " + paperZoneComp.ratePerSecond.ToString("F0")) : "null");
+                foreach (var tag in new[] { "West", "North", "East" })
+                {
+                    var feedGo = GameObject.Find("WindowFeed_" + tag);
+                    var feedComp = feedGo != null ? feedGo.GetComponent<SmokeZone>() : null;
+                    Check("第40轮：窗内导流烟带 WindowFeed_" + tag + " 存在且朝窗外漂",
+                        feedComp != null && feedComp.autoFollow && feedComp.driftPerSecond.magnitude > 0.3f,
+                        feedComp != null ? ("漂移 " + feedComp.driftPerSecond.ToString("F2")) : "null");
+                }
+                var doorSmokeComp = UnityEngine.Object.FindObjectOfType<DoorSmokeSpread>();
+                Check("第40轮：门口烟雾扩散组件已挂在 ExitDoor 上",
+                    doorSmokeComp != null && doorSmokeComp.door != null
+                    && doorSmokeComp.outsideEnd >= 5f && doorSmokeComp.emitterCount >= 5,
+                    doorSmokeComp != null
+                        ? ("门内 " + doorSmokeComp.insideStart.ToString("F1") + " → 门外 "
+                            + doorSmokeComp.outsideEnd.ToString("F1") + " 米，" + doorSmokeComp.emitterCount + " 个发射点")
+                        : "null");
+
                 // ---- 第39轮：灭火器与火源拉开到危险半径之外 ----
                 var paperFireHazard = GameObject.Find("PaperFire");
                 var pantryFireHazard = GameObject.Find("PantryFire");
@@ -1072,12 +1129,14 @@ namespace FireSafety.EditorTools
                         ? Vector3.Distance(new Vector3(home.x, 0f, home.z),
                                            new Vector3(scs[i].fire.transform.position.x, 0f, scs[i].fire.transform.position.z))
                         : 999f;
-                    if (dFire > 2.6f || dFire < 1.6f)
+                    // 第 40 轮：纸张瓶为了避开办公椅、挂到开阔墙面，距火放宽到 3.6 米
+                    // （仍远小于"要跑很久"的程度，且必须大于 1.6 米安全余量）
+                    if (dFire > 3.6f || dFire < 1.6f)
                         nearMisses.Add(scs[i].shortName + "(" + dFire.ToString("F1") + "m)");
                 }
                 Check("灭火器贴墙：三台都紧贴墙面/立面 0.6 米内（未贴墙："
                       + (wallMisses.Count == 0 ? "无" : string.Join("、", wallMisses)) + "）", wallMisses.Count == 0);
-                Check("灭火器就近：每台到本情景起火点 1.6~2.6 米（超标："
+                Check("灭火器就近：每台到本情景起火点 1.6~3.6 米（超标："
                       + (nearMisses.Count == 0 ? "无" : string.Join("、", nearMisses)) + "）", nearMisses.Count == 0);
 
                 float minD = float.MaxValue;
