@@ -1250,13 +1250,13 @@ namespace FireSafety.EditorTools
 
             // ---- 开始界面：三个入口 ----
             var start = UnityEngine.Object.FindObjectOfType<StartScreen>();
-            Check("开始界面：显示「操作演练」入口",
-                start != null && start.showTutorialButton && start.tutorialLabel == "操作演练");
-            Check("开始界面：操作演练标注为「技能操作型情景教学」（程序性技能训练）",
-                start != null && start.tutorialTypeLabel.Contains("技能操作型情景教学")
-                && start.tutorialTypeLabel.Contains("程序性技能训练"));
-            Check("开始界面：正式入口仍为「开始演练」",
-                start != null && start.buttonLabel == "开始演练");
+            Check("开始界面：显示「操作流程训练」入口",
+                start != null && start.showTutorialButton && start.tutorialLabel.Contains("操作流程"));
+            Check("开始界面：操作流程训练标注为「程序性技能训练」",
+                start != null && start.tutorialTypeLabel.Contains("程序性技能训练")
+                && start.tutorialTypeLabel.Contains("知识确认"));
+            Check("开始界面：正式入口为「决策训练」",
+                start != null && start.buttonLabel.Contains("决策"));
         }
 
         // ------------------------------------------------------------
@@ -2565,6 +2565,90 @@ namespace FireSafety.EditorTools
             // 7) 三套情景都有警报音源
             var alarm2 = UnityEngine.Object.FindFirstObjectByType<FireAlarm>();
             Check("第41轮：火灾警报音源存在且有警笛 Clip", alarm2 != null && alarm2.sirenClip != null);
+
+            // ============ 第 42 轮：事前教育按情景 / 疏散优先 / 危险增加反馈 / 结束状态 ============
+
+            // 8) 三套情景题库
+            Check("第42轮：题库分为三套情景", PreTrainingBanks.Count == 3);
+            for (int si = 0; si < 3; si++)
+            {
+                var bank = PreTrainingBanks.For(si);
+                Check("第42轮：题库[" + si + "] 为 10 题", bank.Count == 10, "题数=" + bank.Count);
+                bool ok = true;
+                foreach (var q in bank)
+                {
+                    if (string.IsNullOrEmpty(q.qCn) || q.optionsCn == null || q.optionsCn.Length != 3) ok = false;
+                    if (string.IsNullOrEmpty(q.qEn) || string.IsNullOrEmpty(q.qKo)
+                        || q.optionsEn == null || q.optionsKo == null) ok = false;
+                    if (q.correctIndex < 0 || q.correctIndex > 2) ok = false;
+                    if (string.IsNullOrEmpty(q.expCn) || string.IsNullOrEmpty(q.expEn)) ok = false;
+                }
+                Check("第42轮：题库[" + si + "] 三语完整、选项与讲解齐全", ok);
+            }
+            var b0 = PreTrainingBanks.For(0);
+            var b1 = PreTrainingBanks.For(1);
+            var b2 = PreTrainingBanks.For(2);
+            Check("第42轮：三套情景题互不相同",
+                  b0[7].qCn != b1[7].qCn && b1[7].qCn != b2[7].qCn && b2[7].qCn != b0[7].qCn);
+            string common = "";
+            foreach (var q in b0) common += q.qCn + q.expCn;
+            Check("第42轮：公共题覆盖 职责 / 报警装置 / 出口与集合点 / 灭火器用法",
+                  common.Contains("职责") && common.Contains("报警") && common.Contains("集合") && common.Contains("灭火器"),
+                  "缺项检查见日志");
+            Check("第42轮：电气题库含「断电」与「CO₂」",
+                  (b0[7].expCn + b0[8].expCn + b0[9].expCn).Contains("断电")
+                  && (b0[7].expCn + b0[8].expCn + b0[9].expCn).Contains("CO₂"));
+            Check("第42轮：纸张题库含「A 类」知识点",
+                  (b1[7].expCn + b1[8].expCn + b1[9].expCn).Contains("A 类"));
+            Check("第42轮：茶水间题库含「F 类」与「湿化学」",
+                  (b2[7].expCn + b2[9].expCn).Contains("F 类") || b2[7].expCn.Contains("湿化学"));
+
+            if (pre != null)
+            {
+                Check("第42轮：测验只作教学记录（不作为进入演练或疏散的条件）", pre.educationalOnly);
+                pre.scenarioIndex = 1;
+                pre.EnsureQuestions(1);
+                Check("第42轮：切到纸张情景时题库同步为纸张", pre.questions.Count == 10 && pre.questions[7].qCn.Contains("纸张"));
+                pre.scenarioIndex = 0;
+                pre.EnsureQuestions(0);
+                Check("第42轮：切回电气情景时题库同步为电气",
+                      pre.questions.Count == 10 && (pre.questions[7].qCn.Contains("配电柜") || pre.questions[7].qCn.Contains("电气")));
+                Check("第42轮：三情景题库的达标线都是 6 题", pre.RequiredCorrect == 6);
+            }
+
+            // 9) 疏散优先与危险增加判定口径
+            if (dir != null)
+            {
+                Check("第42轮：允许不灭火直接疏散", dir.allowDirectEvacuation);
+                Check("第42轮：直接疏散的远离火源距离 6 米", Mathf.Abs(dir.directEvacuateDistance - 6f) < 0.01f);
+                Check("第42轮：危险增加用连续烟气 8 秒判断", Mathf.Abs(dir.smokeDangerSeconds - 8f) < 0.01f);
+                Check("第42轮：灭火超时上限不超过 65 秒", dir.maxExtinguishSeconds <= 65f, "上限=" + dir.maxExtinguishSeconds);
+                Check("第42轮：火势停滞 14 秒算危险增加", Mathf.Abs(dir.stallSeconds - 14f) < 0.01f);
+                Check("第42轮：喷到一半停下 5 秒即判「停止灭火并疏散」",
+                      Mathf.Abs(dir.stopAndEvacuateSeconds - 5f) < 0.01f);
+                Check("第42轮：疏散时一定会解锁安全出口", dir.unlockOnEvacuate);
+                Check("第42轮：剩余生命值不参与能否继续灭火的判定", !dir.UsesVitalsAsDangerGate);
+                Check("第42轮：阶段名已改成「初期灭火（可选）」",
+                      dir.CurrentStage == DrillFlowDirector.Stage.Idle || dir.StageName.Length > 0);
+            }
+
+            // 10) 结束状态面板与两条训练入口
+            var endp = UnityEngine.Object.FindFirstObjectByType<DrillEndPanel>();
+            Check("第42轮：场景里有结束状态面板", endp != null);
+            if (endp != null)
+            {
+                Check("第42轮：结束状态标题写明「到达安全地点并报告」", endp.titleCn.Contains("报告"));
+                Check("第42轮：结束状态含行为回顾入口", endp.hintCn.Contains("回顾"));
+            }
+            var start42 = UnityEngine.Object.FindFirstObjectByType<StartScreen>();
+            if (start42 != null)
+            {
+                Check("第42轮：开始界面主入口为「决策训练」", start42.buttonLabel.Contains("决策"), start42.buttonLabel);
+                Check("第42轮：第三入口为「操作流程训练」", start42.tutorialLabel.Contains("操作流程"), start42.tutorialLabel);
+            }
+            Check("第42轮：三情景专属知识立牌仍在（与第 28 轮通用知识墙并存）",
+                  UnityEngine.Object.FindFirstObjectByType<ScenarioKnowledgeBoards>() != null
+                  && UnityEngine.Object.FindFirstObjectByType<PlazaKnowledgeBoard>() != null);
         }
 
         static void Check(string name, bool ok)

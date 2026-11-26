@@ -6,9 +6,12 @@ using UnityEngine.UI;
 namespace FireSafety
 {
     /// <summary>
-    /// 第 41 轮：事前教育（岗前消防常识考核）。
-    /// 流程第一步：10 道题、每题 20 秒、答对 60%（6 题）才算通过，通过后才放玩家进情景。
-    /// 独立于灭火器问答：这里是通用消防流程与常识，取瓶时的那 5 题仍保留。
+    /// 事前教育（岗前消防常识教学）。
+    /// 第 42 轮改造：题库按情景分三套（电气 / 纸张 / 茶水间），每套 10 题、每题 20 秒、60% 通过，
+    /// 内容覆盖「职责、报警装置、出口与集合地点、灭火器类型与用法 + 本情景知识点」。
+    /// 测验只是教学环节，通过与否都不再阻挡进入演练、也不作为能否疏散的条件；
+    /// 未通过时面板给「重新答题」与「继续进入演练」两个按钮。
+    /// 独立于灭火器问答：取瓶时的那 5 题仍保留（操作流程训练的知识确认）。
     /// </summary>
     public class PreTrainingQuiz : MonoBehaviour
     {
@@ -42,6 +45,14 @@ namespace FireSafety
         public float verticalOffset = -0.03f;
         public float panelScale = 0.00085f;
 
+        [Header("第 42 轮：教学定位")]
+        [Tooltip("按情景使用内置题库（电气 / 纸张 / 茶水间各一套），覆盖旧场景里序列化的通用题库")]
+        public bool useBuiltInBanks = true;
+        [Tooltip("当前情景索引：0 电气 / 1 纸张 / 2 茶水间")]
+        public int scenarioIndex = 0;
+        [Tooltip("只作教学记录：无论是否达到 60%，都允许继续进入演练（不作为疏散条件）")]
+        public bool educationalOnly = true;
+
         [Header("题目")]
         public List<Question> questions = new List<Question>();
 
@@ -53,6 +64,7 @@ namespace FireSafety
 
         int _index;
         int _correct;
+        int _bankIndex = -1;
         float _questionStart;
         float _nextAllowed;
         bool _answered;
@@ -69,17 +81,26 @@ namespace FireSafety
         void Awake()
         {
             Instance = this;
-            EnsureQuestions();
-            if (questions.Count > 0 && passRatio > 0f) { /* 保持序列化值 */ }
+            EnsureQuestions(scenarioIndex);
         }
 
         void OnDestroy() { if (Instance == this) Instance = null; }
 
         // ---------------- 题库 ----------------
 
-        public void EnsureQuestions()
+        public void EnsureQuestions() { EnsureQuestions(scenarioIndex); }
+
+        /// <summary>第 42 轮：按情景加载题库（0 电气 / 1 纸张 / 2 茶水间）。</summary>
+        public void EnsureQuestions(int index)
         {
-            if (questions != null && questions.Count >= 10) return;
+            if (useBuiltInBanks)
+            {
+                int idx = Mathf.Clamp(index, 0, PreTrainingBanks.Count - 1);
+                questions = PreTrainingBanks.For(idx);
+                _bankIndex = idx;
+                return;
+            }
+            if (questions != null && questions.Count >= 10) { _bankIndex = index; return; }
 
             questions = new List<Question>
             {
@@ -208,18 +229,20 @@ namespace FireSafety
 
         // ---------------- 面板 ----------------
 
-        public void Open(Transform anchor, Action onPassed = null)
+        public void Open(Transform anchor, Action onFinished = null, int scenario = -1)
         {
-            _onPassed = onPassed;
+            if (scenario >= 0) scenarioIndex = scenario;
+            _onPassed = onFinished;
             _index = 0;
             _correct = 0;
             _answered = false;
             Passed = Failed = false;
             IsOpen = true;
-            EnsureQuestions();
+            EnsureQuestions(scenarioIndex);
             Build();
             ShowQuestion();
-            Debug.Log("[PreTraining] 事前教育开始：" + QuestionCount + " 题，需答对 " + RequiredCorrect + " 题");
+            Debug.Log("[PreTraining] 事前教育开始（" + PreTrainingBanks.Name(_bankIndex) + "）："
+                      + QuestionCount + " 题，教学达标线 " + RequiredCorrect + " 题（不作为门槛）");
         }
 
         void Build()
@@ -280,9 +303,8 @@ namespace FireSafety
         void ShowQuestion()
         {
             var q = questions[Mathf.Clamp(_index, 0, questions.Count - 1)];
-            _titleText.text = DrillLocale.T("事前教育 · 消防常识考核",
-                                            "Pre-drill training · Fire safety quiz",
-                                            "사전 교육 · 소방 상식 평가");
+            _titleText.text = DrillLocale.T("事前教育 · ", "Pre-drill training · ", "사전 교육 · ")
+                            + PreTrainingBanks.Name(_bankIndex);
             _progressText.text = DrillLocale.T("第 ", "Question ", "문제 ")
                                + (_index + 1) + " / " + QuestionCount;
             _questionText.text = DrillLocale.T(q.qCn, q.qEn, q.qKo);
@@ -297,11 +319,15 @@ namespace FireSafety
                 _optionButtons[i].GetComponent<Image>().color = new Color(0.14f, 0.24f, 0.42f);
             }
             _feedbackText.text = "";
-            _scoreText.text = DrillLocale.T("每题 20 秒，答对 " + RequiredCorrect + " 题（"
-                                            + Mathf.RoundToInt(passRatio * 100) + "%）即可进入演练",
-                                            "20 s per question, need " + RequiredCorrect + "/" + QuestionCount
-                                            + " (" + Mathf.RoundToInt(passRatio * 100) + "%) to pass",
-                                            "문제당 20초, " + RequiredCorrect + "/" + QuestionCount + " 정답 시 통과");
+            _scoreText.text = educationalOnly
+                ? DrillLocale.T("每题 20 秒；答对 " + RequiredCorrect + " 题（" + Mathf.RoundToInt(passRatio * 100) + "%）为教学达标，未达标也可继续进入演练",
+                                "20 s each; " + RequiredCorrect + "/" + QuestionCount + " (" + Mathf.RoundToInt(passRatio * 100) + "%) is the learning target — you may continue even below it",
+                                "문제당 20초, " + RequiredCorrect + "/" + QuestionCount + " (" + Mathf.RoundToInt(passRatio * 100) + "%)이 학습 목표이며 미달이어도 계속 진행할 수 있습니다")
+                : DrillLocale.T("每题 20 秒，答对 " + RequiredCorrect + " 题（"
+                                + Mathf.RoundToInt(passRatio * 100) + "%）即可进入演练",
+                                "20 s per question, need " + RequiredCorrect + "/" + QuestionCount
+                                + " (" + Mathf.RoundToInt(passRatio * 100) + "%) to pass",
+                                "문제당 20초, " + RequiredCorrect + "/" + QuestionCount + " 정답 시 통과");
             _questionStart = Time.unscaledTime;
             _answered = false;
             _nextAllowed = 0f;
@@ -348,50 +374,67 @@ namespace FireSafety
             Passed = _correct >= RequiredCorrect;
             Failed = !Passed;
 
-            _questionText.text = DrillLocale.T(
-                Passed ? "考核通过：" + _correct + " / " + QuestionCount + " 题，可以进入演练。"
-                       : "考核未通过：" + _correct + " / " + QuestionCount + " 题，需要答对 " + RequiredCorrect + " 题。",
-                Passed ? "Passed: " + _correct + "/" + QuestionCount + ". You may start the drill."
-                       : "Not passed: " + _correct + "/" + QuestionCount + ". Need " + RequiredCorrect + " correct.",
-                Passed ? "통과: " + _correct + "/" + QuestionCount + ". 훈련을 시작할 수 있습니다."
-                       : "미통과: " + _correct + "/" + QuestionCount + ". " + RequiredCorrect + "문제 정답이 필요합니다.");
+            string head = Passed
+                ? DrillLocale.T("教学达标：" + _correct + " / " + QuestionCount + " 题（≥" + Mathf.RoundToInt(passRatio * 100) + "%）",
+                                "Learning target met: " + _correct + "/" + QuestionCount + " (≥" + Mathf.RoundToInt(passRatio * 100) + "%)",
+                                "학습 목표 달성: " + _correct + "/" + QuestionCount + " (≥" + Mathf.RoundToInt(passRatio * 100) + "%)")
+                : DrillLocale.T("未达教学标的：" + _correct + " / " + QuestionCount + " 题（需 " + RequiredCorrect + " 题）",
+                                "Below the learning target: " + _correct + "/" + QuestionCount + " (" + RequiredCorrect + " needed)",
+                                "학습 목표 미달: " + _correct + "/" + QuestionCount + " (" + RequiredCorrect + "문제 필요)");
+            string tail = educationalOnly
+                ? DrillLocale.T("　本测验只属于事前教学，通过与否都不影响进入演练、也不是能否疏散的条件。",
+                                " This quiz is part of pre-drill training only: passing is not required to start the drill or to evacuate.",
+                                " 본 평가는 사전 교육일 뿐이며, 통과 여부는 훈련 시작이나 대피 조건이 아닙니다.")
+                : "";
+            _questionText.text = head + tail;
 
             for (int i = 0; i < 3; i++)
             {
+                _optionButtons[i].gameObject.SetActive(i < 2);
                 _optionButtons[i].interactable = true;
                 _optionButtons[i].GetComponent<Image>().color = new Color(0.14f, 0.24f, 0.42f);
+                _optionButtons[i].onClick.RemoveAllListeners();
             }
 
+            _optionButtons[0].onClick.AddListener(() => { Close(); _onPassed?.Invoke(); });
             if (Passed)
             {
                 _optionLabels[0].text = DrillLocale.T("进入演练", "START THE DRILL", "훈련 시작");
-                _optionLabels[1].text = ""; _optionLabels[2].text = "";
                 _optionButtons[1].gameObject.SetActive(false);
-                _optionButtons[2].gameObject.SetActive(false);
-                _optionButtons[0].onClick.RemoveAllListeners();
-                _optionButtons[0].onClick.AddListener(() => { Close(); _onPassed?.Invoke(); });
+            }
+            else if (educationalOnly)
+            {
+                _optionLabels[0].text = DrillLocale.T("继续进入演练（教学记录已保存）", "CONTINUE TO THE DRILL", "계속 훈련 시작");
+                _optionLabels[1].text = DrillLocale.T("重新答题", "RETAKE", "다시 응시");
+                _optionButtons[1].gameObject.SetActive(true);
+                _optionButtons[1].onClick.AddListener(Restart);
             }
             else
             {
                 _optionLabels[0].text = DrillLocale.T("重新答题", "RETAKE", "다시 응시");
-                _optionLabels[1].text = ""; _optionLabels[2].text = "";
-                _optionButtons[1].gameObject.SetActive(false);
-                _optionButtons[2].gameObject.SetActive(false);
                 _optionButtons[0].onClick.RemoveAllListeners();
                 _optionButtons[0].onClick.AddListener(Restart);
+                _optionButtons[1].gameObject.SetActive(false);
             }
 
             _feedbackText.text = "";
-            _scoreText.text = DrillLocale.T("通过率 " + Mathf.RoundToInt(passRatio * 100) + "%",
-                                            "Pass line " + Mathf.RoundToInt(passRatio * 100) + "%",
-                                            "통과 기준 " + Mathf.RoundToInt(passRatio * 100) + "%");
-            Debug.Log("[PreTraining] 考核结束 得分=" + _correct + "/" + QuestionCount + " 通过=" + Passed);
+            _scoreText.text = DrillLocale.T("教学记录：答对 " + _correct + " / " + QuestionCount,
+                                            "Learning record: " + _correct + "/" + QuestionCount + " correct",
+                                            "학습 기록: " + _correct + "/" + QuestionCount + " 정답");
+            Debug.Log("[PreTraining] 教学结束 得分=" + _correct + "/" + QuestionCount + " 达标=" + Passed
+                      + " 是否作为门槛=" + (!educationalOnly));
         }
 
         public void Restart()
         {
             _index = 0; _correct = 0; _answered = false; Passed = Failed = false;
-            for (int i = 0; i < 3; i++) _optionButtons[i].gameObject.SetActive(true);
+            for (int i = 0; i < 3; i++)
+            {
+                _optionButtons[i].gameObject.SetActive(true);
+                _optionButtons[i].onClick.RemoveAllListeners();
+                int idx = i;
+                _optionButtons[i].onClick.AddListener(() => Choose(idx));
+            }
             ShowQuestion();
         }
 

@@ -168,9 +168,13 @@ namespace FireSafety.EditorTools
             var pre = preGo.GetComponent<PreTrainingQuiz>() ?? preGo.AddComponent<PreTrainingQuiz>();
             pre.passRatio = 0.6f;
             pre.timePerQuestion = 20f;
-            pre.EnsureQuestions();
-            Debug.Log("[Setup] ✔ 事前教育：" + pre.questions.Count + " 题，通过线 "
-                      + UnityEngine.Mathf.RoundToInt(pre.questions.Count * pre.passRatio) + " 题（60%）");
+            pre.useBuiltInBanks = true;      // 第 42 轮：按情景用内置题库（0 电气 / 1 纸张 / 2 茶水间）
+            pre.educationalOnly = true;      // 只作教学记录，不作为进入演练或疏散的条件
+            pre.scenarioIndex = 0;
+            pre.EnsureQuestions(0);
+            Debug.Log("[Setup] ✔ 事前教育：" + pre.questions.Count + " 题，教学达标线 "
+                      + UnityEngine.Mathf.RoundToInt(pre.questions.Count * pre.passRatio) + " 题（60%），"
+                      + "不作为门槛；题库按情景分三套（电气 / 纸张 / 茶水间）");
 
             // 3) 三套情景的专属知识板（第 28 轮通用知识墙保持不动）
             var kbGo = GameObject.Find("ScenarioKnowledgeBoards") ?? new GameObject("ScenarioKnowledgeBoards");
@@ -193,15 +197,42 @@ namespace FireSafety.EditorTools
             dir.preTraining = pre;
             dir.assemblyPoint = new Vector3(10.40f, 0f, 1.35f);
             dir.assemblyRadius = 2.4f;
-            Debug.Log("[Setup] ✔ 流程编排：发现火灾 → 警示报告 → 判断 → 初期灭火 → 疏散 → 集合点报告");
+            dir.smokeDangerSeconds = 8f;
+            dir.maxExtinguishSeconds = 60f;
+            dir.stallSeconds = 14f;
+            dir.allowDirectEvacuation = true;
+            dir.directEvacuateDistance = 6f;
+            dir.directEvacuateExitDistance = 2.2f;
+            dir.stopAndEvacuateSeconds = 5f;
+            dir.unlockOnEvacuate = true;
+            var endGo = GameObject.Find("DrillEndPanel") ?? new GameObject("DrillEndPanel");
+            var end = endGo.GetComponent<DrillEndPanel>() ?? endGo.AddComponent<DrillEndPanel>();
+            end.panelScale = 0.00095f;
+            end.distanceFromCamera = 1.50f;
+            dir.endPanel = end;
+            Debug.Log("[Setup] ✔ 流程编排（第 42 轮）：发现火灾 → 警示报告 → 判断 → 初期灭火(可选) → 危险增加即疏散 → 集合点报告");
+            Debug.Log("[Setup] ✔ 结束状态面板：到达集合点并报告（" + endGo.name + "）");
 
-            // 6) 开始界面：先过事前教育
+            // 6) 开始界面：先上本情景的「事前教育」（教学环节，不是门槛）
             var start = UnityEngine.Object.FindFirstObjectByType<StartScreen>();
             if (start != null)
             {
                 start.requirePreTraining = true;
                 start.startAlarmOnBegin = true;
                 start.switchBgmToAlarm = true;
+                start.buttonLabel = "决策训练";
+                start.tutorialLabel = "操作流程训练";
+                start.tutorialTypeLabel = "程序性技能训练：火灾类型 → 操作练习 → 瞄准反馈 → 知识确认";
+                start.instructions =
+                    "两种训练模式，任选其一：\n" +
+                    "【决策训练】事前教育（本情景 10 题，60% 为教学达标，不作门槛）→ 发现火灾 → 警示与报告 → 优先疏散并判断是否可初期处置 →\n" +
+                    "符合条件才尝试灭火 → 危险增加或失败立即疏散 → 到达集合点并报告。\n" +
+                    "【操作流程训练】理解火灾类型 → 取瓶操作练习 → 瞄准与操作错误反馈 → 知识确认。";
+                start.instructionsEnglish =
+                    "Two training modes:\n" +
+                    "[Decision drill] Pre-training quiz (10 questions, 60% is the learning target, not a gate) → discover fire → alarm & report → evacuate first and judge whether an initial attack is possible → attack only if conditions are met → stop and evacuate when danger rises → report at the assembly point.\n" +
+                    "[Operation drill] Fire class & extinguisher choice → handling practice → aim & error feedback → knowledge check.";
+                Debug.Log("[Setup] ✔ 开始界面：决策训练 / 操作流程训练 两条入口");
             }
         }
 

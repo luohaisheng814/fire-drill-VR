@@ -20,36 +20,33 @@ namespace FireSafety
 
         [TextArea(6, 14)]
         public string instructions =
-            "游戏玩法说明（这里是文本框，内容可在 Inspector 中修改补充）：\n" +
-            "① 点击「开始演练」，火灾警报响起（背景音）；\n" +
-            "② 先观察四周，找到红色灭火器并拾取它；\n" +
-            "③ 拾取灭火器时会弹出 2~3 道灭火器常识问答，回答完毕后页面自动关闭；\n" +
-            "④ 转身对准后方火源，拔出保险销、喷射灭火，火焰熄灭即演练成功。";
+            "两种训练模式，任选其一：\n" +
+            "【决策训练】事前教育（本情景 10 题，60% 为教学达标，不作门槛）→ 发现火灾 → 警示与报告 → 优先疏散并判断是否可初期处置 →\n" +
+            "符合条件才尝试灭火 → 危险增加或失败立即疏散 → 到达集合点并报告。\n" +
+            "【操作流程训练】理解火灾类型 → 取瓶操作练习 → 瞄准与操作错误反馈 → 知识确认。";
 
-        public string buttonLabel = "开始演练";
+        public string buttonLabel = "决策训练";
 
         [Header("English / 英文")]
         public string titleEnglish = "Office Fire Safety Drill";
         [TextArea(6, 14)]
         public string instructionsEnglish =
-            "How to play:\n" +
-            "1. Click Start Drill. The fire alarm will sound.\n" +
-            "2. Find the extinguisher on the wall and pick it up.\n" +
-            "3. Answer the extinguisher quiz (3 of 5 correct to pass).\n" +
-            "4. Face the fire, pull the pin, squeeze the lever, and sweep at the base of the flame.";
-        public string buttonLabelEnglish = "START DRILL";
-        public string tutorialLabelEnglish = "Practice";
+            "Two training modes:\n" +
+            "[Decision drill] Pre-training quiz (10 questions, 60% is the learning target, not a gate) → discover fire → alarm & report → evacuate first and judge whether an initial attack is possible → attack only if conditions are met → stop and evacuate when danger rises → report at the assembly point.\n" +
+            "[Operation drill] Fire class & extinguisher choice → handling practice → aim & error feedback → knowledge check.";
+        public string buttonLabelEnglish = "DECISION DRILL";
+        public string tutorialLabelEnglish = "OPERATION DRILL";
         public string onboardingLabelEnglish = "Tutorial";
 
-        [Header("操作演练入口（原第一阶段：拿瓶→答题→拔销→压把→喷射）")]
-        [Tooltip("开始面板上的第三个按钮：进入可实操的操作演练")]
-        public string tutorialLabel = "操作演练";
+        [Header("操作流程训练入口（原第一阶段：拿瓶→答题→拔销→压把→喷射）")]
+        [Tooltip("开始面板上的第三个按钮：进入可实操的操作流程训练")]
+        public string tutorialLabel = "操作流程训练";
         public bool showTutorialButton = true;
 
-        [Header("操作演练教学类型标注")]
-        [Tooltip("标在「操作演练」按钮下方：本环节属于技能操作型情景教学（程序性技能训练）")]
-        public string tutorialTypeLabel = "技能操作型情景教学 · 程序性技能训练";
-        public string tutorialTypeLabelEnglish = "Procedural skill drill · skill-operation scenario";
+        [Header("操作流程训练的教学类型标注")]
+        [Tooltip("标在「操作流程训练」按钮下方：本环节属于技能操作型情景教学（程序性技能训练）")]
+        public string tutorialTypeLabel = "程序性技能训练：火灾类型 → 操作练习 → 瞄准反馈 → 知识确认";
+        public string tutorialTypeLabelEnglish = "Procedural skill drill: fire class → practice → aim feedback → knowledge check";
 
         [Header("位置与比例")]
         public Vector3 worldPosition = new Vector3(0f, 1.3f, 1.8f);
@@ -78,7 +75,7 @@ namespace FireSafety
         public bool switchBgmToAlarm = true;
         [Tooltip("警报响起时火焰从无到有点燃（缩放+灯光闪动动画）")]
         public bool igniteFiresOnBegin = true;
-        [Tooltip("第 41 轮：开始演练前先做 10 题事前教育（60% 通过）")]
+        [Tooltip("进入演练前先展示本情景的事前教育（第 42 轮：只作教学环节，不是门槛）")]
         public bool requirePreTraining = true;
 
         [Header("动画参数")]
@@ -519,8 +516,9 @@ namespace FireSafety
         }
 
         /// <summary>
-        /// 第 41 轮：正式开始前先过「事前教育」10 题（60% 通过）。
-        /// 通过后才真正点燃火、拉警报、进情景；未通过时面板自己给「重新答题」。
+        /// 第 42 轮：正式开始前先上「本情景的事前教育」10 题。
+        /// 只是教学环节：达到 60% 记为教学达标，未达标也可以点「继续进入演练」；
+        /// 测验不阻挡进入演练，也不是能否疏散的条件。
         /// </summary>
         void BeginWithPreTraining(int scenarioIndex)
         {
@@ -528,7 +526,8 @@ namespace FireSafety
             if (requirePreTraining && pre != null && !pre.Passed)
             {
                 Started = false;
-                pre.Open(transform, () => ActuallyStart(scenarioIndex));
+                SetVisible(false);                 // 上事前教育时先把开始界面收起来，别和题库面板叠在一起
+                pre.Open(transform, () => ActuallyStart(scenarioIndex), scenarioIndex);
                 return;
             }
             ActuallyStart(scenarioIndex);
