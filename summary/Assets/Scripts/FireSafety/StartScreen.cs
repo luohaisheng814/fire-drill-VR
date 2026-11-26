@@ -46,6 +46,11 @@ namespace FireSafety
         public string tutorialLabel = "操作演练";
         public bool showTutorialButton = true;
 
+        [Header("操作演练教学类型标注")]
+        [Tooltip("标在「操作演练」按钮下方：本环节属于技能操作型情景教学（程序性技能训练）")]
+        public string tutorialTypeLabel = "技能操作型情景教学 · 程序性技能训练";
+        public string tutorialTypeLabelEnglish = "Procedural skill drill · skill-operation scenario";
+
         [Header("位置与比例")]
         public Vector3 worldPosition = new Vector3(0f, 1.3f, 1.8f);
         public float canvasScale = 0.001f;
@@ -84,6 +89,9 @@ namespace FireSafety
 
         public bool Started { get; private set; }
 
+        /// <summary>「操作演练」按钮下方实际显示的教学类型标注（自检 / 探针读取）。</summary>
+        public string TutorialTypeText => _tutorialTypeText != null ? _tutorialTypeText.text : "";
+
         public static StartScreen Instance { get; private set; }
 
         Canvas _canvas;
@@ -93,6 +101,7 @@ namespace FireSafety
         Text _titleText;
         Text _instText;
         Text _startLabel;
+        Text _tutorialTypeText;
         Button _languageButton;
         Text _languageLabel;
         Transform _cam;
@@ -239,6 +248,9 @@ namespace FireSafety
                     DrillLocale.T(tutorialLabel, tutorialLabelEnglish), 30,
                     new Color(0.78f, 0.42f, 0.12f, 1f), 62f);
                 tutorialBtn.onClick.AddListener(OpenTutorial);
+                _tutorialTypeText = MakeText(panel.transform,
+                    DrillLocale.T(tutorialTypeLabel, tutorialTypeLabelEnglish), 20,
+                    new Color(0.76f, 0.86f, 1f), 34f);
             }
 
             // 引导页入口（온보딩）：分页教学

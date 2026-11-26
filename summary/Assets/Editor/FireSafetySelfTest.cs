@@ -934,6 +934,31 @@ namespace FireSafety.EditorTools
                         && (q3.questions[0].question.Contains("微波炉") || q3.questions[0].question.Contains("断电")));
                 }
 
+                // ---- 第39轮：灭火器与火源拉开到危险半径之外 ----
+                var paperFireHazard = GameObject.Find("PaperFire");
+                var pantryFireHazard = GameObject.Find("PantryFire");
+                var dangerVitals = UnityEngine.Object.FindObjectOfType<PlayerVitals>();
+                float danger = dangerVitals != null ? dangerVitals.fireDangerRadius : 1.55f;
+                if (ext02 != null && paperFireHazard != null)
+                {
+                    float d = Vector3.Distance(
+                        new Vector3(ext02.transform.position.x, 0f, ext02.transform.position.z),
+                        new Vector3(paperFireHazard.transform.position.x, 0f, paperFireHazard.transform.position.z));
+                    Check("第39轮：纸张灭火器距火源 > 危险半径 + 0.6 米（取瓶不再触发烧伤）",
+                        d > danger + 0.6f, "实际 " + d.ToString("F2") + " 米，危险半径 " + danger.ToString("F2"));
+                }
+                if (ext03 != null && pantryFireHazard != null)
+                {
+                    float d = Vector3.Distance(
+                        new Vector3(ext03.transform.position.x, 0f, ext03.transform.position.z),
+                        new Vector3(pantryFireHazard.transform.position.x, 0f, pantryFireHazard.transform.position.z));
+                    Check("第39轮：茶水间灭火器距火源 > 危险半径 + 0.6 米（取瓶不再触发烧伤）",
+                        d > danger + 0.6f, "实际 " + d.ToString("F2") + " 米，危险半径 " + danger.ToString("F2"));
+                }
+                Check("第39轮：茶水间东墙南段补窗（灭火器旁空白墙已封闭）",
+                    GameObject.Find("WindowWall_East_South") != null
+                    && GameObject.Find("Window_EastSouth") != null);
+
                 // ---- 第 2 阶段开关 ----
                 var flow = UnityEngine.Object.FindObjectOfType<StageTwoFlow>();
                 Check("第 2 阶段：不开浓烟（只要安全标识）", flow != null && !flow.useSmoke);
@@ -1159,12 +1184,16 @@ namespace FireSafety.EditorTools
             Check("第37轮：北/西/东窗洞原墙已停用并重建（无叠墙）",
                 GameObject.Find("WindowWall_North") != null
                 && GameObject.Find("WindowWall_West") != null
-                && GameObject.Find("WindowWall_East") != null);
+                && GameObject.Find("WindowWall_East_North") != null
+                && GameObject.Find("WindowWall_East_South") != null);
 
             // ---- 开始界面：三个入口 ----
             var start = UnityEngine.Object.FindObjectOfType<StartScreen>();
             Check("开始界面：显示「操作演练」入口",
                 start != null && start.showTutorialButton && start.tutorialLabel == "操作演练");
+            Check("开始界面：操作演练标注为「技能操作型情景教学」（程序性技能训练）",
+                start != null && start.tutorialTypeLabel.Contains("技能操作型情景教学")
+                && start.tutorialTypeLabel.Contains("程序性技能训练"));
             Check("开始界面：正式入口仍为「开始演练」",
                 start != null && start.buttonLabel == "开始演练");
         }
@@ -1185,24 +1214,23 @@ namespace FireSafety.EditorTools
 
             quiz.Open(ext.transform);
             InvokeMethod(quiz, "RefreshDistanceHint");   // 编辑模式不会跑 Update，手动刷新一次距离文案
-            Check("第37轮问答：距离提示行默认可见", quiz.DistanceHintVisible);
-            Check("第37轮问答：默认未关闭", !quiz.DistanceHintClosed);
-            Check("第37轮问答：距离文案含「距灭火器」与关闭提示（实际「"
-                  + quiz.DistanceText + "」）",
-                quiz.DistanceText.Contains("距灭火器") && quiz.DistanceText.Contains("关闭"));
+            Check("第39轮问答：答题时不显示距离提示行", !quiz.DistanceHintVisible);
+            Check("第39轮问答：默认标记为已关闭", quiz.DistanceHintClosed);
+            Check("第39轮问答：不再生成「距灭火器」文案（实际「" + quiz.DistanceText + "」）",
+                !quiz.DistanceText.Contains("距灭火器"));
 
             quiz.HideDistanceHint();
-            Check("第37轮问答：点 × 后距离行隐藏", !quiz.DistanceHintVisible);
-            Check("第37轮问答：点 × 后标记为已关闭", quiz.DistanceHintClosed);
-            Check("第37轮问答：关闭距离时抑制教练 Toast/HUD", coach.HintsSuppressed);
+            Check("第39轮问答：保持隐藏", !quiz.DistanceHintVisible);
+            Check("第39轮问答：仍标记为已关闭", quiz.DistanceHintClosed);
+            Check("第39轮问答：抑制教练 Toast/HUD，防止另一条距离提示冒出来", coach.HintsSuppressed);
             Check("第37轮问答：题目仍可作答（关闭距离不影响答题）",
                 quiz.IsOpen && quiz.QuestionCount == 5 && !quiz.Passed);
 
             quiz.Close();
             Check("第37轮问答：关闭面板后恢复教练提示", !coach.HintsSuppressed);
             quiz.Open(ext.transform);
-            Check("第37轮问答：重新打开面板，距离提示恢复显示",
-                quiz.DistanceHintVisible && !quiz.DistanceHintClosed);
+            Check("第39轮问答：重新打开面板仍不显示距离提示",
+                !quiz.DistanceHintVisible && quiz.DistanceHintClosed);
             quiz.Close();
             UnityEngine.Object.DestroyImmediate(root);
 
@@ -1678,9 +1706,9 @@ namespace FireSafety.EditorTools
                     flow.autoMoveSpareExtinguisher == true);
                 Check("场景：第 2 阶段题库组 = 3（安全出口情景）", flow.spareQuizSetIndex == 3);
                 {
-                    // 出口灭火器摆在门西北侧贴墙位（第 25 轮：不占门前过道）
-                    Vector3 authored = new Vector3(4.95f, 0f, 3.20f);
-                    Check("场景：出口灭火器落点参数＝门西北侧贴墙空位（x≈4.95 / z≈3.20），",
+                    // 出口灭火器摆在门北侧通道（第 39 轮：原贴墙位被书柜/办公桌夹成死角，玩家看不见）
+                    Vector3 authored = new Vector3(3.75f, 0f, 2.75f);
+                    Check("场景：出口灭火器落点参数＝门旁过道空位（x≈3.75 / z≈2.75），",
                         Mathf.Abs(flow.spareExtinguisherSpot.x - authored.x) < 0.3f
                         && Mathf.Abs(flow.spareExtinguisherSpot.z - authored.z) < 0.3f);
                     Check("场景：出口备用瓶落点在门旁 3 米内（第 2 阶段找得到）",

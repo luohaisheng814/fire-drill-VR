@@ -54,6 +54,8 @@ namespace FireSafety
         public bool teachOnWrong = true;
         [Tooltip("每道题作答后的停留秒数")]
         public float advanceDelay = 1.3f;
+        [Tooltip("答题时是否显示「距灭火器 ×× 米」提示行；第39轮按需求默认关闭，答题界面只留题目与选项")]
+        public bool showDistanceHint = false;
 
         [Header("事件")]
         public UnityEvent onPassed = new UnityEvent();
@@ -494,8 +496,9 @@ namespace FireSafety
             _ext = _anchor.GetComponentInParent<Extinguisher>();
             _coach = (_ext != null ? _ext.GetComponent<ExtinguisherCoach>() : null);
             if (_coach == null) _coach = GetComponentInParent<ExtinguisherCoach>();
-            _distanceClosed = false;
-            if (_distanceRow != null) _distanceRow.SetActive(true);
+            _distanceClosed = !showDistanceHint;
+            if (_distanceRow != null) _distanceRow.SetActive(showDistanceHint);
+            // 第39轮：答题时不再弹「距灭火器多远」。教练 Toast/HUD 仍要抑制，防止另一条距离提示从旁边冒出来。
             SetCoachSuppressed(true);
             DrillToast.HideNow();
             PlaceInFrontOfCamera();
@@ -526,7 +529,7 @@ namespace FireSafety
             IsOpen = false;
             _finished = false;
             _answered = false;
-            _distanceClosed = false;
+            _distanceClosed = !showDistanceHint;
             SetCoachSuppressed(false);
             SetPeripheralHud(true);
             if (_canvas != null) _canvas.gameObject.SetActive(false);
@@ -553,7 +556,7 @@ namespace FireSafety
 
         void RefreshDistanceHint()
         {
-            if (_distanceRow == null || _distanceText == null || _distanceClosed) return;
+            if (!showDistanceHint || _distanceRow == null || _distanceText == null || _distanceClosed) return;
             Camera cam = Camera.main;
             Transform bottle = _ext != null ? _ext.transform : _anchor;
             if (cam == null || bottle == null)
@@ -596,7 +599,8 @@ namespace FireSafety
             _advanceTimer = 0f;
             _finished = false;
             _closeTimer = 0f;
-            _distanceClosed = false;
+            _distanceClosed = !showDistanceHint;
+            if (_distanceRow != null) _distanceRow.SetActive(showDistanceHint);
             SetCoachSuppressed(false);
             if (_canvas != null) _canvas.gameObject.SetActive(false);
         }
@@ -699,6 +703,9 @@ namespace FireSafety
             var dct = _distanceCloseButton.GetComponentInChildren<Text>();
             if (dct != null) dct.alignment = TextAnchor.MiddleCenter;
             _distanceCloseButton.onClick.AddListener(HideDistanceHint);
+            // 第39轮：默认不显示距离行，面板构建完成时就收起，避免打开瞬间闪一下。
+            _distanceClosed = !showDistanceHint;
+            _distanceRow.SetActive(showDistanceHint);
 
             // 计时条
             var barBg = new GameObject("TimerBar", typeof(RectTransform), typeof(Image));

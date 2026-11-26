@@ -134,10 +134,8 @@ namespace FireSafety.EditorTools
             else if (_phase == 2)
             {
                 if (Time.realtimeSinceStartup - _phaseT < 0.8f) return;
-                Check("答题面板：距离提示行可见", _quiz.DistanceHintVisible);
-                Check("答题面板：距离文案实时计算而不是占位",
-                    _quiz.DistanceText.Contains("距灭火器") && !_quiz.DistanceText.Contains("—"),
-                    "实际「" + _quiz.DistanceText + "」");
+                Check("答题面板：第39轮默认不弹距离提示", !_quiz.DistanceHintVisible && _quiz.DistanceHintClosed);
+                Check("答题面板：不再生成「距灭火器」文案", !_quiz.DistanceText.Contains("距灭火器"));
                 Check("答题面板：打开时教练 Toast/HUD 已被抑制",
                     _ext.GetComponent<ExtinguisherCoach>().HintsSuppressed);
                 Shot("vr37_quiz_distance.png");
@@ -152,7 +150,7 @@ namespace FireSafety.EditorTools
             else if (_phase == 4)
             {
                 if (Time.realtimeSinceStartup - _phaseT < 0.5f) return;
-                Check("答题面板：点 × 后距离行消失", !_quiz.DistanceHintVisible && _quiz.DistanceHintClosed);
+                Check("答题面板：保持隐藏，不因重开/操作重新出现", !_quiz.DistanceHintVisible && _quiz.DistanceHintClosed);
                 Shot("vr37_quiz_distance_closed.png");
                 _quiz.Close();
                 _ending.Show(true);

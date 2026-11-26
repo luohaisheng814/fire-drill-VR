@@ -660,21 +660,51 @@ namespace FireSafety
 
         private void MoveSpareExtinguisherToLobby()
         {
-            if (spareExtinguisher != null && spareExtinguisher.grab != null && spareExtinguisher.grab.IsHeld)
-                return;
+            // 第39轮根因：茶水间情景 skipEvacuation=true，第一阶段的火一灭就会立刻 Begin→EnterStageThree；
+            // 此时 Extinguisher03 还在玩家手里（自动放下要等 0.9 秒），旧逻辑看到 spareExtinguisher 被手持
+            // 就直接 return，出口旁自然一台瓶都没有。现在改成：
+            //   1) 优先用 spareExtinguisher（空闲时）；
+            //   2) 它被手持时，改选现场另一台空闲瓶搬过去；
+            //   3) 实在没有空闲瓶，再强制放开 spareExtinguisher 并搬它，保证出口一定有瓶。
+            Extinguisher best = null;
+            bool spareHeld = spareExtinguisher != null
+                             && spareExtinguisher.grab != null
+                             && spareExtinguisher.grab.IsHeld;
 
-            Extinguisher best = spareExtinguisher;
-            if (best == null)
+            if (spareExtinguisher != null && !spareHeld)
+            {
+                best = spareExtinguisher;
+            }
+            else
             {
                 float bestDist = float.MaxValue;
                 foreach (var ext in FindObjectsOfType<Extinguisher>(true))
                 {
-                    if (ext == null || (ext.grab != null && ext.grab.IsHeld)) continue;
+                    if (ext == null || !ext.gameObject.activeInHierarchy) continue;
+                    if (ext.grab != null && ext.grab.IsHeld) continue;
                     float d = Vector3.Distance(ext.transform.position, spareExtinguisherSpot);
                     if (d < bestDist) { bestDist = d; best = ext; }
                 }
+
+                if (best == null && spareExtinguisher != null)
+                {
+                    // 三台瓶都在手上/异常状态：至少把出口专用瓶夺回来，不能让玩家走到门口无瓶可用。
+                    best = spareExtinguisher;
+                    if (best.grab != null && best.grab.IsHeld)
+                    {
+                        if (best.IsSpraying) best.StopSprayExternal();
+                        best.grab.ReleaseExternal();
+                        best.grab.ForceRelease();
+                        Debug.Log("[Stage2] 备用灭火器仍被手持，已强制放回并搬到出口：" + best.name);
+                    }
+                }
             }
-            if (best == null || (best.grab != null && best.grab.IsHeld)) return;
+
+            if (best == null)
+            {
+                Debug.LogError("[Stage2] 找不到可搬到出口的灭火器，第三阶段将无瓶可用。");
+                return;
+            }
 
             // 第 2 阶段用独立题库（默认 D 组：出口 / 疏散情景），必须在重置问答前切组
             if (best.quizPanel != null) best.quizPanel.questionSetIndex = spareQuizSetIndex;
@@ -697,13 +727,25 @@ namespace FireSafety
                     best.transform.position = target;
                 }
                 best.EnsureUprightStanding(true);   // 落位后再确认一次竖立 + 贴地
-                Debug.Log("[Stage2] 备用灭火器已搬到落点，问答已换成 B 组 5 题：" + best.name);
+
+                // 第 39 轮：落位后立刻冻住刚体。否则物理会在随后几帧把瓶子推倒，
+                // 玩家到出口看到的是「躺在地上的灭火器」，等同于「出口没有灭火器」。
+                var rb = best.GetComponent<Rigidbody>();
+                if (rb != null)
+                {
+                    rb.linearVelocity = Vector3.zero;
+                    rb.angularVelocity = Vector3.zero;
+                    rb.useGravity = false;
+                    rb.isKinematic = true;
+                }
+                Debug.Log("[Stage2] 备用灭火器已搬到落点（" + best.name + "），问答已换成 D 组 5 题："
+                          + "spareHeld=" + spareHeld + "，落点=" + spareExtinguisherSpot.ToString("F2"));
             }
             else
             {
                 // 不搬也要保证站得住：原地只纠正姿态，不碰位置
                 best.EnsureUprightStanding(false);
-                Debug.Log("[Stage2] 备用灭火器保持原地（不搬移），问答已换成 B 组 5 题：" + best.name);
+                Debug.Log("[Stage2] 备用灭火器保持原地（不搬移），问答已换成 D 组 5 题：" + best.name);
             }
 
             best.ResetQuizForStageTwo();   // 重新拾取都要再答一遍（默认 D 组疏散情景题）

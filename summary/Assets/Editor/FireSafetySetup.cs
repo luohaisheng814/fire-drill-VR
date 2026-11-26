@@ -698,7 +698,9 @@ namespace FireSafety.EditorTools
             var spare = GameObject.Find("Extinguisher03");
             if (spare != null) flow.spareExtinguisher = spare.GetComponent<Extinguisher>();
             flow.autoMoveSpareExtinguisher = false;
-            flow.spareExtinguisherSpot = new Vector3(4.95f, 0f, 3.20f);   // 第 25 轮：出口门西北侧贴墙（x=5.25 墙内侧），不再占门前的过道
+            // 第 39 轮：原落点 (4.95, 3.20) 卡在书柜与办公桌夹出的死角里，玩家视角几乎看不见；
+            // 前移到门北侧通道、贴东墙，出来即可看到，且距门前火 1.88 米（在 1.55 米危险半径外）。
+            flow.spareExtinguisherSpot = new Vector3(3.75f, 0f, 2.75f);
             flow.spareQuizSetIndex = 3;
 
             // 箭头能指到出口
@@ -1123,10 +1125,11 @@ namespace FireSafety.EditorTools
             // 灭火器一律「贴墙」摆放（第 25 轮）：靠近墙面、固定在自己的挂钩板上，
             // 不占走道中线 —— 玩家按就近原则取最近的那台。
             Vector3 ext01Pos = new Vector3(-0.20f, 0.16f, 3.42f);     // 第35轮 电气：北墙，距设备火 2.27 米
-            // 第37轮：纸张火迁到西侧档案工位 (-4.76,-1.80)，02 号瓶跟着贴西墙，
-            // 让「电气→北线、纸张→西/南线、茶水间→东线」三套情景各有自己的起点与路径。
-            Vector3 ext02Pos = new Vector3(-6.25f, 0.16f, -2.95f);    // 纸张：西墙，距南工位纸张火约 1.7 米
-            Vector3 ext03Pos = new Vector3(6.15f, 0.16f, -2.70f);     // 第35轮 茶水间：茶水台西侧立面，距小家电火 1.97 米（东/南侧被 stool_2 与 table 占满）
+            // 第39轮：02/03 号瓶原先距火源只有 1.69 / 1.97 米，玩家从火源一侧靠近取瓶时
+            // 会踩进 PlayerVitals.fireDangerRadius=1.55 米，触发「火焰烧伤 -1」。
+            // 现在各外推约 0.7 / 0.45 米，留出取瓶站位与 1.55 米危险半径之间的安全余量。
+            Vector3 ext02Pos = new Vector3(-6.25f, 0.16f, -2.05f);    // 纸张：西墙北段，距南工位纸张火约 2.55 米
+            Vector3 ext03Pos = new Vector3(6.15f, 0.16f, -3.33f);     // 茶水间：东墙南段新窗下方，距小家电火约 2.59 米，避开茶水桌与吧凳
 
             // ---------------- 出生点：每套情景 3 个候选（随机取一个，尽量避开上一次） ----------------
             var spawnRoot = GameObject.Find("DrillSpawnPoints");
@@ -1293,12 +1296,15 @@ namespace FireSafety.EditorTools
 
             float d12 = Vector3.Distance(new Vector3(ext01Pos.x, 0f, ext01Pos.z), new Vector3(ext02Pos.x, 0f, ext02Pos.z));
             float d23 = Vector3.Distance(new Vector3(ext02Pos.x, 0f, ext02Pos.z), new Vector3(ext03Pos.x, 0f, ext03Pos.z));
+            float dPaper = Vector3.Distance(new Vector3(paperFirePos.x, 0f, paperFirePos.z),
+                new Vector3(ext02Pos.x, 0f, ext02Pos.z));
+            float dPantry = Vector3.Distance(new Vector3(pantryFirePos.x, 0f, pantryFirePos.z),
+                new Vector3(ext03Pos.x, 0f, ext03Pos.z));
             Debug.Log("[Setup] ✔ 灭火器贴墙落位：01" + ext01Pos.ToString("F2") + "（北墙）/ 02" + ext02Pos.ToString("F2")
-                      + "（西墙·纸张）/ 03" + ext03Pos.ToString("F2") + "（茶水台西侧立面）"
+                      + "（西墙·纸张）/ 03" + ext03Pos.ToString("F2") + "（茶水间东墙南段新窗下）"
                       + "；01↔02=" + d12.ToString("F2") + " 米，02↔03=" + d23.ToString("F2") + " 米"
-                      + "；纸张火 " + paperFirePos.ToString("F2") + " → 02 号瓶 "
-                      + Vector3.Distance(new Vector3(paperFirePos.x, 0f, paperFirePos.z),
-                                          new Vector3(ext02Pos.x, 0f, ext02Pos.z)).ToString("F2") + " 米");
+                      + "；纸张火→02=" + dPaper.ToString("F2") + " 米，茶水间火→03=" + dPantry.ToString("F2")
+                      + " 米（危险半径 1.55 米，取瓶站位留余量）");
 
             // ---------------- 操作演练用的原地板火 ----------------
             if (template != null)
@@ -1425,7 +1431,7 @@ namespace FireSafety.EditorTools
                 // 三台灭火器现在铺开到房间各处，最近的一台离出口门也有 4.3 米；
                 // 第 2 阶段开始时把备用瓶搬到门旁空位，玩家到大厅就能顺手拿到。
                 flow.autoMoveSpareExtinguisher = true;
-                flow.spareExtinguisherSpot = new Vector3(4.95f, 0f, 3.20f);
+                flow.spareExtinguisherSpot = new Vector3(3.75f, 0f, 2.75f);   // 第 39 轮：从书柜死角前移到门北侧通道
                 // 第 3 阶段地面火：瞄准点抬到 0.85 米，2 米站位时喷嘴角约 10°，稳定落在 20° 锥内
                 flow.stageTwoAimHeight = 0.85f;
                 flow.stageThreeStandDistance = 2.00f;
@@ -1906,18 +1912,31 @@ namespace FireSafety.EditorTools
             // ---- 东窗：第25轮补的走廊东墙开洞，正对茶水间 ----
             var eastTarget = GameObject.Find("Wall_CorridorEast");
             MatRef eastRef = CaptureWall(eastTarget, wallMat);
-            BuildWallAroundOpening(root.transform, "WindowWall_East", eastRef.mat,
+            // 第39轮：东墙南段（z -4.00~-2.45）原本是一大片空白灰墙，灭火器 03 挪到这一段后
+            // 仍显得空。把南段单独重建，并在 z=-3.33 开第二扇窗（窗台 1.30 米，瓶在窗下 0.16 米），
+            // 既封住空白墙面，也给茶水间南侧补一块真实采光。
+            BuildWallAroundOpening(root.transform, "WindowWall_East_North", eastRef.mat,
                 Axis.X, xWall: 7.15f, zWall: 0f, thickness: 0.20f,
-                uMin: -4.00f, uMax: 0.10f, openMin: -1.90f, openMax: -0.55f,
+                uMin: -2.45f, uMax: 0.10f, openMin: -1.90f, openMax: -0.55f,
+                yMin: 0f, yMax: 3.0f, openBottom: 1.30f, openTop: 2.40f);
+            BuildWallAroundOpening(root.transform, "WindowWall_East_South", eastRef.mat,
+                Axis.X, xWall: 7.15f, zWall: 0f, thickness: 0.20f,
+                uMin: -4.00f, uMax: -2.45f, openMin: -3.68f, openMax: -2.98f,
                 yMin: 0f, yMax: 3.0f, openBottom: 1.30f, openTop: 2.40f);
             BuildWindowDressing(root.transform, "East", Axis.X, 7.15f, 0.20f,
                 uCenter: -1.20f, width: 1.35f, yCenter: 1.85f, height: 1.10f,
                 frameMat, glassMat, skyMat, inward: Vector3.left,
                 outdoorBackdrop: false, smokeSource: pantryFire,
                 smokePos: new Vector3(6.86f, 1.90f, -1.20f), smokeOut: Vector3.right);
+            BuildWindowDressing(root.transform, "EastSouth", Axis.X, 7.15f, 0.20f,
+                uCenter: -3.33f, width: 0.70f, yCenter: 1.85f, height: 1.10f,
+                frameMat, glassMat, skyMat, inward: Vector3.left,
+                outdoorBackdrop: false, smokeSource: null,
+                smokePos: new Vector3(6.86f, 1.90f, -3.33f), smokeOut: Vector3.right);
 
-            Debug.Log("[Setup] ✔ 窗户/采光：北(-3.65,z3.995)、西(x-6.755,z-4.60)、东(x7.15,z-1.20) 三处窗洞"
-                      + " + 窗框/玻璃/天光板 + 3 盏日光点光；窗口排烟分别绑电气/纸张/茶水间火源");
+            Debug.Log("[Setup] ✔ 窗户/采光：北(-3.65,z3.995)、西(x-6.755,z-4.60)、东(x7.15,z-1.20)"
+                      + " + 茶水间南侧补窗(x7.15,z-3.33，窗下放 03 号灭火器)"
+                      + " + 窗框/玻璃/天光板 + 4 盏日光点光；窗口排烟分别绑电气/纸张/茶水间火源");
         }
 
         enum Axis { X, Z }
@@ -2069,17 +2088,21 @@ namespace FireSafety.EditorTools
             light.range = 5.5f;
             light.shadows = LightShadows.None;
 
-            // 窗洞排烟：粒子从室内侧出发，沿窗外方向飘，火灭后 WindowSmoke 自动停
-            var smokeGo = new GameObject("WindowSmoke_" + tag);
-            smokeGo.transform.SetParent(root.transform, false);
-            smokeGo.transform.position = smokePos;
-            smokeGo.transform.rotation = Quaternion.LookRotation(smokeOut, Vector3.up);
-            var ps = smokeGo.AddComponent<ParticleSystem>();
-            ConfigureSmoke(ps, new Color(0.10f, 0.10f, 0.12f, 0.74f),
-                rate: 34f, speed: 0.24f, size: 2.05f, life: 4.8f, additive: false, radius: 0.52f);
-            var ws = smokeGo.AddComponent<WindowSmoke>();
-            ws.source = smokeSource;
-            ws.smoke = ps;
+            // 窗洞排烟：粒子从室内侧出发，沿窗外方向飘，火灭后 WindowSmoke 自动停。
+            // 第39轮：只有绑定火源的窗才建排烟；茶水间南侧补窗是采光窗，不再复制一套烟粒子。
+            if (smokeSource != null)
+            {
+                var smokeGo = new GameObject("WindowSmoke_" + tag);
+                smokeGo.transform.SetParent(root.transform, false);
+                smokeGo.transform.position = smokePos;
+                smokeGo.transform.rotation = Quaternion.LookRotation(smokeOut, Vector3.up);
+                var ps = smokeGo.AddComponent<ParticleSystem>();
+                ConfigureSmoke(ps, new Color(0.10f, 0.10f, 0.12f, 0.74f),
+                    rate: 34f, speed: 0.24f, size: 2.05f, life: 4.8f, additive: false, radius: 0.52f);
+                var ws = smokeGo.AddComponent<WindowSmoke>();
+                ws.source = smokeSource;
+                ws.smoke = ps;
+            }
 
             Debug.Log("[Setup] ✔ 窗户 " + tag + "：窗洞中心 " + new Vector3(
                 axis == Axis.X ? wallPlane : uCenter, yCenter,
