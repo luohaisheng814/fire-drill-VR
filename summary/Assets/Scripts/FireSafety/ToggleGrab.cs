@@ -53,6 +53,13 @@ namespace FireSafety
         /// <summary>第 35 轮：Grip 按下但离瓶身太远时广播「手到瓶的距离」，由 ExtinguisherCoach 转成提示。</summary>
         public event System.Action<float> GrabRejected;
 
+        [Header("距离提示（第 43 轮）")]
+        [Tooltip("只有手在这个距离内按下 Grip 才会提示「还差 X 米」；站得再远就不弹提示")]
+        public float rejectHintMaxHandDistance = 3.0f;
+        [Tooltip("同一次按下/抖动导致的最短提示间隔（秒），避免按住手柄时刷屏")]
+        public float rejectHintCooldown = 1.2f;
+        float _lastRejectHintAt = -10f;
+
         [Header("限制")]
         [Tooltip("勾选后放下即锁定，不能再抓（保险销拔出后可防止被塞回）")]
         public bool lockAfterRelease = false;
@@ -104,15 +111,17 @@ namespace FireSafety
             {
                 if (h == null || h.attachPoint == null || h.grabAction == null) continue;
 
-                bool pressed = h.grabAction.action.IsPressed();
-                bool justPressed = pressed && !h.prevPressed;
-                h.prevPressed = pressed;
+                // 第 43 轮：按下判定改用 Input System 的 WasPressedThisFrame()。
+                // 原来自己维护 prevPressed，在模拟量 Grip 有阈值抖动时会一帧 true 一帧 false，
+                // 于是每帧都被当成「刚按下」，离瓶很远也反复广播 GrabRejected，
+                // 玩家看到的就是「没点灭火器也一直提示距离」。
+                bool justPressed = h.grabAction.action.WasPressedThisFrame();
                 if (!justPressed) continue;
 
                 if (!IsHeld)
                 {
                     if (!_locked && InRange(h)) Grab(h);
-                    else if (!InRange(h)) GrabRejected?.Invoke(Vector3.Distance(h.attachPoint.position, rangePivot.position));
+                    else if (!InRange(h)) ReportGrabRejected(h);
                 }
                 else if (_holding == h)
                 {
@@ -129,6 +138,21 @@ namespace FireSafety
         {
             if (!rangePivot) rangePivot = transform;
             return Vector3.Distance(h.attachPoint.position, rangePivot.position) <= grabRange;
+        }
+
+        /// <summary>
+        /// 第 43 轮：「距离灭火器还有多远」只在玩家真的按 Grip 去抓、且手离瓶不太远时才提示，
+        /// 并且同一只手 1.2 秒内只提示一次 —— 不再出现「没碰灭火器也一直提醒」。
+        /// </summary>
+        void ReportGrabRejected(HandBinding h)
+        {
+            if (!rangePivot) rangePivot = transform;
+            if (h == null || h.attachPoint == null) return;
+            float handDistance = Vector3.Distance(h.attachPoint.position, rangePivot.position);
+            if (handDistance > grabRange + rejectHintMaxHandDistance) return;   // 站得太远：不提示，避免刷屏
+            if (Time.unscaledTime - _lastRejectHintAt < rejectHintCooldown) return;
+            _lastRejectHintAt = Time.unscaledTime;
+            GrabRejected?.Invoke(handDistance);
         }
 
         private void Grab(HandBinding h)

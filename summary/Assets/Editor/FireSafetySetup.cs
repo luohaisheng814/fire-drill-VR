@@ -2160,8 +2160,8 @@ namespace FireSafety.EditorTools
         /// 第37轮：三面采光窗。把三处墙面改成「窗洞 + 窗框 + 玻璃 + 窗外天光板」，
         /// 并在窗洞内侧加日光点光源；每个窗再绑一个 WindowSmoke，只有对应火源燃烧时才向外排烟。
         ///   · 北窗 x=-3.65（电气设备上方）
-        ///   · 西窗 z=-1.20（纸张档案工位旁）
         ///   · 东窗 z=-1.20（茶水间旁，利用第25轮补的走廊东墙开洞）
+        /// 第43轮：西窗（纸张火正背后）按玩家反馈改回整块实墙，只剩北/东两扇窗。
         /// </summary>
         static void SetupWindowOpenings(FireSource deviceFire, FireSource paperFire, FireSource pantryFire)
         {
@@ -2192,20 +2192,20 @@ namespace FireSafety.EditorTools
                 uCenter: -3.65f, width: 1.30f, yCenter: 1.85f, height: 1.10f,
                 frameMat, glassMat, skyMat, inward: Vector3.back,
                 outdoorBackdrop: true, smokeSource: deviceFire,
-                smokePos: new Vector3(-3.65f, 1.90f, 3.58f), smokeOut: Vector3.forward);
+                // 第 43 轮：排烟起点移到墙外表面之外（原 3.58 落在窗内侧 0.4 米处，
+                // 大颗粒一直贴着玻璃跳动，玩家看到的就是「窗户一闪一闪」）。
+                smokePos: new Vector3(-3.65f, 1.90f, 4.32f), smokeOut: Vector3.forward);
 
-            // ---- 西窗：开在 z -6~-4 这段西墙，窗中心 z=-4.60，正对南工位纸张火 ----
+            // ---- 西墙：第 43 轮按需求改回「实墙」 ----
+            // 纸张起火点 (-5.71, 1.06, -4.54) 正好贴着这面西墙，原来是开的窗洞（z -5.15~-4.05），
+            // 玩家站到桌前看纸张火时，火背后就是一块灰蓝天光，很容易被当成「墙上缺了一块」。
+            // 现在把 z -6~-4 段整块补满（0.39 米厚，与原墙同材质），窗构件（窗框/玻璃/天光板/
+            // 采光点光/窗内排烟）一并去掉，纸张火背后的墙面完整连续。
             var westTarget = GameObject.Find("wall_standard_wood_alt_1 (4)");
             MatRef westRef = CaptureWall(westTarget, wallMat);
-            BuildWallAroundOpening(root.transform, "WindowWall_West", westRef.mat,
+            BuildSolidWall(root.transform, "WindowWall_West_Solid", westRef.mat,
                 Axis.X, xWall: -6.755f, zWall: 0f, thickness: 0.39f,
-                uMin: -6.0f, uMax: -4.0f, openMin: -5.15f, openMax: -4.05f,
-                yMin: 0f, yMax: 3.0f, openBottom: 1.30f, openTop: 2.40f);
-            BuildWindowDressing(root.transform, "West", Axis.X, -6.755f, 0.39f,
-                uCenter: -4.60f, width: 1.10f, yCenter: 1.85f, height: 1.10f,
-                frameMat, glassMat, skyMat, inward: Vector3.right,
-                outdoorBackdrop: true, smokeSource: paperFire,
-                smokePos: new Vector3(-6.38f, 1.90f, -4.60f), smokeOut: Vector3.left);
+                uMin: -6.0f, uMax: -4.0f, yMin: 0f, yMax: 3.0f);
 
             // ---- 东窗：第25轮补的走廊东墙开洞，正对茶水间 ----
             var eastTarget = GameObject.Find("Wall_CorridorEast");
@@ -2225,16 +2225,18 @@ namespace FireSafety.EditorTools
                 uCenter: -1.20f, width: 1.35f, yCenter: 1.85f, height: 1.10f,
                 frameMat, glassMat, skyMat, inward: Vector3.left,
                 outdoorBackdrop: false, smokeSource: pantryFire,
-                smokePos: new Vector3(6.86f, 1.90f, -1.20f), smokeOut: Vector3.right);
+                // 第 43 轮：同北窗，排烟起点挪到东墙外表面之外（原 6.86 在窗内侧）。
+                smokePos: new Vector3(7.42f, 1.90f, -1.20f), smokeOut: Vector3.right);
             BuildWindowDressing(root.transform, "EastSouth", Axis.X, 7.15f, 0.20f,
                 uCenter: -3.33f, width: 0.70f, yCenter: 1.85f, height: 1.10f,
                 frameMat, glassMat, skyMat, inward: Vector3.left,
                 outdoorBackdrop: false, smokeSource: null,
                 smokePos: new Vector3(6.86f, 1.90f, -3.33f), smokeOut: Vector3.right);
 
-            Debug.Log("[Setup] ✔ 窗户/采光：北(-3.65,z3.995)、西(x-6.755,z-4.60)、东(x7.15,z-1.20)"
+            Debug.Log("[Setup] ✔ 窗户/采光：北(-3.65,z3.995)、东(x7.15,z-1.20)"
                       + " + 茶水间南侧补窗(x7.15,z-3.33，窗下放 03 号灭火器)"
-                      + " + 窗框/玻璃/天光板 + 4 盏日光点光；窗口排烟分别绑电气/纸张/茶水间火源");
+                      + " + 窗框/玻璃/天光板 + 3 盏日光点光；窗口排烟绑电气/茶水间火源"
+                      + "；第43轮西窗(x-6.755,z-4.60)已整面封成实墙（纸张火背后不再有窗洞）");
         }
 
         enum Axis { X, Z }
@@ -2251,6 +2253,17 @@ namespace FireSafety.EditorTools
                 target.SetActive(false);   // 原墙整块停用，由下面的四块墙板重建
             }
             return new MatRef { mat = mat };
+        }
+
+        /// <summary>把一段墙面整块补成实心（第 43 轮：西墙纸张火一侧不再开窗）。</summary>
+        static void BuildSolidWall(Transform parent, string name, Material mat, Axis axis,
+            float xWall, float zWall, float thickness, float uMin, float uMax, float yMin, float yMax)
+        {
+            var root = new GameObject(name);
+            root.transform.SetParent(parent, false);
+            AddWindowWallBox(root.transform, "Panel", axis, xWall, zWall,
+                new Vector2((uMin + uMax) * 0.5f, (yMin + yMax) * 0.5f),
+                new Vector2(uMax - uMin, yMax - yMin), thickness, mat);
         }
 
         /// <summary>把一面墙拆成「洞口四周」四块：下、上、左、右。洞口保持真正通空。</summary>
@@ -2397,8 +2410,11 @@ namespace FireSafety.EditorTools
                 var ps = smokeGo.AddComponent<ParticleSystem>();
                 // 第 40 轮：窗外排烟原来是 34/秒、0.24 米/秒 的慢喷，几乎看不出来。
                 // 现在加大发射量、初速与粒子尺寸，形成一条明显往窗外抽出去的烟柱。
-                ConfigureSmoke(ps, new Color(0.10f, 0.10f, 0.12f, 0.74f),
-                    rate: 64f, speed: 1.15f, size: 2.75f, life: 6.0f, additive: false, radius: 0.62f);
+                // 第 43 轮：粒子尺寸 2.75 米、64/秒 会让窗面明暗剧烈跳动（玩家反馈「窗户闪烁」），
+                // 改成 1.65 米、36/秒、更淡的 alpha，并把起点放在墙外（见上游 smokePos），
+                // 窗洞里只剩一条慢速上升的淡烟柱，不再忽明忽暗。
+                ConfigureSmoke(ps, new Color(0.16f, 0.16f, 0.18f, 0.52f),
+                    rate: 36f, speed: 1.05f, size: 1.65f, life: 5.0f, additive: false, radius: 0.55f);
                 var ws = smokeGo.AddComponent<WindowSmoke>();
                 ws.source = smokeSource;
                 ws.smoke = ps;
@@ -2415,17 +2431,21 @@ namespace FireSafety.EditorTools
                 if (feed == null) feed = feedGo.AddComponent<SmokeZone>();
                 ClearSmokeEmitters(feed.transform);
 
-                Vector3 inA = new Vector3(smokePos.x, 1.50f, smokePos.z) - smokeOut * 3.20f;
-                Vector3 inB = new Vector3(smokePos.x, 1.50f, smokePos.z) - smokeOut * 0.35f;
+                // 第 43 轮：原来 inA→inB 一直铺到墙内 0.35 米、发射高度正好压在窗洞下沿（y 1.15~1.85），
+                // 大量半透明粒子在窗洞正前方流动，玩家看到的就是「窗户一直闪」。
+                // 现在把烟带压到窗洞以下、并且停在离墙 1.6 米处，窗前不再有流动烟层，
+                // 窗面只剩玻璃 + 窗外天光，烟柱统一由墙外的 WindowSmoke 表现。
+                Vector3 inA = new Vector3(smokePos.x, 1.02f, smokePos.z) - smokeOut * 3.20f;
+                Vector3 inB = new Vector3(smokePos.x, 1.02f, smokePos.z) - smokeOut * 1.60f;
                 feed.start = inA;
                 feed.end = inB;
                 feed.emitterCount = 5;
-                feed.floorClearance = 1.05f;
-                feed.particleSize = 1.45f;
-                feed.ratePerSecond = 18f;
-                feed.lifetime = 7f;
-                feed.emitterShape = new Vector3(2.6f, 0.70f, 1.2f);
-                feed.alphaScale = 1.30f;
+                feed.floorClearance = 0.60f;
+                feed.particleSize = 1.20f;
+                feed.ratePerSecond = 14f;
+                feed.lifetime = 6f;
+                feed.emitterShape = new Vector3(2.4f, 0.55f, 1.0f);
+                feed.alphaScale = 0.95f;
                 feed.particleCap = 260;
                 feed.sizeGrowth = 1.5f;
                 feed.smokeColor = new Color(0.34f, 0.35f, 0.38f, 0.60f);
@@ -2497,7 +2517,9 @@ namespace FireSafety.EditorTools
             if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.88f);
             mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
             mat.EnableKeyword("_ALPHAPREMULTIPLY_ON");
-            mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+            // 第 43 轮：玻璃固定排在排烟粒子（queue 3000）之前，避免两者同队列时
+            // 每帧按距离重排、窗面忽明忽暗（第 43 轮玩家反馈的「窗户闪烁」主因之一）。
+            mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent - 10;
             EditorUtility.SetDirty(mat);
             return mat;
         }

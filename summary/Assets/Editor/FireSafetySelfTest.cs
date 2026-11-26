@@ -976,7 +976,7 @@ namespace FireSafety.EditorTools
                     paperZoneComp != null ? ("发射点 " + paperZoneComp.emitterCount
                         + "，alpha×" + paperZoneComp.alphaScale.ToString("F2")
                         + "，每秒 " + paperZoneComp.ratePerSecond.ToString("F0")) : "null");
-                foreach (var tag in new[] { "West", "North", "East" })
+                foreach (var tag in new[] { "North", "East" })
                 {
                     var feedGo = GameObject.Find("WindowFeed_" + tag);
                     var feedComp = feedGo != null ? feedGo.GetComponent<SmokeZone>() : null;
@@ -1227,8 +1227,9 @@ namespace FireSafety.EditorTools
             Check("第37轮：窗户根节点 OfficeWindows 已装配", windowsRoot != null);
             var windowSmokes = windowsRoot != null
                 ? windowsRoot.GetComponentsInChildren<WindowSmoke>(true) : new WindowSmoke[0];
-            Check("第37轮：三个窗洞各挂一个 WindowSmoke（实际 " + windowSmokes.Length + "）",
-                windowSmokes.Length == 3);
+            // 第 43 轮：西墙（纸张火正背后）按要求改回实墙，采光/排烟窗只剩北、东两扇。
+            Check("第43轮：窗洞只剩北/东两扇（实际 " + windowSmokes.Length + " 个 WindowSmoke）",
+                windowSmokes.Length == 2);
             int boundNorth = 0, boundPaper = 0, boundPantry = 0;
             bool allSmokeReady = true;
             foreach (var ws in windowSmokes)
@@ -1239,14 +1240,46 @@ namespace FireSafety.EditorTools
                 else if (sc.scenarios.Length >= 3 && ws.source == sc.scenarios[2].fire) boundPantry++;
                 if (ws.smoke == null || ws.GetComponent<ParticleSystem>() == null) allSmokeReady = false;
             }
-            Check("第37轮：三个窗烟粒子均已配置", allSmokeReady);
-            Check("第37轮：北窗→电气 / 西窗→纸张 / 东窗→茶水间 一一绑定",
-                boundNorth == 1 && boundPaper == 1 && boundPantry == 1);
-            Check("第37轮：北/西/东窗洞原墙已停用并重建（无叠墙）",
+            Check("第37轮：两个窗烟粒子均已配置", allSmokeReady);
+            Check("第43轮：北窗→电气 / 东窗→茶水间 一一绑定（西窗已封墙）",
+                boundNorth == 1 && boundPantry == 1 && boundPaper == 0,
+                "北=" + boundNorth + " 纸=" + boundPaper + " 茶=" + boundPantry);
+            Check("第43轮：北/东窗洞原墙已停用并重建（无叠墙）",
                 GameObject.Find("WindowWall_North") != null
-                && GameObject.Find("WindowWall_West") != null
                 && GameObject.Find("WindowWall_East_North") != null
                 && GameObject.Find("WindowWall_East_South") != null);
+
+            // ---- 第 43 轮：纸张火背后补墙 / 窗烟起点在墙外 / 玻璃渲染队列 ----
+            var westSolid = GameObject.Find("WindowWall_West_Solid");
+            var westSolidR = westSolid != null ? westSolid.GetComponentInChildren<Renderer>() : null;
+            Check("第43轮：纸张火背后西墙已补成整块实墙（z -6~-4，0~3 米）",
+                westSolid != null && westSolidR != null
+                && westSolidR.bounds.min.z <= -5.95f && westSolidR.bounds.max.z >= -4.05f
+                && westSolidR.bounds.min.y <= 0.05f && westSolidR.bounds.max.y >= 2.95f,
+                westSolidR != null
+                    ? string.Format("z[{0:F2},{1:F2}] y[{2:F2},{3:F2}]",
+                        westSolidR.bounds.min.z, westSolidR.bounds.max.z,
+                        westSolidR.bounds.min.y, westSolidR.bounds.max.y) : "null");
+            Check("第43轮：西窗构件已随补墙移除（不再有 Window_West / WindowWall_West）",
+                GameObject.Find("Window_West") == null && GameObject.Find("WindowWall_West") == null
+                && GameObject.Find("WindowFeed_West") == null);
+            // 从室内正对纸张火打一条射线，必须命中墙面（不能穿到墙外）
+            bool westHit = Physics.Raycast(new Vector3(-5.30f, 1.85f, -4.60f), Vector3.left,
+                1.6f, ~0, QueryTriggerInteraction.Ignore);
+            Check("第43轮：纸张火后方射线命中墙面（不再有洞口）", westHit);
+
+            var northSmoke = GameObject.Find("WindowSmoke_North");
+            var eastSmoke = GameObject.Find("WindowSmoke_East");
+            Check("第43轮：北窗排烟起点已在墙外表面之外（z > 4.19）",
+                northSmoke != null && northSmoke.transform.position.z > 4.19f,
+                northSmoke != null ? northSmoke.transform.position.ToString("F2") : "null");
+            Check("第43轮：东窗排烟起点已在墙外表面之外（x > 7.25）",
+                eastSmoke != null && eastSmoke.transform.position.x > 7.25f,
+                eastSmoke != null ? eastSmoke.transform.position.ToString("F2") : "null");
+            var glassMat = AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/WindowGlassMat.mat");
+            Check("第43轮：窗玻璃渲染队列固定在排烟粒子之前（< 3000）",
+                glassMat != null && glassMat.renderQueue < 3000,
+                glassMat != null ? glassMat.renderQueue.ToString() : "null");
 
             // ---- 开始界面：三个入口 ----
             var start = UnityEngine.Object.FindObjectOfType<StartScreen>();
@@ -1257,6 +1290,16 @@ namespace FireSafety.EditorTools
                 && start.tutorialTypeLabel.Contains("知识确认"));
             Check("开始界面：正式入口为「决策训练」",
                 start != null && start.buttonLabel.Contains("决策"));
+
+            // 第 43 轮：开始界面右上角的中英切换按钮已删除，只剩语言选择页一个入口。
+            bool hasLanguageButton = false;
+            if (start != null)
+                foreach (var b in start.GetComponentsInChildren<Button>(true))
+                    if (b != null && b.gameObject.name.Contains("Btn_Language")) hasLanguageButton = true;
+            Check("第43轮：开始界面不再有「中英切换」按钮（Btn_Language 已移除）",
+                !hasLanguageButton && GameObject.Find("Btn_Language") == null);
+            Check("第43轮：切换语言方法仍保留（语言页/探针可重建界面）",
+                typeof(StartScreen).GetMethod("ToggleLanguage") != null);
         }
 
         // ------------------------------------------------------------
@@ -1294,6 +1337,18 @@ namespace FireSafety.EditorTools
                 !quiz.DistanceHintVisible && quiz.DistanceHintClosed);
             quiz.Close();
             UnityEngine.Object.DestroyImmediate(root);
+
+            // 第 43 轮：距离提示只在玩家按 Grip 去抓、且手离瓶身不太远时才出现
+            var grabGo = new GameObject("TEST_R43_Grab");
+            var grab = grabGo.AddComponent<ToggleGrab>();
+            Check("第43轮：抓取拒绝提示有 ≥1 秒冷却（不会每帧刷屏）",
+                grab.rejectHintCooldown >= 1.0f, grab.rejectHintCooldown.ToString("F2") + "s");
+            Check("第43轮：手离瓶身超过 3.3 米就不再提示距离",
+                grab.rejectHintMaxHandDistance <= 3.0f, grab.rejectHintMaxHandDistance.ToString("F2") + "m");
+            Check("第43轮：距离提示统一走 ReportGrabRejected（带范围与冷却判定）",
+                typeof(ToggleGrab).GetMethod("ReportGrabRejected",
+                    BindingFlags.NonPublic | BindingFlags.Instance) != null);
+            UnityEngine.Object.DestroyImmediate(grabGo);
 
             // 结束页：「关闭」收成右下角入口，「重新演练」才切场景
             var endGo = new GameObject("TEST_R37_Ending");

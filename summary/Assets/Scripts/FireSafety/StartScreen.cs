@@ -258,54 +258,10 @@ namespace FireSafety
                 new Color(0.2f, 0.34f, 0.62f, 1f), 62f);
             onboardBtn.onClick.AddListener(OpenOnboarding);
 
-            BuildLanguageButton(go.transform);
-        }
-
-        /// <summary>第 35 轮：开始界面右上角的中英文切换按钮（绝对定位，不参与竖排）。</summary>
-        void BuildLanguageButton(Transform canvasRoot)
-        {
-            _languageButton = MakeAbsoluteButton(canvasRoot, DrillLocale.SwitchButtonLabel, 26,
-                new Color(0.12f, 0.36f, 0.48f, 0.96f), new Vector2(148f, 54f));
-            var rt = _languageButton.GetComponent<RectTransform>();
-            rt.anchorMin = rt.anchorMax = new Vector2(1f, 1f);
-            rt.pivot = new Vector2(1f, 1f);
-            rt.anchoredPosition = new Vector2(-18f, -18f);
-            _languageLabel = _languageButton.GetComponentInChildren<Text>();
-            _languageButton.onClick.AddListener(ToggleLanguage);
-            _languageButton.gameObject.SetActive(!Started);
-        }
-
-        Button MakeAbsoluteButton(Transform parent, string label, int size, Color bg, Vector2 sizeDelta)
-        {
-            var b = new GameObject("Btn_Language", typeof(RectTransform), typeof(Image), typeof(Button));
-            b.transform.SetParent(parent, false);
-            var img = b.GetComponent<Image>();
-            img.color = bg;
-            img.raycastTarget = true;
-            var btn = b.GetComponent<Button>();
-            btn.targetGraphic = img;
-            var brt = b.GetComponent<RectTransform>();
-            brt.sizeDelta = sizeDelta;
-
-            var labelGo = new GameObject("Label", typeof(RectTransform), typeof(Text));
-            labelGo.transform.SetParent(b.transform, false);
-            var t = labelGo.GetComponent<Text>();
-            t.text = label;
-            t.fontSize = size;
-            t.fontStyle = FontStyle.Bold;
-            t.color = Color.white;
-            t.font = UIFont.Resolve();
-            if (t.font != null) t.material = t.font.material;
-            t.alignment = TextAnchor.MiddleCenter;
-            t.raycastTarget = false;
-            var lrt = labelGo.GetComponent<RectTransform>();
-            lrt.anchorMin = Vector2.zero;
-            lrt.anchorMax = Vector2.one;
-            lrt.offsetMin = Vector2.zero;
-            lrt.offsetMax = Vector2.zero;
-            var feedback = b.AddComponent<ButtonFeedback>();
-            feedback.Init(bg);
-            return btn;
+            // 第 43 轮：删掉开始界面右上角的「中英文切换」按钮。
+            // 语言选择已前置到 LanguageSelectScreen，开始界面上不再需要第二个切换入口，
+            // 否则两处入口语义重复，且按钮压在标题行右侧容易误触。
+            // ToggleLanguage() 仍保留为公开方法（语言页与探针按需重建界面用）。
         }
 
         public void ToggleLanguage()
