@@ -1023,7 +1023,16 @@ namespace FireSafety.EditorTools
 
                 // ---- 第 2 阶段开关 ----
                 var flow = UnityEngine.Object.FindObjectOfType<StageTwoFlow>();
-                Check("第 2 阶段：不开浓烟（只要安全标识）", flow != null && !flow.useSmoke);
+                // 第 45 轮：过道要起浓烟（13 个发射点、每秒 34 个、粒子放大、浓度 1.15）
+                var corridorSmoke = flow != null && flow.smoke != null ? flow.smoke : UnityEngine.Object.FindObjectOfType<SmokeZone>();
+                Check("第 2 阶段：过道起浓烟（useSmoke=true）", flow != null && flow.useSmoke);
+                Check("第 2 阶段：过道烟浓度（发射点 ≥13 / 每秒 ≥34 / 浓度 ≥1.15）",
+                    corridorSmoke != null && corridorSmoke.emitterCount >= 13
+                    && corridorSmoke.ratePerSecond >= 34f && corridorSmoke.alphaScale >= 1.15f,
+                    corridorSmoke != null
+                        ? ("发射点 " + corridorSmoke.emitterCount + "，每秒 " + corridorSmoke.ratePerSecond.ToString("F0")
+                           + "，浓度 " + corridorSmoke.alphaScale.ToString("F2") + "，粒子 " + corridorSmoke.particleSize.ToString("F2") + " 米")
+                        : "null");
                 Check("第 2 阶段：不强制蹲姿", flow != null && !flow.requireCrouch);
                 Check("第 2 阶段：备用灭火器题库组 = 3（D 组）", flow != null && flow.spareQuizSetIndex == 3);
                 Check("第 2 阶段：灭火器指向 Extinguisher03",
@@ -1283,6 +1292,36 @@ namespace FireSafety.EditorTools
             Check("第43轮：窗玻璃渲染队列固定在排烟粒子之前（< 3000）",
                 glassMat != null && glassMat.renderQueue < 3000,
                 glassMat != null ? glassMat.renderQueue.ToString() : "null");
+            // ---- 第 45 轮：北窗「一直闪」的两个真因一起封住 ----
+            // ① 玻璃原来是 smoothness 0.88 的强高光面 → 日光点光在窗面打出小白斑，头一动就跳；
+            // ② 设备情景烟雾区一直铺到窗前 0.4 米 → 半透明粒子贴玻璃、透明排序逐帧重排。
+            Check("第45轮：窗玻璃已改哑光低反射（smoothness ≤0.15、镜面高光/环境反射关）",
+                glassMat != null && glassMat.HasProperty("_Smoothness")
+                && glassMat.GetFloat("_Smoothness") <= 0.15f
+                && glassMat.IsKeywordEnabled("_SPECULARHIGHLIGHTS_OFF")
+                && glassMat.IsKeywordEnabled("_ENVIRONMENTREFLECTIONS_OFF"),
+                glassMat != null && glassMat.HasProperty("_Smoothness")
+                    ? ("smoothness=" + glassMat.GetFloat("_Smoothness").ToString("F2")) : "null");
+            var stage1Go = GameObject.Find("Stage1Smoke");
+            var stage1Zone = stage1Go != null ? stage1Go.GetComponent<SmokeZone>() : null;
+            bool stage1ClearOfWindow = false;
+            string stage1Detail = "null";
+            if (stage1Zone != null)
+            {
+                float smMinX = Mathf.Min(stage1Zone.start.x, stage1Zone.end.x) - stage1Zone.emitterShape.x * 0.5f;
+                float smMaxZ = Mathf.Max(stage1Zone.start.z, stage1Zone.end.z) + stage1Zone.emitterShape.z * 0.5f;
+                stage1ClearOfWindow = smMinX >= -3.0f && smMaxZ <= 3.60f;
+                stage1Detail = string.Format("x 最左 {0:F2}、z 最远 {1:F2}（窗洞 x −4.30~−3.00 / z 3.995）",
+                    smMinX, smMaxZ);
+            }
+            Check("第45轮：设备区烟雾不再铺到北窗窗前（x 最左 ≥ −3.00、z 最远 ≤ 3.60）",
+                stage1ClearOfWindow, stage1Detail);
+            Check("第45轮：设备区烟雾加浓（发射点 ≥12 / 每秒 ≥34 / 浓度 ≥1.25）",
+                stage1Zone != null && stage1Zone.emitterCount >= 12
+                && stage1Zone.ratePerSecond >= 34f && stage1Zone.alphaScale >= 1.25f,
+                stage1Zone != null
+                    ? ("发射点 " + stage1Zone.emitterCount + "，每秒 " + stage1Zone.ratePerSecond.ToString("F0")
+                       + "，浓度 " + stage1Zone.alphaScale.ToString("F2")) : "null");
 
             // ---- 第 44 轮：纸张起火点背后的墙补齐到天花板 ----
             var paperPatch = GameObject.Find("PaperWall_BackUpper");
@@ -2648,6 +2687,28 @@ namespace FireSafety.EditorTools
                     if (string.IsNullOrEmpty(q.qEn) || string.IsNullOrEmpty(q.qKo)) allHave = false;
                 }
                 Check("第41轮：10 题都有中英韩与三选项", allHave);
+            }
+
+            // 第 45 轮：每题的 A/B/C 选项顺序都要随机（同一道题再进来时位置也不能固定）
+            {
+                var perms = new System.Collections.Generic.HashSet<string>();
+                var correctAt = new int[3];
+                int[] last = null;
+                bool repeated = false;
+                for (int i = 0; i < 300; i++)
+                {
+                    int[] p = PreTrainingQuiz.RollPermutation(last);
+                    perms.Add(p[0].ToString() + p[1] + p[2]);
+                    if (last != null && p[0] == last[0] && p[1] == last[1] && p[2] == last[2]) repeated = true;
+                    for (int k = 0; k < 3; k++) if (p[k] == 0) correctAt[k]++;
+                    last = p;
+                }
+                Check("第45轮：选项随机覆盖全部 6 种排列（实际 " + perms.Count + " 种）", perms.Count == 6);
+                Check("第45轮：连续两次排列不会完全相同", !repeated);
+                Check("第45轮：正确答案落在 A/B/C 的次数均衡（" + correctAt[0] + "/" + correctAt[1] + "/" + correctAt[2] + "）",
+                    correctAt[0] >= 70 && correctAt[0] <= 130
+                    && correctAt[1] >= 70 && correctAt[1] <= 130
+                    && correctAt[2] >= 70 && correctAt[2] <= 130);
             }
 
             // 4) 情景专属知识板

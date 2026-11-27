@@ -813,14 +813,23 @@ namespace FireSafety.EditorTools
             // 烟雾区：灭火房间 → 新出口门（door_b_variant，x≈5.25）之间的通道
             var smokeGo = GameObject.Find("SmokeZone") ?? new GameObject("SmokeZone");
             var smoke = smokeGo.GetComponent<SmokeZone>() ?? smokeGo.AddComponent<SmokeZone>();
-            smoke.emitterCount = 7;
+            // 第 45 轮：第二阶段过道要求「更浓」。发射点 7→13、每秒 20→34 个、粒子 1.05→1.28 米，
+            // 浓度系数 1.15，让玩家沿走廊走的时候视野里能明显感觉到烟在变浓。
+            // 旧发射点（Smoke_1..7）会随场景一起被保存下来，重装时必须先清掉，
+            // 否则运行时 Build 会再叠一层，变成 20 多个发射点。
+            for (int i = smokeGo.transform.childCount - 1; i >= 0; i--)
+                UnityEngine.Object.DestroyImmediate(smokeGo.transform.GetChild(i).gameObject);
+            smoke.emitterCount = 13;
             // 雾层抬高到 1.6 米：浓雾罩住视线高度，但雾底离地 1.15 米，
             // 地面上的「安全出口」箭头不会被粒子糊住
             smoke.start = new Vector3(-1.50f, 1.60f, 0.60f);
             smoke.end = new Vector3(4.30f, 1.60f, 1.10f);
             smoke.floorClearance = 1.15f;
-            smoke.particleSize = 1.05f;
-            smoke.ratePerSecond = 20f;
+            // 粒子仍控制在 ≤1.2 米（再大就会糊成大块白斑），浓度靠发射点/发射率/alpha 提升
+            smoke.particleSize = 1.18f;
+            smoke.ratePerSecond = 34f;
+            smoke.alphaScale = 1.15f;
+            smoke.particleCap = 380;
 
             // 安全出口门：复用场景里另一扇真实门 door_b_variant
             // （门板中心 x≈5.25 / z≈1.02，门在 x≈5.25 的墙面上朝 -X 房间侧开）
@@ -886,8 +895,9 @@ namespace FireSafety.EditorTools
             flow.crouchHeight = 1.15f;
             flow.lobbyEnterDistance = 1.2f;
             flow.exitEnterDistance = 0.9f;
-            // 新流程第 2 阶段：只保留安全标识 + 出口火情，不开浓烟、不强制蹲姿
-            flow.useSmoke = false;
+            // 第 45 轮：第 2 阶段过道要真的起烟（浓一点），但仍不强制蹲姿 —— 玩家可以正常走过去，
+            // 只在站立暴露一段时间后给出口鼻防护提示（StageTwoFlow 内部逻辑，不阻挡推进）
+            flow.useSmoke = true;
             flow.requireCrouch = false;
             // 复燃火源放在安全出口门正前方 0.75 米（按门的本地坐标解释，门朝哪边就落在哪边）
             flow.stageTwoFireOffset = new Vector3(0f, 0.25f, 0.75f);
@@ -920,7 +930,7 @@ namespace FireSafety.EditorTools
             var ending = UnityEngine.Object.FindObjectOfType<EndingScreen>();
             if (ending != null) ending.exitDoor = door;
 
-            Debug.Log("[Setup] ✔ 第二阶段流程：StageTwoFlow + SmokeZone（7 个烟雾发射点）+ ExitDoor（复用 door_b_variant 真实门，解锁后门扇转开）");
+            Debug.Log("[Setup] ✔ 第二阶段流程：StageTwoFlow + SmokeZone（13 个烟雾发射点、每秒 34 个、浓度 1.15）+ ExitDoor（复用 door_b_variant 真实门，解锁后门扇转开）");
         }
 
         // ================================================================
@@ -1441,22 +1451,27 @@ namespace FireSafety.EditorTools
             // ---------------- 正式第 1 阶段独立烟雾区 ----------------
             // 第 40 轮：原来 5 个点、1.0 米粒子、18/秒，玩家基本感觉不到"有烟"。
             // 现在铺满设备区 → 大厅走廊的一段，粒子放大、发射率提高、透明度加倍。
+            // 第 45 轮：烟区原来一直铺到 (-1.55, 1.55, 3.55)，形状盒 x 半宽 1.6 米，
+            // 粒子会飘到北窗（窗洞 x −4.30~−3.00、z 3.995、y 1.30~2.40）正前方 0.4 米处，
+            // 一层层半透明粒子贴着玻璃，透明排序逐帧重排 → 这就是"电源总闸旁窗户一直闪"的真凶。
+            // 现在把烟区整体往室内收（x 最左 −2.95、z 最深 3.10），并把漂移改为朝房间内，
+            // 窗前 0.6 米内不再有粒子；浓度也顺势提高（发射点 9→12、每秒 26→34、浓度 1.10→1.25）。
             var s1Go = GameObject.Find("Stage1Smoke");
             if (s1Go == null) s1Go = new GameObject("Stage1Smoke");
             var s1 = s1Go.GetComponent<SmokeZone>();
             if (s1 == null) s1 = s1Go.AddComponent<SmokeZone>();
-            s1.emitterCount = 9;
+            s1.emitterCount = 12;
             ClearSmokeEmitters(s1.transform);
-            s1.start = new Vector3(-2.95f, 1.55f, 1.05f);
-            s1.end = new Vector3(-1.55f, 1.55f, 3.55f);
+            s1.start = new Vector3(-2.40f, 1.55f, 1.05f);
+            s1.end = new Vector3(-1.40f, 1.55f, 3.10f);
             s1.floorClearance = 1.00f;
-            s1.particleSize = 1.45f;
-            s1.ratePerSecond = 26f;
-            s1.emitterShape = new Vector3(3.2f, 0.55f, 1.0f);
-            s1.alphaScale = 1.10f;
-            s1.particleCap = 320;
+            s1.particleSize = 1.55f;
+            s1.ratePerSecond = 34f;
+            s1.emitterShape = new Vector3(1.10f, 0.55f, 0.90f);   // x 半宽 1.1 → 最左 −2.95，避开窗前
+            s1.alphaScale = 1.25f;
+            s1.particleCap = 380;
             s1.sizeGrowth = 1.55f;
-            s1.driftPerSecond = new Vector3(0.18f, 0.05f, 0.10f);
+            s1.driftPerSecond = new Vector3(0.10f, 0.05f, -0.16f); // 朝房间内漂，不往北窗积
 
             // ---------------- 情景二 / 三的起火点（克隆 BaseFire000，不继承模板的进度与事件） ----------------
             var paperFire = EnsureScenarioFire("PaperFire", paperFirePos, template, 0.26f,
@@ -1498,13 +1513,13 @@ namespace FireSafety.EditorTools
             if (lobbySmoke == null) lobbySmoke = lobbyGo.AddComponent<SmokeZone>();
             lobbySmoke.start = new Vector3(-1.20f, 1.62f, 0.10f);
             lobbySmoke.end = new Vector3(6.20f, 1.62f, -2.20f);
-            lobbySmoke.emitterCount = 12;
+            lobbySmoke.emitterCount = 14;
             lobbySmoke.floorClearance = 1.10f;
             lobbySmoke.particleSize = 2.30f;
-            lobbySmoke.ratePerSecond = 32f;
+            lobbySmoke.ratePerSecond = 38f;
             lobbySmoke.lifetime = 9f;
             lobbySmoke.emitterShape = new Vector3(3.6f, 1.05f, 1.6f);
-            lobbySmoke.alphaScale = 1.90f;
+            lobbySmoke.alphaScale = 2.00f;
             lobbySmoke.particleCap = 420;
             lobbySmoke.sizeGrowth = 1.7f;
             lobbySmoke.smokeColor = new Color(0.58f, 0.60f, 0.63f, 0.55f);
@@ -1687,7 +1702,7 @@ namespace FireSafety.EditorTools
             if (flow != null)
             {
                 flow.hud = sc.hud;
-                flow.useSmoke = false;
+                flow.useSmoke = true;   // 第 45 轮：过道浓烟
                 flow.requireCrouch = false;
                 flow.spareQuizSetIndex = 3;
                 if (ext03 != null) flow.spareExtinguisher = ext03.GetComponent<Extinguisher>();
@@ -2574,8 +2589,19 @@ namespace FireSafety.EditorTools
             if (mat.HasProperty("_SrcBlend")) mat.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
             if (mat.HasProperty("_DstBlend")) mat.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
             if (mat.HasProperty("_ZWrite")) mat.SetFloat("_ZWrite", 0f);
-            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", new Color(0.72f, 0.86f, 0.95f, 0.20f));
-            if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.88f);
+            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", new Color(0.72f, 0.86f, 0.95f, 0.16f));
+            // 第 45 轮：窗户反复被反馈「闪」（第 4 次）。玻璃原来是 smoothness 0.88 的强高光面，
+            // 室内日光点光在玻璃上打出一个很小很亮的白斑，玩家头部轻微一动（VR 里必然有）
+            // 高光斑就在窗面上跳；再叠加窗前的半透明烟雾粒子，透明排序逐帧重排 → 看上去就是闪。
+            // 现在把玻璃改成哑光低反射（smoothness 0.08、关掉镜面高光与环境反射），
+            // 窗面只剩一层均匀的淡蓝，光斑与逐帧重排都不再出现。
+            if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.08f);
+            if (mat.HasProperty("_Metallic")) mat.SetFloat("_Metallic", 0f);
+            if (mat.HasProperty("_SpecularHighlights")) mat.SetFloat("_SpecularHighlights", 0f);
+            if (mat.HasProperty("_EnvironmentReflections")) mat.SetFloat("_EnvironmentReflections", 0f);
+            mat.EnableKeyword("_SPECULARHIGHLIGHTS_OFF");
+            mat.EnableKeyword("_ENVIRONMENTREFLECTIONS_OFF");
+            if (mat.HasProperty("_Glossiness")) mat.SetFloat("_Glossiness", 0.08f);
             mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
             mat.EnableKeyword("_ALPHAPREMULTIPLY_ON");
             // 第 43 轮：玻璃固定排在排烟粒子（queue 3000）之前，避免两者同队列时

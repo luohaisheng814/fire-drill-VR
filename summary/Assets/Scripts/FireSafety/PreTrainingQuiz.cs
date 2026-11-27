@@ -70,6 +70,22 @@ namespace FireSafety
         bool _answered;
         Action _onPassed;
 
+        // 第 45 轮：每次显示题目都把 A/B/C 三个选项重新随机排序（答案位置不再固定在原题库里）。
+        // _perm[按钮序号] = 原题库里的选项下标。
+        int[] _perm = new int[] { 0, 1, 2 };
+        int[] _lastPerm;
+
+        /// <summary>当前这一题的选项排列（按钮 A/B/C 依次对应的题库下标），供自检/探针核对。</summary>
+        public int[] CurrentPermutation => _perm;
+        /// <summary>正确答案此刻落在哪个按钮上（0=A / 1=B / 2=C）。</summary>
+        public int ButtonIndexOfCorrect()
+        {
+            var q = QuestionCount > 0 ? questions[Mathf.Clamp(_index, 0, QuestionCount - 1)] : null;
+            if (q == null) return 0;
+            for (int i = 0; i < 3; i++) if (_perm[i] == q.correctIndex) return i;
+            return 0;
+        }
+
         public bool IsOpen { get; private set; }
         public bool Passed { get; private set; }
         public bool Failed { get; private set; }
@@ -311,9 +327,13 @@ namespace FireSafety
 
             string[] opts = DrillLocale.Korean ? q.optionsKo
                             : DrillLocale.English ? q.optionsEn : q.optionsCn;
+
+            // 第 45 轮：每题重新洗一次选项顺序，同样的题在不同时间进来选项位置也不同
+            ShuffleOptionOrder();
             for (int i = 0; i < 3; i++)
             {
-                string label = (char)('A' + i) + ". " + (opts != null && i < opts.Length ? opts[i] : "");
+                int src = _perm[i];
+                string label = (char)('A' + i) + ". " + (opts != null && src < opts.Length ? opts[src] : "");
                 _optionLabels[i].text = label;
                 _optionButtons[i].interactable = true;
                 _optionButtons[i].GetComponent<Image>().color = new Color(0.14f, 0.24f, 0.42f);
@@ -333,6 +353,31 @@ namespace FireSafety
             _nextAllowed = 0f;
         }
 
+        /// <summary>Fisher-Yates 洗 0/1/2：保证每次 A/B/C 里正确项的位置都可能不同。</summary>
+        void ShuffleOptionOrder()
+        {
+            _perm = RollPermutation(_lastPerm);
+            _lastPerm = _perm;
+        }
+
+        /// <summary>生成一个 0/1/2 的随机排列（纯函数，便于自检直接统计分布）。</summary>
+        public static int[] RollPermutation(int[] last)
+        {
+            int[] p = new int[] { 0, 1, 2 };
+            for (int i = 2; i > 0; i--)
+            {
+                int j = UnityEngine.Random.Range(0, i + 1);
+                int t = p[i]; p[i] = p[j]; p[j] = t;
+            }
+            // 极小概率会和上一次完全相同；再换一次，避免玩家看到「同一个答案位置连续出现」
+            if (last != null && last.Length == 3
+                && p[0] == last[0] && p[1] == last[1] && p[2] == last[2])
+            {
+                int t = p[1]; p[1] = p[2]; p[2] = t;
+            }
+            return p;
+        }
+
         public void AnswerOption(int index) => Choose(index);
 
         void Choose(int index)
@@ -342,11 +387,13 @@ namespace FireSafety
             _answered = true;
 
             var q = questions[_index];
-            bool ok = index == q.correctIndex;
+            bool ok = index >= 0 && index < 3 && _perm[index] == q.correctIndex;
             if (ok) _correct++;
 
-            _optionButtons[q.correctIndex].GetComponent<Image>().color = new Color(0.16f, 0.52f, 0.28f);
-            if (!ok) _optionButtons[index].GetComponent<Image>().color = new Color(0.62f, 0.18f, 0.16f);
+            int correctBtn = ButtonIndexOfCorrect();
+            _optionButtons[correctBtn].GetComponent<Image>().color = new Color(0.16f, 0.52f, 0.28f);
+            if (!ok && index >= 0 && index < 3)
+                _optionButtons[index].GetComponent<Image>().color = new Color(0.62f, 0.18f, 0.16f);
             for (int i = 0; i < 3; i++) _optionButtons[i].interactable = false;
 
             _feedbackText.color = ok ? new Color(0.62f, 1f, 0.72f) : new Color(1f, 0.78f, 0.62f);
