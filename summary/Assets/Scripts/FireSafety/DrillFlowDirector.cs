@@ -154,6 +154,8 @@ namespace FireSafety
             if (fireAlarm == null) fireAlarm = FindObjectOfType<FireAlarm>();
             if (preTraining == null) preTraining = FindObjectOfType<PreTrainingQuiz>();
             if (endPanel == null) endPanel = FindObjectOfType<DrillEndPanel>();
+            // 第 47 轮：身份提前到场景加载时就定下来，这样事前教学（Pre-briefing）的 5 题才能按身份出
+            if (!RoleAssigned) AssignRoleForRun();
         }
 
         void OnDestroy() { if (Instance == this) Instance = null; }

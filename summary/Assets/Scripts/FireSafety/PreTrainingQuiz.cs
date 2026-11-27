@@ -104,15 +104,28 @@ namespace FireSafety
 
         // ---------------- 题库 ----------------
 
+        /// <summary>第 47 轮：身份题库用哪个身份（优先取场上 DrillFlowDirector 的随机身份）。</summary>
+        [Header("身份题库（第 47 轮）")]
+        [Tooltip("取不到 DrillFlowDirector 时的回退身份")]
+        public DrillFlowDirector.DrillRole role = DrillFlowDirector.DrillRole.Employee;
+
+        public DrillFlowDirector.DrillRole EffectiveRole => DrillFlowDirector.Instance != null
+            ? DrillFlowDirector.Instance.AssignedRole : role;
+
+        public string RoleLabel => DrillLocale.T(RoleCn, RoleEn, RoleKo);
+        public string RoleCn => EffectiveRole == DrillFlowDirector.DrillRole.ResponseLead ? "火灾初期应对负责人" : "普通员工";
+        public string RoleEn => EffectiveRole == DrillFlowDirector.DrillRole.ResponseLead ? "initial response lead" : "general employee";
+        public string RoleKo => EffectiveRole == DrillFlowDirector.DrillRole.ResponseLead ? "초기 대응 책임자" : "일반 직원";
+
         public void EnsureQuestions() { EnsureQuestions(scenarioIndex); }
 
-        /// <summary>第 42 轮：按情景加载题库（0 电气 / 1 纸张 / 2 茶水间）。</summary>
+        /// <summary>第 47 轮：按情景 + 身份组 5 题（4 道通用/情景 + 1 道角色题）。</summary>
         public void EnsureQuestions(int index)
         {
             if (useBuiltInBanks)
             {
                 int idx = Mathf.Clamp(index, 0, PreTrainingBanks.Count - 1);
-                questions = PreTrainingBanks.For(idx);
+                questions = PreTrainingBanks.ForRole(idx, EffectiveRole);
                 _bankIndex = idx;
                 return;
             }
@@ -257,7 +270,7 @@ namespace FireSafety
             EnsureQuestions(scenarioIndex);
             Build();
             ShowQuestion();
-            Debug.Log("[PreTraining] 事前教育开始（" + PreTrainingBanks.Name(_bankIndex) + "）："
+            Debug.Log("[PreTraining] 事前教育开始（" + PreTrainingBanks.Name(_bankIndex) + " · " + RoleCn + "）："
                       + QuestionCount + " 题，教学达标线 " + RequiredCorrect + " 题（不作为门槛）");
         }
 
@@ -320,7 +333,8 @@ namespace FireSafety
         {
             var q = questions[Mathf.Clamp(_index, 0, questions.Count - 1)];
             _titleText.text = DrillLocale.T("事前教育 · ", "Pre-drill training · ", "사전 교육 · ")
-                            + PreTrainingBanks.Name(_bankIndex);
+                            + PreTrainingBanks.Name(_bankIndex)
+                            + " · " + RoleLabel;
             _progressText.text = DrillLocale.T("第 ", "Question ", "문제 ")
                                + (_index + 1) + " / " + QuestionCount;
             _questionText.text = DrillLocale.T(q.qCn, q.qEn, q.qKo);
@@ -335,14 +349,23 @@ namespace FireSafety
                 int src = _perm[i];
                 string label = (char)('A' + i) + ". " + (opts != null && src < opts.Length ? opts[src] : "");
                 _optionLabels[i].text = label;
+                // 上一轮结束页会隐藏部分按钮（达标时只留「进入演练」），重新开一套题时必须恢复三个选项
+                _optionButtons[i].gameObject.SetActive(true);
                 _optionButtons[i].interactable = true;
                 _optionButtons[i].GetComponent<Image>().color = new Color(0.14f, 0.24f, 0.42f);
             }
             _feedbackText.text = "";
             // 第 46 轮：把课程要求的四项教学内容直接写在面板底部（职责 / 报警装置 / 出口与集合点 / 灭火器类型与用法）
+            // 第 47 轮：本套固定 5 题 = 4 道通用（报警 / 出口集合 / 灭火器 / 情景）+ 1 道身份题，面板上标清楚是哪套
             string topics = DrillLocale.T("本阶段覆盖：① 职责　② 报警装置　③ 出口与集合点　④ 灭火器类型与用法\n",
                                           "This stage covers: 1 roles  2 alarm devices  3 exits & assembly point  4 extinguisher types and use\n",
-                                          "이 단계 내용: ① 역할  ② 경보 장치  ③ 출구·집결지  ④ 소화기 종류와 사용법\n");
+                                          "이 단계 내용: ① 역할  ② 경보 장치  ③ 출구·집결지  ④ 소화기 종류와 사용법\n")
+                          + DrillLocale.T("本次身份：" + RoleLabel + "｜本套 " + QuestionCount + " 题 = 通用 4 题 + "
+                                          + (EffectiveRole == DrillFlowDirector.DrillRole.ResponseLead ? "负责人判断" : "员工职责") + " 1 题\n",
+                                          "Role: " + RoleEn + " | " + QuestionCount + " questions = 4 shared + 1 role-specific ("
+                                          + (EffectiveRole == DrillFlowDirector.DrillRole.ResponseLead ? "lead decision" : "employee duty") + ")\n",
+                                          "이번 역할: " + RoleKo + " | " + QuestionCount + "문항 = 공통 4 + 역할 "
+                                          + (EffectiveRole == DrillFlowDirector.DrillRole.ResponseLead ? "판단" : "임무") + " 1\n");
             _scoreText.text = topics + (educationalOnly
                 ? DrillLocale.T("每题 20 秒；答对 " + RequiredCorrect + " 题（" + Mathf.RoundToInt(passRatio * 100) + "%）为教学达标，未达标也可继续进入演练",
                                 "20 s each; " + RequiredCorrect + "/" + QuestionCount + " (" + Mathf.RoundToInt(passRatio * 100) + "%) is the learning target — you may continue even below it",
@@ -447,7 +470,7 @@ namespace FireSafety
                 _optionButtons[i].onClick.RemoveAllListeners();
             }
 
-            _optionButtons[0].onClick.AddListener(() => { Close(); _onPassed?.Invoke(); });
+            _optionButtons[0].onClick.AddListener(ConfirmAndContinue);
             if (Passed)
             {
                 _optionLabels[0].text = DrillLocale.T("进入演练", "START THE DRILL", "훈련 시작");
@@ -474,6 +497,13 @@ namespace FireSafety
                                             "학습 기록: " + _correct + "/" + QuestionCount + " 정답");
             Debug.Log("[PreTraining] 教学结束 得分=" + _correct + "/" + QuestionCount + " 达标=" + Passed
                       + " 是否作为门槛=" + (!educationalOnly));
+        }
+
+        /// <summary>结束页「进入演练 / 继续进入演练」：关闭面板并回调开始演练。</summary>
+        public void ConfirmAndContinue()
+        {
+            Close();
+            _onPassed?.Invoke();
         }
 
         public void Restart()

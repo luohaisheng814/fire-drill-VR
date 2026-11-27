@@ -3,9 +3,9 @@ using System.Collections.Generic;
 namespace FireSafety
 {
     /// <summary>
-    /// 第 42 轮：事前教育题库（按情景分三套，10 题 / 60% 通过，只作教学记录，不作为进入演练或疏散的条件）。
-    /// 每套 = 公共 7 题（职责 / 报警装置 / 出口与集合点 / 灭火器类型与用法 / 初期处置判断 / 浓烟姿态 / 集合点报告）
-    ///      + 本情景 3 题（电气 / 纸张 / 茶水间各自的知识点）。
+    /// 第 42 轮：事前教育题库池（按情景分三套，每套 10 题：公共 7 + 本情景 3）。
+    /// 第 47 轮：实际上课时由 ForRole() 组 5 题 —— 报警装置 / 出口与集合点 / 灭火器类型与用法 / 本情景知识点 共 4 道通用题，
+    /// 再按身份追加 1 道角色题（普通员工：无初期处置权限；初期应对负责人：四项条件全满足才可尝试）。
     /// 情景顺序与 DrillScenario 一致：0 = 电气设备起火，1 = 办公桌纸张起火，2 = 茶水间小家电起火。
     /// </summary>
     public static class PreTrainingBanks
@@ -48,6 +48,71 @@ namespace FireSafety
                 default: list.AddRange(Electrical()); break;
             }
             return list;
+        }
+
+        // ---------------- 第 47 轮：按身份组卷（每套 5 题） ----------------
+        // 结构：报警装置（公共）+ 出口与集合点（公共）+ 灭火器类型与用法（公共）+ 本情景知识点 + 角色专属题。
+        // 普通员工与初期应对负责人只差最后一题，其余 4 题完全相同 → 「有一点区分，但通用灭火常识必须都在」。
+
+        static List<PreTrainingQuiz.Question> Specific(int index)
+        {
+            var list = new List<PreTrainingQuiz.Question>();
+            switch (index)
+            {
+                case 0: list.AddRange(Electrical()); break;
+                case 1: list.AddRange(Paper()); break;
+                case 2: list.AddRange(Pantry()); break;
+                default: list.AddRange(Electrical()); break;
+            }
+            return list;
+        }
+
+        /// <summary>按身份取 5 题：4 道通用/情景 + 1 道角色题。</summary>
+        public static List<PreTrainingQuiz.Question> ForRole(int index, DrillFlowDirector.DrillRole role)
+        {
+            var common = new List<PreTrainingQuiz.Question>(Common());
+            var spec = Specific(index);
+            var list = new List<PreTrainingQuiz.Question>
+            {
+                common[1],                                  // ② 报警装置
+                common[2],                                  // ③ 出口与集合点
+                common[3],                                  // ④ 灭火器类型与用法
+                spec.Count > 0 ? spec[0] : common[4],        // 本情景知识点
+                role == DrillFlowDirector.DrillRole.ResponseLead ? RoleLead() : RoleEmployee()
+            };
+            return list;
+        }
+
+        /// <summary>角色题（普通员工）：没有初期处置权限，条件再好也疏散。</summary>
+        static PreTrainingQuiz.Question RoleEmployee()
+        {
+            return Q(
+                "本次身份是普通员工。发现初期小火、灭火器就在 2 米内，正确做法是？",
+                "Your role is general employee. You find a small incipient fire with an extinguisher 2 m away — what is correct?",
+                "이번 역할은 일반 직원입니다. 초기 소규모 화재, 소화기가 2 m 앞에 있을 때 올바른 행동은?",
+                new[] { "先尝试灭火，灭不掉再走", "按现场消防计划报警并优先疏散，不尝试灭火", "先回工位拿上个人物品再走" },
+                new[] { "Try to put it out first, leave only if it fails", "Raise the alarm and evacuate first per the site plan — do not attempt an attack", "Go back to your desk for personal items first" },
+                new[] { "먼저 소화를 시도하고 안 되면 대피", "현장 소방 계획에 따라 경보 후 대피 우선, 소화 시도 금지", "먼저 자리로 돌아가 개인 물건을 챙긴다" },
+                1,
+                "普通员工没有初期处置权限：即使火势小、器材近、视野清楚，也按计划报警并疏散。只有受过训练并被指定为初期应对负责人、且四项条件全部满足时才可尝试。",
+                "General employees have no initial-attack authority: even with a small fire and equipment at hand, alarm and evacuate per plan. Only trained designated responders may attempt, and only with all four conditions met.",
+                "일반 직원은 초기 대응 권한이 없습니다. 화재가 작고 장비가 가까워도 계획대로 경보·대피합니다. 교육받은 지정 초기 대응 책임자만 네 조건 충족 시 시도할 수 있습니다.");
+        }
+
+        /// <summary>角色题（初期应对负责人）：四条件全满足才可尝试，任一不确定即疏散。</summary>
+        static PreTrainingQuiz.Question RoleLead()
+        {
+            return Q(
+                "本次身份是初期应对负责人。可以尝试初期灭火的条件是？",
+                "Your role is initial response lead. When may you attempt an initial attack?",
+                "이번 역할은 초기 대응 담당자입니다. 초기 소화를 시도할 수 있는 조건은?",
+                new[] { "只要看见火苗就可以扑上去", "火势初期 + 器材合适 + 视野清楚 + 退路安全", "等火势变大、烟变浓以后再判断" },
+                new[] { "Charge at any flame you see", "Incipient fire, suitable extinguisher, clear view and a safe escape route behind — all four met", "Wait until the fire grows and smoke thickens, then decide" },
+                new[] { "불꽃이 보이면 바로 달려든다", "초기 화재, 적합한 소화기, 시야 확보, 뒤쪽 도주로 안전 — 네 가지 모두 충족", "불세가 커지고 연기가 짙어질 때까지 기다렸다 판단한다" },
+                1,
+                "初期应对负责人也只在四项条件全部满足时尝试；危险增加（烟气累积 / 超时 / 火势不再减弱）或灭火失败，立即停止并疏散；灭火成功后也要转移到安全地点。",
+                "Even the lead attempts only when all four conditions hold. If danger rises (smoke build-up, time-out, no progress) or the attack fails, stop and evacuate; after a successful attack, still move to safety.",
+                "초기 대응 담당자도 네 조건이 모두 충족될 때만 시도합니다. 위험 증가(연기 누적·시간 초과·진전 없음) 또는 실패 시 즉시 중단·대피하며, 성공 후에도 안전한 곳으로 이동합니다.");
         }
 
         // ---------------- 公共 7 题 ----------------

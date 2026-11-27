@@ -2690,15 +2690,15 @@ namespace FireSafety.EditorTools
                 Check("第41轮：语言页会先拦住开始界面", lang.hideStartScreen);
             }
 
-            // 3) 事前教育 10 题 / 60%
+            // 3) 事前教育 5 题 / 60%（第 47 轮：按身份组卷）
             var pre = UnityEngine.Object.FindFirstObjectByType<PreTrainingQuiz>();
             Check("第41轮：场景里有事前教育面板", pre != null);
             if (pre != null)
             {
                 pre.EnsureQuestions();
-                Check("第41轮：事前教育 10 题", pre.questions.Count == 10, "题数=" + pre.questions.Count);
+                Check("第47轮：事前教育 5 题", pre.questions.Count == 5, "题数=" + pre.questions.Count);
                 Check("第41轮：通过率 60%", Mathf.Abs(pre.passRatio - 0.6f) < 0.01f, "passRatio=" + pre.passRatio);
-                Check("第41轮：60% 需答对 6 题", pre.RequiredCorrect == 6, "需答对=" + pre.RequiredCorrect);
+                Check("第47轮：60% 需答对 3 题", pre.RequiredCorrect == 3, "需答对=" + pre.RequiredCorrect);
                 Check("第41轮：每题限时 20 秒", Mathf.Abs(pre.timePerQuestion - 20f) < 0.01f);
                 bool allHave = true;
                 foreach (var q in pre.questions)
@@ -2707,7 +2707,7 @@ namespace FireSafety.EditorTools
                         || q.correctIndex < 0 || q.correctIndex > 2) allHave = false;
                     if (string.IsNullOrEmpty(q.qEn) || string.IsNullOrEmpty(q.qKo)) allHave = false;
                 }
-                Check("第41轮：10 题都有中英韩与三选项", allHave);
+                Check("第47轮：5 题都有中英韩与三选项", allHave);
             }
 
             // 第 45 轮：每题的 A/B/C 选项顺序都要随机（同一道题再进来时位置也不能固定）
@@ -2825,17 +2825,48 @@ namespace FireSafety.EditorTools
             Check("第42轮：茶水间题库含「F 类」与「湿化学」",
                   (b2[7].expCn + b2[9].expCn).Contains("F 类") || b2[7].expCn.Contains("湿化学"));
 
+            // 第 47 轮：按身份组卷 —— 5 题 = 4 道通用/情景 + 1 道角色题，两身份只有最后一题不同
+            for (int si = 0; si < 3; si++)
+            {
+                var emp = PreTrainingBanks.ForRole(si, DrillFlowDirector.DrillRole.Employee);
+                var lead = PreTrainingBanks.ForRole(si, DrillFlowDirector.DrillRole.ResponseLead);
+                Check("第47轮：情景[" + si + "] 员工与负责人都是 5 题",
+                      emp.Count == 5 && lead.Count == 5, "员工=" + emp.Count + " 负责人=" + lead.Count);
+
+                bool sameCore = true;
+                for (int k = 0; k < 4; k++)
+                    if (emp[k].qCn != lead[k].qCn) sameCore = false;
+                Check("第47轮：情景[" + si + "] 两身份前 4 题完全相同（通用常识都在）", sameCore);
+                Check("第47轮：情景[" + si + "] 两身份仅第 5 题不同",
+                      emp[4].qCn != lead[4].qCn);
+
+                string core = "";
+                for (int k = 0; k < 4; k++) core += emp[k].qCn + emp[k].expCn;
+                Check("第47轮：情景[" + si + "] 通用 4 题覆盖 报警 / 出口集合 / 灭火器",
+                      core.Contains("报警") && core.Contains("集合") && core.Contains("灭火器"));
+
+                Check("第47轮：情景[" + si + "] 员工题讲「普通员工没有初期处置权限」",
+                      emp[4].expCn.Contains("普通员工") && emp[4].expCn.Contains("权限"));
+                Check("第47轮：情景[" + si + "] 负责人题讲四条件",
+                      lead[4].expCn.Contains("四项条件") || lead[4].expCn.Contains("四条件"));
+
+                bool tri = true;
+                foreach (var q in emp) if (string.IsNullOrEmpty(q.qKo) || q.optionsKo == null || q.optionsEn == null) tri = false;
+                foreach (var q in lead) if (string.IsNullOrEmpty(q.qKo) || q.optionsKo == null || q.optionsEn == null) tri = false;
+                Check("第47轮：情景[" + si + "] 两套题三语齐全", tri);
+            }
+
             if (pre != null)
             {
                 Check("第42轮：测验只作教学记录（不作为进入演练或疏散的条件）", pre.educationalOnly);
                 pre.scenarioIndex = 1;
                 pre.EnsureQuestions(1);
-                Check("第42轮：切到纸张情景时题库同步为纸张", pre.questions.Count == 10 && pre.questions[7].qCn.Contains("纸张"));
+                Check("第42轮：切到纸张情景时题库同步为纸张", pre.questions.Count == 5 && pre.questions[3].qCn.Contains("纸张"));
                 pre.scenarioIndex = 0;
                 pre.EnsureQuestions(0);
                 Check("第42轮：切回电气情景时题库同步为电气",
-                      pre.questions.Count == 10 && (pre.questions[7].qCn.Contains("配电柜") || pre.questions[7].qCn.Contains("电气")));
-                Check("第42轮：三情景题库的达标线都是 6 题", pre.RequiredCorrect == 6);
+                      pre.questions.Count == 5 && (pre.questions[3].qCn.Contains("配电柜") || pre.questions[3].qCn.Contains("电气")));
+                Check("第47轮：达标线为 3 题", pre.RequiredCorrect == 3);
             }
 
             // 9) 疏散优先与危险增加判定口径
