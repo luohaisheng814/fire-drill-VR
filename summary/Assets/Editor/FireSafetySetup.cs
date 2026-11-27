@@ -2222,6 +2222,19 @@ namespace FireSafety.EditorTools
                 Axis.X, xWall: -6.755f, zWall: 0f, thickness: 0.39f,
                 uMin: -6.0f, uMax: -4.0f, yMin: 0f, yMax: 3.0f);
 
+            // ---- 第 44 轮补充：西墙 z -4.00~0.00 整段是空的 ----
+            // 全向漏光扫描（Round44Gap）发现：玩家站在出生点 Spawn01(-5.95,1.62,-1.95) 朝西/西北看，
+            // 屏幕 18%~19% 是天空盒、真透空 95%~100% —— 因为原墙 wall_standard_wood_alt_1 的
+            // (1) z -2~0 与 (4) z -6~-4 两段都是 inactive，(4) 已由 WindowWall_West_Solid 覆盖，
+            // 但 z -4~0 这 4 米一直没有墙。这里按原墙厚度补齐，让西侧从 z -8 到 +4 连续。
+            // 材质用场景通用的 OfficeWallMat（均匀浅灰）。
+            // 不能拿 wall_standard_wood_alt_1 的 sharedMaterial —— 那是 palette 调色板贴图，
+            // 原墙靠 UV 偏移只显示其中一块颜色，新 cube 铺满整张图会变成一整面彩色格子。
+            // 也不能用 CaptureWall：它会 SetActive(false) 把原墙停用，等于又开一个 2 米洞。
+            BuildSolidWall(root.transform, "WallWest_MidFill", wallMat,
+                Axis.X, xWall: -6.755f, zWall: 0f, thickness: 0.39f,
+                uMin: -4.0f, uMax: 0.0f, yMin: 0f, yMax: 3.0f);
+
             // ---- 第 44 轮：纸张起火点背后的墙只砌到 1.75 米 ----
             // 纸张火 (-5.71, 1.06, -4.54) 背后是 wall_small (2)：x -6.75~-4.75、z≈-5.0、高只有 1.75 米
             // 的半高隔断。火苗上方 1.75~3.00 米整段是透空的，玩家站在桌前看纸火时，

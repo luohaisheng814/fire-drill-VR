@@ -277,6 +277,11 @@ namespace FireSafety.EditorTools
                     Check("① 纸张房间隔断东半段上方已封实（朝南看不到天空）", LastHoleRatio <= 0.02f,
                         "天空色 " + (LastSkyRatio * 100f).ToString("F2") + "% 其中真透空 "
                         + (LastHoleRatio * 100f).ToString("F2") + "%");
+                    // 出生点朝西：这里原来是一整段 inactive 的西墙（z -4~0），屏幕 18% 是天空盒
+                    ShotAt("g44v_paper_spawn_west.png", new Vector3(-5.95f, 1.62f, -1.95f), new Vector3(-7.60f, 1.62f, -1.95f), 70f);
+                    Check("① 出生点朝西看不再是一片天空（西墙补洞后）", LastHoleRatio <= 0.02f,
+                        "天空色 " + (LastSkyRatio * 100f).ToString("F2") + "% 其中真透空 "
+                        + (LastHoleRatio * 100f).ToString("F2") + "%");
                     Next(14);
                     return;
                 }

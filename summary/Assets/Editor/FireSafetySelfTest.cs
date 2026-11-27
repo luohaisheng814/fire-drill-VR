@@ -1319,6 +1319,29 @@ namespace FireSafety.EditorTools
                 1.4f, ~0, QueryTriggerInteraction.Ignore);
             Check("第44轮：从纸张房间东段上方往南打射线命中（不再看到天空）", paperEastHit);
 
+            // 全向漏光扫描发现的第二个缺口：西墙 z -4.00~0.00 这 4 米原本是 inactive 段，没有任何墙，
+            // 玩家在出生点 Spawn01 朝西看就是一片天空盒。
+            var westFill = GameObject.Find("WallWest_MidFill");
+            var westFillR = westFill != null ? westFill.GetComponentInChildren<Renderer>() : null;
+            Check("第44轮：西墙 z -4.00~0.00 的空洞已补成实墙（WallWest_MidFill 存在）",
+                westFill != null && westFillR != null);
+            if (westFillR != null)
+            {
+                var wf = westFillR.bounds;
+                Check("第44轮：西墙补洞覆盖 z -4.00~0.00、0~3.00 米、与原墙同厚",
+                    Mathf.Abs(wf.min.y) < 0.1f && Mathf.Abs(wf.max.y - 3.0f) < 0.15f
+                    && wf.min.z < -3.7f && wf.max.z > -0.3f
+                    && Mathf.Abs(wf.min.x + 6.95f) < 0.15f,
+                    string.Format("x[{0:F2},{1:F2}] y[{2:F2},{3:F2}] z[{4:F2},{5:F2}]",
+                        wf.min.x, wf.max.x, wf.min.y, wf.max.y, wf.min.z, wf.max.z));
+            }
+            bool westFillHit = Physics.Raycast(new Vector3(-5.20f, 1.60f, -2.00f), Vector3.left,
+                2.0f, ~0, QueryTriggerInteraction.Ignore);
+            Check("第44轮：从大厅朝西打射线命中墙面（出生点不再透出天空）", westFillHit);
+            bool westFillHitHigh = Physics.Raycast(new Vector3(-5.20f, 2.40f, -3.00f), Vector3.left,
+                2.0f, ~0, QueryTriggerInteraction.Ignore);
+            Check("第44轮：西墙补洞高处（2.40 米）也命中", westFillHitHigh);
+
             // ---- 第 44 轮：灭火器上的答题环节取消 ----
             int noQuiz = 0, quizOff = 0, canPull = 0, extTotal = 0;
             var stillQuiz = new List<string>();
