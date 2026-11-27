@@ -29,7 +29,15 @@ namespace FireSafety
             Assessed = 3,
             Extinguishing = 4,
             Evacuating = 5,
-            Reported = 6
+            Reported = 6,
+            Debriefed = 7
+        }
+
+        /// <summary>第 46 轮：每次运行随机分配「普通员工 / 初期应对负责人」，决定本次允许的行程分支。</summary>
+        public enum DrillRole
+        {
+            Employee = 0,       // 普通办公室人员：按现场消防计划优先疏散，不尝试灭火
+            ResponseLead = 1    // 初期应对负责人：条件全部满足时才允许有条件初期应对
         }
 
         [Header("引用（留空自动查找）")]
@@ -40,6 +48,12 @@ namespace FireSafety
         public FireAlarm fireAlarm;
         public PreTrainingQuiz preTraining;
         public DrillEndPanel endPanel;
+
+        [Header("身份（第 46 轮：每次运行随机分配）")]
+        [Tooltip("true = 每次进入正式演练随机分配普通员工 / 初期应对负责人；false = 固定用 fixedRole")]
+        public bool randomizeRoleEachRun = true;
+        [Tooltip("randomizeRoleEachRun=false 时使用的固定身份（自检/演示用）")]
+        public DrillRole fixedRole = DrillRole.Employee;
 
         [Header("集合点")]
         [Tooltip("门外广场的集合点位置")]
@@ -83,6 +97,18 @@ namespace FireSafety
         public bool ReportedAtAssembly { get; private set; }
         public string LastAssessment { get; private set; } = "";
         public bool CanAttemptInitial { get; private set; }
+
+        /// <summary>本次演练随机分配到的身份。</summary>
+        public DrillRole AssignedRole { get; private set; } = DrillRole.Employee;
+        /// <summary>普通员工只能走 B（立即疏散）；初期应对负责人满足全部条件时才可走 A。</summary>
+        public bool RoleAllowsAttack => AssignedRole == DrillRole.ResponseLead;
+        public bool RoleAssigned { get; private set; }
+        /// <summary>身份的可读名称（三语）。</summary>
+        public string RoleName => AssignedRole == DrillRole.ResponseLead
+            ? DrillLocale.T("初期应对负责人", "Initial response lead", "초기 대응 담당자")
+            : DrillLocale.T("普通员工", "General employee", "일반 직원");
+        /// <summary>事后反馈里记录的行为回顾（第 46 轮新增：警报 / 判断 / 操作 / 路线）。</summary>
+        public string DebriefRecord { get; private set; } = "";
         public float ExtinguishElapsed => _attackStart > 0f ? Time.time - _attackStart : 0f;
 
         /// <summary>是否在灭火前就选择疏散（用户要求：不灭火直接疏散也算成功）。</summary>
@@ -132,6 +158,23 @@ namespace FireSafety
 
         void OnDestroy() { if (Instance == this) Instance = null; }
 
+        /// <summary>进入正式演练时分配身份：普通员工 / 初期应对负责人（每次运行随机）。</summary>
+        public void AssignRoleForRun()
+        {
+            AssignedRole = randomizeRoleEachRun
+                ? (UnityEngine.Random.value < 0.5f ? DrillRole.Employee : DrillRole.ResponseLead)
+                : fixedRole;
+            RoleAssigned = true;
+            Debug.Log("[Flow] ② 身份分配：" + RoleName);
+        }
+
+        /// <summary>自检/探针用：固定身份，不影响随机配置。</summary>
+        public void SetRole(DrillRole role)
+        {
+            AssignedRole = role;
+            RoleAssigned = true;
+        }
+
         void Update()
         {
             if (scenario == null) return;
@@ -141,16 +184,24 @@ namespace FireSafety
             if (CurrentStage == Stage.Idle)
             {
                 if (scenario.CurrentMode != DrillScenario.Mode.Formal) return;
+                if (!RoleAssigned) AssignRoleForRun();
                 CurrentStage = Stage.Discovered;
                 _discoveredAt = Time.time;
-                Log("① 事前教育完成 → ② 发现火灾");
+                Log("① 事前教学完成 → ② 发现火灾与警示");
                 if (!_discoveredToast)
                 {
                     _discoveredToast = true;
-                    DrillToast.Show(DrillLocale.T(
+                    string roleLine = RoleAllowsAttack
+                        ? DrillLocale.T("本次身份：初期应对负责人 —— 只有当火势是初期小火、器材到位、视野清楚、身后退路安全时才可以尝试灭火；任何一条不确定就疏散。",
+                                        "Role: initial response lead — attempt an attack only if the fire is incipient, equipment is at hand, the view is clear and your escape route is safe; if any is uncertain, evacuate.",
+                                        "이번 역할: 초기 대응 담당자 — 초기 소규모 화재, 장비 확보, 시야 확보, 뒤쪽 도주로 안전이 모두 충족될 때만 소화를 시도하세요. 하나라도 불확실하면 대피합니다.")
+                        : DrillLocale.T("本次身份：普通员工 —— 按现场消防计划优先疏散，不尝试灭火；边走边报警，不因报告延误撤离。",
+                                        "Role: general employee — evacuate first per the site fire plan, do not attempt an attack; raise the alarm on the way, never delay evacuation to report.",
+                                        "이번 역할: 일반 직원 — 현장 소방 계획에 따라 대피 우선, 소화 시도 금지; 이동 중 경보·신고, 신고 때문에 대피 지연 금지.");
+                    DrillToast.Show(roleLine + "\n" + DrillLocale.T(
                         "发现火灾：先大声呼喊提醒同事，再按手动报警按钮并拨打 119。",
                         "Fire discovered: shout to warn colleagues, then press the manual call point and dial 119.",
-                        "화재 발견: 동료에게 외쳐 알리고 수동 발신기를 누른 뒤 119에 신고하세요."), null, 5f);
+                        "화재 발견: 동료에게 외쳐 알리고 수동 발신기를 누른 뒤 119에 신고하세요."), null, 8f);
                 }
                 if (autoAlarmOnDiscover && fireAlarm != null && !fireAlarm.IsRinging)
                     fireAlarm.StartAlarm();          // 警报作为背景音，三套情景都会响
@@ -319,18 +370,36 @@ namespace FireSafety
             bool nearEnough = dist <= initialAttackMaxDistance;
             bool powerOk = sc == null || !sc.requirePowerCut || (sc.powerSwitch != null && sc.powerSwitch.IsCut);
 
-            CanAttemptInitial = fireAlive && nearEnough;
-            LastAssessment = CanAttemptInitial
-                ? (powerOk
-                    ? DrillLocale.T("火势处于初期、灭火器在 " + dist.ToString("F1") + " 米内、视野清楚、身后有退路 → 可以尝试初期灭火；也可以选择直接疏散。",
-                                    "Incipient fire, extinguisher within " + dist.ToString("F1") + " m, clear view, escape route behind → initial attack allowed; evacuating directly is also valid.",
-                                    "초기 화재, 소화기 " + dist.ToString("F1") + " m 이내, 시야 확보, 뒤쪽 도주로 확보 → 초기 소화 가능하며 바로 대피도 가능합니다.")
-                    : DrillLocale.T("火势处于初期、灭火器在 " + dist.ToString("F1") + " 米内 → 可以尝试，但电气火必须先断电。",
-                                    "Incipient fire, extinguisher within " + dist.ToString("F1") + " m — allowed, but cut the power first for electrical fires.",
-                                    "초기 화재, 소화기 " + dist.ToString("F1") + " m 이내 → 가능하나 전기 화재는 전원 차단이 먼저."))
-                : DrillLocale.T("不具备初期处置条件（火势规模 / 器材距离 / 视野）→ 优先疏散，不要尝试灭火。",
-                                "Conditions not met (fire size / equipment distance / visibility) → evacuate; do not attempt an attack.",
-                                "초기 대응 조건 미충족(화재 규모/장비 거리/시야) → 대피 우선, 소화 시도 금지.");
+            CanAttemptInitial = fireAlive && nearEnough && RoleAllowsAttack;
+            if (!RoleAllowsAttack)
+            {
+                // 第 46 轮：普通员工没有初期处置权限 —— 条件再好也走 B（立即疏散）
+                CanAttemptInitial = false;
+                LastAssessment = DrillLocale.T(
+                    "本次身份为普通员工：按现场消防计划优先疏散（普通员工不尝试灭火）。火势 "
+                    + (fireAlive ? "仍在初期" : "已变化") + "、灭火器距离 " + dist.ToString("F1")
+                    + " 米 —— 即使条件看似具备，也走「B 立即疏散」。",
+                    "Role is general employee: evacuate first per the site fire plan (employees do not attempt an attack). Fire "
+                    + (fireAlive ? "still incipient" : "changed") + ", extinguisher " + dist.ToString("F1")
+                    + " m — even if conditions look adequate, follow route B (immediate evacuation).",
+                    "이번 역할은 일반 직원: 현장 소방 계획에 따라 대피 우선(일반 직원은 소화 시도 금지). 화재 "
+                    + (fireAlive ? "초기 단계" : "상황 변화") + ", 소화기 " + dist.ToString("F1")
+                    + " m — 조건이 충족돼 보여도 B(즉시 대피)를 따릅니다.");
+            }
+            else
+            {
+                LastAssessment = CanAttemptInitial
+                    ? (powerOk
+                        ? DrillLocale.T("火势处于初期、灭火器在 " + dist.ToString("F1") + " 米内、视野清楚、身后有退路 → 可以尝试初期灭火（A）；也可以选择直接疏散（B）。",
+                                        "Incipient fire, extinguisher within " + dist.ToString("F1") + " m, clear view, escape route behind → initial attack allowed (A); evacuating directly (B) is also valid.",
+                                        "초기 화재, 소화기 " + dist.ToString("F1") + " m 이내, 시야 확보, 뒤쪽 도주로 확보 → 초기 소화 가능(A); 바로 대피(B)도 가능합니다.")
+                        : DrillLocale.T("火势处于初期、灭火器在 " + dist.ToString("F1") + " 米内 → 可以尝试，但电气火必须先断电。",
+                                        "Incipient fire, extinguisher within " + dist.ToString("F1") + " m — allowed, but cut the power first for electrical fires.",
+                                        "초기 화재, 소화기 " + dist.ToString("F1") + " m 이내 → 가능하나 전기 화재는 전원 차단이 먼저."))
+                    : DrillLocale.T("不具备初期处置条件（火势规模 / 器材距离 / 视野）→ 优先疏散（B），不要尝试灭火。",
+                                    "Conditions not met (fire size / equipment distance / visibility) → evacuate (B); do not attempt an attack.",
+                                    "초기 대응 조건 미충족(화재 규모/장비 거리/시야) → 대피 우선(B), 소화 시도 금지.");
+            }
 
             if (!_assessedToast)
             {
@@ -408,7 +477,7 @@ namespace FireSafety
         /// <summary>进入疏散：解锁出口、给出一次提示、记入行为日志。dangering=true 时文案强调危险增加。</summary>
         public void BeginEvacuation(string reason, bool danger, bool silent)
         {
-            if (CurrentStage == Stage.Evacuating || CurrentStage == Stage.Reported) return;
+            if (CurrentStage == Stage.Evacuating || CurrentStage == Stage.Reported || CurrentStage == Stage.Debriefed) return;
             CurrentStage = Stage.Evacuating;
             EvacuationReason = reason;
             if (!string.IsNullOrEmpty(reason)) Log("⑥ " + reason);
@@ -468,6 +537,26 @@ namespace FireSafety
 
             ReportRecord = alarm + "\n" + judge + "\n" + action + "\n" + route + "\n" + tail;
 
+            // 第 46 轮 ⑦ 事后反馈（Debriefing）：把「警报 / 疏散判断 / 操作错误 / 路线选择」四条记录摊开
+            string roleLine = RoleAllowsAttack
+                ? DrillLocale.T("身份：初期应对负责人（允许在条件满足时走 A）", "Role: initial response lead (route A allowed when conditions are met)", "역할: 초기 대응 담당자(조건 충족 시 A 허용)")
+                : DrillLocale.T("身份：普通员工（按计划走 B，未尝试灭火）", "Role: general employee (route B per plan, no attack)", "역할: 일반 직원(계획대로 B, 소화 미시도)");
+            string decisionLine = CanAttemptInitial
+                ? DrillLocale.T("判断：条件满足，可尝试初期应对（A）/ 也可选择 B", "Decision: conditions met — A allowed, B also valid", "판단: 조건 충족 — A 가능, B도 유효")
+                : DrillLocale.T("判断：走 B 立即疏散（" + (RoleAllowsAttack ? "条件不足" : "普通员工无初期处置权限") + "）",
+                                "Decision: route B immediate evacuation (" + (RoleAllowsAttack ? "conditions not met" : "employees have no attack authority") + ")",
+                                "판단: B 즉시 대피(" + (RoleAllowsAttack ? "조건 미충족" : "일반 직원은 초기 대응 권한 없음") + ")");
+            string errorLine = FireExtinguished || EvacuatedWithoutExtinguishing || StoppedAttackAndEvacuated || DangerIncreased
+                ? DrillLocale.T("操作：无危险操作记录（灭火器流程按「拔销 → 压把 → 对准根部」执行）", "Actions: no unsafe operation recorded", "조작: 위험 조작 기록 없음")
+                : DrillLocale.T("操作：未完成灭火器操作即撤离（属于允许选择，不计为错误）", "Actions: left without completing extinguisher operation (allowed, not an error)", "조작: 소화기 조작 미완료 후 대피(허용된 선택, 오류 아님)");
+            string routeLine = DrillLocale.T("路线：安全出口 + 楼梯，未乘电梯、未折返", "Route: safe exit + stairs, no lift, no re-entry", "경로: 비상구+계단, 엘리베이터·재입장 없음");
+            DebriefRecord = roleLine + "\n" + decisionLine + "\n" + errorLine + "\n" + routeLine;
+
+            string debriefHeader = DrillLocale.T("【事后反馈 · Debriefing】回顾本次警报、判断、操作与路线，用于下一次训练：",
+                                                "[Debriefing] Review the alarm, decision, actions and route from this run:",
+                                                "[사후 피드백] 이번 경보·판단·조작·경로를 검토해 다음 훈련에 반영:");
+            ReportRecord = ReportRecord + "\n\n" + debriefHeader + "\n" + DebriefRecord;
+
             DrillToast.Show(DrillLocale.T(
                 "已到达安全地点并报告：清点本部门人数、向现场负责人报告未撤离人员，原地等待消防到场。",
                 "Reached the assembly point and reported: count your team, report missing persons to the person in charge, wait for the fire service.",
@@ -475,6 +564,10 @@ namespace FireSafety
 
             if (endPanel == null) endPanel = FindObjectOfType<DrillEndPanel>();
             if (endPanel != null) endPanel.Show(ReportRecord);
+
+            // 报告完成即进入事后反馈阶段（Debriefing），HUD 与结束页都停在这一步
+            CurrentStage = Stage.Debriefed;
+            Log("⑦ 到达集合地点并报告 → ⑧ 事后反馈（" + RoleName + "）");
             Debug.Log("[Flow] ⑦ 到达集合点并报告，流程完成（" + (EndingSuccess ? "成功" : "待补报警") + "）");
         }
 
@@ -513,20 +606,21 @@ namespace FireSafety
         /// <summary>自检/探针用：强制推进到某阶段（不改动原有灭火逻辑）。</summary>
         public void ForceStage(Stage stage) { CurrentStage = stage; }
 
-        /// <summary>自检用：当前阶段的可读名称。</summary>
+        /// <summary>自检用：当前阶段的可读名称（按第 46 轮课程口径：Pre-briefing → … → Debriefing）。</summary>
         public string StageName
         {
             get
             {
                 switch (CurrentStage)
                 {
-                    case Stage.Discovered: return DrillLocale.T("发现火灾", "Fire discovered", "화재 발견");
-                    case Stage.Alerted: return DrillLocale.T("警示与报告", "Alarm & report", "경보·신고");
-                    case Stage.Assessed: return DrillLocale.T("判断是否可初期处置", "Assess initial attack", "초기 대응 판단");
-                    case Stage.Extinguishing: return DrillLocale.T("初期灭火（可选）", "Initial attack (optional)", "초기 소화(선택)");
-                    case Stage.Evacuating: return DrillLocale.T("疏散", "Evacuation", "대피");
-                    case Stage.Reported: return DrillLocale.T("到达安全地点并报告", "Reported at assembly", "집결지 보고");
-                    default: return DrillLocale.T("未开始", "Idle", "대기");
+                    case Stage.Discovered: return DrillLocale.T("发现火灾与警示", "Detection & Alert", "화재 인지 및 전파");
+                    case Stage.Alerted: return DrillLocale.T("初期应对或疏散判断", "Decision", "초기 대응 또는 대피 판단");
+                    case Stage.Assessed: return DrillLocale.T("初期应对或疏散判断", "Decision", "초기 대응 또는 대피 판단");
+                    case Stage.Extinguishing: return DrillLocale.T("A · 有条件初期应对", "A · Conditional attack", "A · 조건부 초기 대응");
+                    case Stage.Evacuating: return DrillLocale.T("B · 立即疏散", "B · Immediate evacuation", "B · 즉시 대피");
+                    case Stage.Reported: return DrillLocale.T("到达安全地点与报告", "Assembly & Reporting", "안전한 장소 도착 및 보고");
+                    case Stage.Debriefed: return DrillLocale.T("事后反馈", "Debriefing", "사후 피드백");
+                    default: return DrillLocale.T("事前教学", "Pre-briefing", "사전 교육");
                 }
             }
         }

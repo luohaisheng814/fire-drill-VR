@@ -2210,21 +2210,15 @@ namespace FireSafety.EditorTools
                 emission: new Color(0.78f, 0.90f, 1f) * 1.45f);
             var glassMat = EnsureWindowGlassMaterial();
 
-            // ---- 北窗：拆掉 wall_standard_wood_alt_3 (1)，换成四块围出洞口的墙板 ----
+            // ---- 北窗：第 46 轮按玩家要求「不行就直接删掉」——整扇窗连窗框/玻璃/天光板/日光灯一起去掉 ----
+            // 第 43~45 轮四次修这扇窗的闪烁（撤窗烟、改玻璃队列、玻璃改哑光、设备区烟退离窗前）都没让玩家满意。
+            // 这扇窗紧挨电源总闸、玩家每次走到北墙都会正对它，任何半透明叠加或高光抖动都会被放大。
+            // 本轮直接封成整块实墙：原墙（带窗洞）停用，x -4.75~-2.75 用均匀 OfficeWallMat 补满 0~3 米，
+            // 与隔壁墙同厚 0.39 米；不生成 Window_North，因此也不会有玻璃、天光板、Daylight_North 点光。
             var northTarget = GameObject.Find("wall_standard_wood_alt_3 (1)");
-            MatRef northRef = CaptureWall(northTarget, wallMat);
-            BuildWallAroundOpening(root.transform, "WindowWall_North", northRef.mat,
-                Axis.Z, xWall: 0f, zWall: 3.995f, thickness: 0.39f,
-                uMin: -4.75f, uMax: -2.75f, openMin: -4.30f, openMax: -3.00f,
-                yMin: 0f, yMax: 3.0f, openBottom: 1.30f, openTop: 2.40f);
-            BuildWindowDressing(root.transform, "North", Axis.Z, 3.995f, 0.39f,
-                uCenter: -3.65f, width: 1.30f, yCenter: 1.85f, height: 1.10f,
-                frameMat, glassMat, skyMat, inward: Vector3.back,
-                // 第 44 轮：玩家两次反馈「这扇窗还在闪」。北窗旁边就是电源总闸，是必看的一扇窗，
-                // 这里不再挂任何窗内/窗外烟粒子（smokeSource = null → 不生成 WindowSmoke 与 WindowFeed），
-                // 窗洞只剩玻璃 + 天光板 + 日光点光，画面恒定不闪；房间里的烟由全局 SmokeZone 表现。
-                outdoorBackdrop: true, smokeSource: null,
-                smokePos: new Vector3(-3.65f, 1.90f, 4.32f), smokeOut: Vector3.forward);
+            if (northTarget != null) northTarget.SetActive(false);
+            Boxing(root.transform, "WindowWall_North_Solid",
+                new Vector3(-3.75f, 1.50f, 3.995f), new Vector3(2.0f, 3.0f, 0.39f), wallMat, true);
 
             // ---- 西墙：第 43 轮按需求改回「实墙」 ----
             // 纸张起火点 (-5.71, 1.06, -4.54) 正好贴着这面西墙，原来是开的窗洞（z -5.15~-4.05），
@@ -2306,11 +2300,11 @@ namespace FireSafety.EditorTools
                 outdoorBackdrop: false, smokeSource: null,
                 smokePos: new Vector3(6.86f, 1.90f, -3.33f), smokeOut: Vector3.right);
 
-            Debug.Log("[Setup] ✔ 窗户/采光：北(-3.65,z3.995)、东(x7.15,z-1.20)"
+            Debug.Log("[Setup] ✔ 窗户/采光：东(x7.15,z-1.20)"
                       + " + 茶水间南侧补窗(x7.15,z-3.33，窗下放 03 号灭火器)"
-                      + " + 窗框/玻璃/天光板 + 3 盏日光点光"
+                      + " + 窗框/玻璃/天光板 + 2 盏日光点光"
                       + "；第43轮西窗(x-6.755,z-4.60)已整面封成实墙"
-                      + "；第44轮北窗取消窗烟粒子（电源总闸旁的窗不再闪），排烟只剩茶水间东窗"
+                      + "；第46轮北窗（电源总闸旁）整扇删除，封成整块实墙(WindowWall_North_Solid)"
                       + "；纸张起火点背后墙(PaperWall_BackUpper)补齐到 3 米"
                       + "，同一道隔断东半段(PaperWall_BackUpperEast)也补齐");
         }

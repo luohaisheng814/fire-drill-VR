@@ -627,6 +627,10 @@ namespace FireSafety
                         ? "状态：操作演练完成（可进入正式演练）"
                         : "状态：操作演练 · 拿瓶 → 答题 → 拔销 → 压把 → 喷射";
                 case Mode.Formal:
+                {
+                    // 第 46 轮：状态行前面挂当前课程阶段与本次随机身份（Pre-briefing → … → Debriefing）
+                    var flow = DrillFlowDirector.Instance;
+                    string prefix = flow != null ? ("【" + flow.StageName + " · " + flow.RoleName + "】 ") : "";
                     if (CurrentPhase == Phase.Stage1)
                     {
                         string title = CurrentScenario != null ? CurrentScenario.title : "设备起火";
@@ -639,11 +643,12 @@ namespace FireSafety
                         string ext = deviceExtinguisher != null
                             ? " · 灭火器：" + deviceExtinguisher.KindLabel + "（适用 " + deviceExtinguisher.SuitableLabel + "）"
                             : "";
-                        return "状态：第 1 阶段 · " + title + " → " + power + hp + ext;
+                        return "状态：" + prefix + "第 1 阶段 · " + title + " → " + power + hp + ext;
                     }
                     if (CurrentPhase == Phase.Stage2)
-                        return "状态：第 2 阶段 · 沿安全出口撤离 → 灭掉门前火 → 开门通关";
-                    return "状态：演练完成";
+                        return "状态：" + prefix + "第 2 阶段 · 沿安全出口撤离 → 灭掉门前火 → 开门通关";
+                    return "状态：" + prefix + "演练完成";
+                }
                 default:
                     return "";
             }

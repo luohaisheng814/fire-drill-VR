@@ -1257,9 +1257,30 @@ namespace FireSafety.EditorTools
             Check("第44轮：排烟只绑茶水间火源（北窗取消、西窗已封墙）",
                 boundNorth == 0 && boundPaper == 0 && boundPantry == 1,
                 "北=" + boundNorth + " 纸=" + boundPaper + " 茶=" + boundPantry);
-            Check("第43轮：北/东窗洞原墙已停用并重建（无叠墙）",
-                GameObject.Find("WindowWall_North") != null
-                && GameObject.Find("WindowWall_East_North") != null
+            // 第 46 轮：北窗（电源总闸旁）按玩家要求整扇删除，墙洞封成整块实墙
+            var northSolid = GameObject.Find("WindowWall_North_Solid");
+            var northSolidR = northSolid != null ? northSolid.GetComponentInChildren<Renderer>() : null;
+            Check("第46轮：北窗整扇删除（不再有 Window_North / WindowWall_North）",
+                GameObject.Find("Window_North") == null
+                && GameObject.Find("WindowWall_North") == null
+                && GameObject.Find("WindowFeed_North") == null
+                && GameObject.Find("WindowSmoke_North") == null
+                && GameObject.Find("Daylight_North") == null);
+            Check("第46轮：北墙封成整块实墙（x −4.75~−2.75、y 0~3、z≈3.995）",
+                northSolid != null && northSolidR != null
+                && northSolidR.bounds.min.x <= -4.70f && northSolidR.bounds.max.x >= -2.80f
+                && northSolidR.bounds.min.y <= 0.05f && northSolidR.bounds.max.y >= 2.95f
+                && Mathf.Abs(northSolidR.bounds.center.z - 3.995f) < 0.05f,
+                northSolidR != null
+                    ? string.Format("x[{0:F2},{1:F2}] y[{2:F2},{3:F2}] z{4:F2}",
+                        northSolidR.bounds.min.x, northSolidR.bounds.max.x,
+                        northSolidR.bounds.min.y, northSolidR.bounds.max.y, northSolidR.bounds.center.z) : "null");
+            // 从室内朝北墙打射线必须命中墙（电源总闸上方原来就是窗洞）
+            bool northHit = Physics.Raycast(new Vector3(-3.65f, 1.85f, 2.60f), Vector3.forward,
+                2.0f, ~0, QueryTriggerInteraction.Ignore);
+            Check("第46轮：朝原北窗位置打射线命中实墙（不再透空）", northHit);
+            Check("第43轮：东窗洞原墙已停用并重建（无叠墙）",
+                GameObject.Find("WindowWall_East_North") != null
                 && GameObject.Find("WindowWall_East_South") != null);
 
             // ---- 第 43 轮：纸张火背后补墙 / 窗烟起点在墙外 / 玻璃渲染队列 ----
@@ -2831,6 +2852,49 @@ namespace FireSafety.EditorTools
                 Check("第42轮：剩余生命值不参与能否继续灭火的判定", !dir.UsesVitalsAsDangerGate);
                 Check("第42轮：阶段名已改成「初期灭火（可选）」",
                       dir.CurrentStage == DrillFlowDirector.Stage.Idle || dir.StageName.Length > 0);
+            }
+
+            // 10) 第46轮：身份随机分配 + 七阶段课程口径 + 事后反馈
+            if (dir != null)
+            {
+                Check("第46轮：默认每次运行随机分配身份", dir.randomizeRoleEachRun);
+                bool oldRandom = dir.randomizeRoleEachRun;
+                var oldRole = dir.AssignedRole;
+                dir.randomizeRoleEachRun = false;
+                dir.fixedRole = DrillFlowDirector.DrillRole.ResponseLead;
+                dir.AssignRoleForRun();
+                Check("第46轮：固定身份「初期应对负责人」可生效且允许 A",
+                    dir.AssignedRole == DrillFlowDirector.DrillRole.ResponseLead && dir.RoleAllowsAttack,
+                    dir.RoleName);
+                dir.SetRole(DrillFlowDirector.DrillRole.Employee);
+                Check("第46轮：普通员工没有初期处置权限（强制走 B）",
+                    !dir.RoleAllowsAttack, dir.RoleName);
+
+                // 阶段名逐项对齐课程：Pre-briefing / Detection & Alert / Decision / A / B / Assembly / Debriefing
+                var stageNames = new Dictionary<DrillFlowDirector.Stage, string>();
+                foreach (DrillFlowDirector.Stage st in Enum.GetValues(typeof(DrillFlowDirector.Stage)))
+                {
+                    dir.ForceStage(st);
+                    stageNames[st] = dir.StageName;
+                }
+                dir.ForceStage(DrillFlowDirector.Stage.Idle);
+                Check("第46轮：七阶段课程名齐备且互不相同",
+                    stageNames.Count == 8
+                    && stageNames[DrillFlowDirector.Stage.Idle].Contains("事前")
+                    && stageNames[DrillFlowDirector.Stage.Discovered].Contains("发现火灾")
+                    && stageNames[DrillFlowDirector.Stage.Alerted].Contains("判断")
+                    && stageNames[DrillFlowDirector.Stage.Extinguishing].Contains("A")
+                    && stageNames[DrillFlowDirector.Stage.Evacuating].Contains("B")
+                    && stageNames[DrillFlowDirector.Stage.Reported].Contains("报告")
+                    && stageNames[DrillFlowDirector.Stage.Debriefed].Contains("事后"),
+                    "Idle=" + stageNames[DrillFlowDirector.Stage.Idle]
+                    + " / Ext=" + stageNames[DrillFlowDirector.Stage.Extinguishing]
+                    + " / Eva=" + stageNames[DrillFlowDirector.Stage.Evacuating]
+                    + " / Debr=" + stageNames[DrillFlowDirector.Stage.Debriefed]);
+                Check("第46轮：事后反馈阶段已加入枚举", (int)DrillFlowDirector.Stage.Debriefed == 7);
+
+                dir.randomizeRoleEachRun = oldRandom;
+                dir.SetRole(oldRole);
             }
 
             // 10) 结束状态面板与两条训练入口

@@ -339,7 +339,11 @@ namespace FireSafety
                 _optionButtons[i].GetComponent<Image>().color = new Color(0.14f, 0.24f, 0.42f);
             }
             _feedbackText.text = "";
-            _scoreText.text = educationalOnly
+            // 第 46 轮：把课程要求的四项教学内容直接写在面板底部（职责 / 报警装置 / 出口与集合点 / 灭火器类型与用法）
+            string topics = DrillLocale.T("本阶段覆盖：① 职责　② 报警装置　③ 出口与集合点　④ 灭火器类型与用法\n",
+                                          "This stage covers: 1 roles  2 alarm devices  3 exits & assembly point  4 extinguisher types and use\n",
+                                          "이 단계 내용: ① 역할  ② 경보 장치  ③ 출구·집결지  ④ 소화기 종류와 사용법\n");
+            _scoreText.text = topics + (educationalOnly
                 ? DrillLocale.T("每题 20 秒；答对 " + RequiredCorrect + " 题（" + Mathf.RoundToInt(passRatio * 100) + "%）为教学达标，未达标也可继续进入演练",
                                 "20 s each; " + RequiredCorrect + "/" + QuestionCount + " (" + Mathf.RoundToInt(passRatio * 100) + "%) is the learning target — you may continue even below it",
                                 "문제당 20초, " + RequiredCorrect + "/" + QuestionCount + " (" + Mathf.RoundToInt(passRatio * 100) + "%)이 학습 목표이며 미달이어도 계속 진행할 수 있습니다")
@@ -347,7 +351,7 @@ namespace FireSafety
                                 + Mathf.RoundToInt(passRatio * 100) + "%）即可进入演练",
                                 "20 s per question, need " + RequiredCorrect + "/" + QuestionCount
                                 + " (" + Mathf.RoundToInt(passRatio * 100) + "%) to pass",
-                                "문제당 20초, " + RequiredCorrect + "/" + QuestionCount + " 정답 시 통과");
+                                "문제당 20초, " + RequiredCorrect + "/" + QuestionCount + " 정답 시 통과"));
             _questionStart = Time.unscaledTime;
             _answered = false;
             _nextAllowed = 0f;
