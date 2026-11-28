@@ -213,7 +213,16 @@ namespace FireSafety
             // ③ 警示与报告
             if (CurrentStage == Stage.Discovered)
             {
-                if (alarmButton != null)
+                // 第 49 轮：每个墙面都有报警按钮，按任意一个都推进流程
+                if (scenario != null && scenario.AnyAlarmPressed)
+                {
+                    MoveToAlerted("手动报警按钮");
+                }
+                else if (scenario != null && scenario.alarmButtons != null && scenario.alarmButtons.Length > 0)
+                {
+                    // 有按钮但还没按：停在「警示与报告」，等玩家去按
+                }
+                else if (alarmButton != null)
                 {
                     if (alarmButton.Triggered) MoveToAlerted("手动报警按钮");
                 }

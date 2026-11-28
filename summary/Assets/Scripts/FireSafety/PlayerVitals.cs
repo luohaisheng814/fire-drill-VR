@@ -262,6 +262,14 @@ namespace FireSafety
             Debug.Log("[Vitals] 生命值归零，演练失败");
         }
 
+        /// <summary>教学/开始面板阅读期间隐藏生命值条，避免压在正文上。</summary>
+        public void SetHudVisible(bool visible)
+        {
+            if (_canvas != null) _canvas.gameObject.SetActive(visible);
+            else if (!visible && _valueText != null && _valueText.transform.root != null)
+                _valueText.transform.root.gameObject.SetActive(false);
+        }
+
         /// <summary>重开演练用：恢复 20 点并把计时清零。</summary>
         public void ResetVitals()
         {

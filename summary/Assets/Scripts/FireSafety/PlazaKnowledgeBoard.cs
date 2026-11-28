@@ -105,7 +105,7 @@ namespace FireSafety
                 },
                 new[]
                 {
-                    "① 先大声提醒周围的人「着火了」",
+                    "① 先按墙上手动报警按钮，并大声提醒周围的人「着火了」",
                     "② 判断逃生方向：最近的安全出口，走楼梯、绝不乘电梯",
                     "③ 低姿沿墙快速撤离，不折返取物、不贪恋财物",
                     "④ 撤到空旷安全地带后拨打 119（韩国火警/急救电话）",
@@ -139,7 +139,7 @@ namespace FireSafety
                 default:
                     return new[]
                     {
-                        "① Warn people around you first: “Fire!”",
+                        "① Press the wall-mounted manual call point and shout “Fire!”",
                         "② Decide the way out: nearest exit, stairs only, never the lift",
                         "③ Stay low and evacuate fast; never go back for belongings",
                         "④ Call 119 (Korean fire & rescue) once you are safely outside",
@@ -173,7 +173,7 @@ namespace FireSafety
                 default:
                     return new[]
                     {
-                        "① 먼저 주변 사람에게 “불이야!”라고 알린다",
+                        "① 벽면 수동 발신기를 먼저 누르고 “불이야!”라고 외친다",
                         "② 대피 방향 결정: 가장 가까운 비상구, 계단 이용, 엘리베이터 절대 금지",
                         "③ 낮은 자세로 신속히 대피, 물건을 가지러 돌아가지 않는다",
                         "④ 안전한 곳에 대피한 후 119에 신고한다",

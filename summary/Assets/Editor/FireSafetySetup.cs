@@ -196,9 +196,17 @@ namespace FireSafety.EditorTools
             kb.EnsureDefaults();
             Debug.Log("[Setup] ✔ 情景专属知识板：" + kb.boards.Length + " 块（电气 / 纸张 / 茶水间）");
 
-            // 4) 手动火灾报警按钮：第 48 轮改为壁挂式，贴在大厅南墙（z=-4.10）北侧墙面
-            var btn = BuildAlarmCallButton(new Vector3(2.55f, 0f, -3.98f), 0f);
-            Debug.Log("[Setup] ✔ 手动报警按钮（壁挂）：大厅南墙 " + btn.transform.position.ToString("F2"));
+            // 4) 手动火灾报警按钮：第 49 轮四个墙面各挂一个（壁挂、距地 1.3 米）
+            //    北墙 (z=3.78) / 西墙 (x=-6.56) / 南墙 (z=-3.98) / 东墙 (x=5.14)
+            //    四个按钮都绑同一个 onPressed，玩家就近按任意一个都算完成报警。
+            var btnN = BuildAlarmCallButton("AlarmCallButton_North", new Vector3(2.40f, 0f, 3.76f), 180f);
+            var btnW = BuildAlarmCallButton("AlarmCallButton_West", new Vector3(-6.54f, 0f, 2.20f), 90f);
+            var btnS = BuildAlarmCallButton("AlarmCallButton_South", new Vector3(2.55f, 0f, -3.96f), 0f);
+            var btnE = BuildAlarmCallButton("AlarmCallButton_East", new Vector3(5.12f, 0f, -2.00f), 270f);
+            Debug.Log("[Setup] ✔ 手动报警按钮（壁挂 ×4）：北" + btnN.transform.position.ToString("F2")
+                      + " / 西" + btnW.transform.position.ToString("F2")
+                      + " / 南" + btnS.transform.position.ToString("F2")
+                      + " / 东" + btnE.transform.position.ToString("F2"));
 
             // 5) 7 步流程编排
             var dirGo = GameObject.Find("DrillFlowDirector") ?? new GameObject("DrillFlowDirector");
@@ -206,8 +214,15 @@ namespace FireSafety.EditorTools
             dir.scenario = UnityEngine.Object.FindFirstObjectByType<DrillScenario>();
             dir.vitals = UnityEngine.Object.FindFirstObjectByType<PlayerVitals>();
             dir.exitDoor = UnityEngine.Object.FindFirstObjectByType<ExitDoor>();
-            dir.alarmButton = btn;
+            dir.alarmButton = btnS;
             dir.fireAlarm = UnityEngine.Object.FindFirstObjectByType<FireAlarm>();
+            dir.autoAlarmOnDiscover = false;   // 第 49 轮：必须玩家按下墙面按钮才响警报
+            var drScenario = UnityEngine.Object.FindFirstObjectByType<DrillScenario>();
+            if (drScenario != null)
+            {
+                drScenario.alarmButton = btnS;
+                drScenario.alarmButtons = new[] { btnN, btnW, btnS, btnE };
+            }
             dir.preTraining = pre;
             dir.assemblyPoint = new Vector3(10.40f, 0f, 1.35f);
             dir.assemblyRadius = 2.4f;
@@ -232,34 +247,35 @@ namespace FireSafety.EditorTools
             if (start != null)
             {
                 start.requirePreTraining = true;
-                start.startAlarmOnBegin = true;
-                start.switchBgmToAlarm = true;
+                start.startAlarmOnBegin = false;   // 第 49 轮：警报只在按下墙面按钮后响
+                start.switchBgmToAlarm = false;
                 start.buttonLabel = "决策训练";
-                start.tutorialLabel = "操作流程训练";
-                start.tutorialTypeLabel = "程序性技能训练：火灾类型 → 操作练习 → 瞄准反馈 → 知识确认";
+                start.tutorialLabel = "操作教学";
+                start.tutorialTypeLabel = "身份 × 三种起火情景的决断；读完返回本面板再选择";
                 start.instructions =
-                    "两种训练模式，任选其一：\n" +
-                    "【决策训练】事前教育（本情景 10 题，60% 为教学达标，不作门槛）→ 发现火灾 → 警示与报告 → 优先疏散并判断是否可初期处置 →\n" +
-                    "符合条件才尝试灭火 → 危险增加或失败立即疏散 → 到达集合点并报告。\n" +
-                    "【操作流程训练】理解火灾类型 → 取瓶操作练习 → 瞄准与操作错误反馈 → 知识确认。";
+                    "【决策训练】选择电气 / 纸张 / 茶水间三种起火情景，按身份完成：报警 → 疏散或初期灭火 → 撤到集合点。\n" +
+                    "【独立火情演练】情形 1 火势初起 / 情形 2 火势已发展，与上面三种起火物无关。\n" +
+                    "【操作教学】先读普通员工与初期应对责任人在三种情景中的决断，读完回到本面板。\n" +
+                    "所有演练：火警警报必须由玩家走到墙边按下手动报警按钮才会响（四面墙各一个）。";
                 start.instructionsEnglish =
-                    "Two training modes:\n" +
-                    "[Decision drill] Pre-training quiz (10 questions, 60% is the learning target, not a gate) → discover fire → alarm & report → evacuate first and judge whether an initial attack is possible → attack only if conditions are met → stop and evacuate when danger rises → report at the assembly point.\n" +
-                    "[Operation drill] Fire class & extinguisher choice → handling practice → aim & error feedback → knowledge check.";
-                Debug.Log("[Setup] ✔ 开始界面：决策训练 / 操作流程训练 两条入口");
+                    "[Decision drill] Choose electrical / paper / pantry fire and act by role: alarm → evacuate or initial attack → assembly point.\n" +
+                    "[Standalone cases] Case 1 incipient / Case 2 developed; independent of the three fire origins.\n" +
+                    "[Operation tutorial] Read the employee vs initial-response-lead decisions for all three origins, then return to this panel.\n" +
+                    "Every drill: the alarm sounds only after you press a wall-mounted manual call point (one on each wall).";
+                Debug.Log("[Setup] ✔ 开始界面：决策训练 / 独立情形 / 操作教学（读完返回主面板）");
             }
         }
 
         /// <summary>
-        /// 第 48 轮：手动火灾报警按钮改为「壁挂式」——贴在走廊南墙（z=-4.10）北侧墙面，
-        /// 红色面板 + 凸起按钮 + 世界空间文字牌，不再用落地立柱。
+        /// 第 49 轮：每个墙面各挂一个手动报警按钮。
+        /// 四个墙面按钮都用同一套红色面板 + 凸起按钮 + 世界空间文字牌，距离按「沿墙可达、避开门口/家具」布置。
         /// </summary>
-        static AlarmCallButton BuildAlarmCallButton(Vector3 pos, float yaw)
+        static AlarmCallButton BuildAlarmCallButton(string name, Vector3 pos, float yaw)
         {
-            var existing = GameObject.Find("AlarmCallButton");
+            var existing = GameObject.Find(name);
             if (existing != null) UnityEngine.Object.DestroyImmediate(existing);
 
-            var root = new GameObject("AlarmCallButton");
+            var root = new GameObject(name);
             root.transform.position = pos;
             root.transform.rotation = Quaternion.Euler(0f, yaw, 0f);
 
@@ -585,8 +601,8 @@ namespace FireSafety.EditorTools
             start.handUpOffset = 0.15f;               // 略向上抬，居中可读
             start.maxCameraDistance = 1.4f;           // 离相机超过 1.4 米就改用相机兜底，避免面板跑到房间另一头
             start.cameraFallbackDistance = 1.1f;      // 兜底：相机正前方 1.1 米（0.9 米宽面板约占屏高一半）
-            start.startAlarmOnBegin = true;
-            start.switchBgmToAlarm = true;
+            start.startAlarmOnBegin = false;   // 第 49 轮：先按墙面报警按钮才响
+            start.switchBgmToAlarm = false;
             start.igniteFiresOnBegin = true;
             start.instructions =
                 "玩法说明：\n" +
@@ -772,21 +788,23 @@ namespace FireSafety.EditorTools
             var go = GameObject.Find("OnboardingScreen") ?? new GameObject("OnboardingScreen");
             var ob = go.GetComponent<OnboardingScreen>() ?? go.AddComponent<OnboardingScreen>();
             ob.startScreen = UnityEngine.Object.FindObjectOfType<StartScreen>();
-            ob.anchorHand = rightHand;
-            ob.handForwardDistance = 0.6f;      // 引导页拉近：手柄前 0.6 米，一屏读完正文
+            // 玩家视角实测：教学面板若继续挂在右手锚点，会偏到画面右侧、正文右侧被裁掉。
+            // 改成相机正前方居中（VR/桌面都不会偏），仍保留距离保护。
+            ob.anchorHand = null;
+            ob.handForwardDistance = 0.6f;
             ob.handUpOffset = 0.12f;
-            ob.canvasScale = 0.0009f;
-            ob.fallbackDistance = 1.0f;
-            ob.maxCameraDistance = 1.3f;        // 距离保护：锚点太远就拉回相机前方
-            ob.cameraFallbackDistance = 1.0f;
-            ob.title = "操作教学 · 开始前必读";
+            ob.canvasScale = 0.00085f;
+            ob.fallbackDistance = 0.80f;
+            ob.maxCameraDistance = 0.95f;
+            ob.cameraFallbackDistance = 0.80f;
+            ob.title = "操作教学 · 身份与情景判断";
             ob.prevLabel = "上一步";
             ob.nextLabel = "下一步";
-            ob.lastLabel = "开始演练";
+            ob.lastLabel = "返回演练面板";
             ob.skipLabel = "跳过教学";
-            ob.pages = OnboardingScreen.BuildDefaultPages();   // 场景里同步最新 VR 移动/功能键位文案
+            ob.pages = OnboardingScreen.BuildDefaultPages();   // 身份 × 三种起火情景 × 两种火情情形，读完回主面板
             if (go.GetComponent<AudioSource>() == null) go.AddComponent<AudioSource>();
-            Debug.Log("[Setup] ✔ 引导页：OnboardingScreen（4 页教学，锚定右手手柄前方 0.6 米 / 上抬 0.12 米，带 1.3 米距离保护）");
+            Debug.Log("[Setup] ✔ 操作教学：OnboardingScreen（6 页：身份总则 / 电气 / 纸张 / 茶水间 / 两种情形 / 韩国官方五步，末页只返回主面板）");
         }
 
         /// <summary>结束页（엔딩）：撤离到大厅成功 / 倒计时耗尽失败。</summary>
@@ -1337,12 +1355,10 @@ namespace FireSafety.EditorTools
             // ============================================================
             // 灭火器一律「贴墙」摆放（第 25 轮）：靠近墙面、固定在自己的挂钩板上，
             // 不占走道中线 —— 玩家按就近原则取最近的那台。
-            Vector3 ext01Pos = new Vector3(-0.20f, 0.16f, 3.42f);     // 第35轮 电气：北墙，距设备火 2.27 米
-            // 第39轮：02/03 号瓶原先距火源只有 1.69 / 1.97 米，玩家从火源一侧靠近取瓶时
-            // 会踩进 PlayerVitals.fireDangerRadius=1.55 米，触发「火焰烧伤 -1」。
-            // 现在各外推约 0.7 / 0.45 米，留出取瓶站位与 1.55 米危险半径之间的安全余量。
-            Vector3 ext02Pos = new Vector3(-6.33f, 0.46f, -1.20f);    // 第40轮：西墙北段、避开青色办公椅的那段墙，挂在挂钩上（瓶底离地 0.30 米），距南工位纸张火约 3.4 米
-            Vector3 ext03Pos = new Vector3(6.15f, 0.16f, -3.33f);     // 茶水间：东墙南段新窗下方，距小家电火约 2.59 米，避开茶水桌与吧凳
+            // 第 49 轮：三台灭火器全部改为「墙上竖挂」——瓶底离地 0.30 米、挂钩板贴墙，不再落地
+            Vector3 ext01Pos = new Vector3(-4.85f, 0.46f, 3.42f);     // 电气：北墙西段（避开座椅遮挡）
+            Vector3 ext02Pos = new Vector3(-6.26f, 0.46f, -1.15f);    // 纸张：西墙柜旁净空（避开柜门与办公椅，距火源 3.47 米）
+            Vector3 ext03Pos = new Vector3(6.75f, 0.46f, -3.87f);     // 茶水间：东墙南端（桌凳与南墙之间的净空）
 
             // ---------------- 出生点：每套情景 3 个候选（随机取一个，尽量避开上一次） ----------------
             var spawnRoot = GameObject.Find("DrillSpawnPoints");
@@ -1552,15 +1568,14 @@ namespace FireSafety.EditorTools
             var ext01 = GameObject.Find("Extinguisher01");
             var ext02 = GameObject.Find("Extinguisher02");
             var ext03 = GameObject.Find("Extinguisher03");
-            if (ext01 != null) PlaceExtinguisher(ext01.transform, ext01Pos);
-            // 第 40 轮：02 号瓶不再落地，而是挂到西墙的挂钩板上（dropToFloor=false）
-            if (ext02 != null)
+            // 三台全部竖挂：dropToFloor=false 保持瓶底离地 0.30 米，并关掉刚体重力防止掉地
+            foreach (var ext in new[] { ext01, ext02, ext03 })
             {
-                PlaceExtinguisher(ext02.transform, ext02Pos, false);
-                // 挂着就必须关物理：不然一进 Play，刚体重力会把它直接摔到地面，
-                // 又变回"躺在柜子/椅子夹缝里"的状态（第 40 轮实测复现过）。
-                var rb = ext02.GetComponent<Rigidbody>();
-                if (rb == null) rb = ext02.GetComponentInChildren<Rigidbody>();
+                if (ext == null) continue;
+                var extPos = ext == ext01 ? ext01Pos : ext == ext02 ? ext02Pos : ext03Pos;
+                PlaceExtinguisher(ext.transform, extPos, false);
+                var rb = ext.GetComponent<Rigidbody>();
+                if (rb == null) rb = ext.GetComponentInChildren<Rigidbody>();
                 if (rb != null)
                 {
                     rb.isKinematic = true;
@@ -1569,11 +1584,10 @@ namespace FireSafety.EditorTools
                     rb.angularVelocity = Vector3.zero;
                 }
             }
-            if (ext03 != null) PlaceExtinguisher(ext03.transform, ext03Pos);
 
             // 墙面挂钩板：让「贴墙」不只是坐标贴近，而是看起来就挂在墙上
             SetupExtinguisherWallBracket(ext01Pos, Vector3.forward, "Extinguisher01_Bracket");
-            SetupExtinguisherWallBracket(ext02Pos, Vector3.left, "Extinguisher02_Bracket", 0.18f, 0.10f);
+            SetupExtinguisherWallBracket(ext02Pos, Vector3.left, "Extinguisher02_Bracket");
             SetupExtinguisherWallBracket(ext03Pos, Vector3.right, "Extinguisher03_Bracket");
 
             float d12 = Vector3.Distance(new Vector3(ext01Pos.x, 0f, ext01Pos.z), new Vector3(ext02Pos.x, 0f, ext02Pos.z));
@@ -1582,16 +1596,17 @@ namespace FireSafety.EditorTools
                 new Vector3(ext02Pos.x, 0f, ext02Pos.z));
             float dPantry = Vector3.Distance(new Vector3(pantryFirePos.x, 0f, pantryFirePos.z),
                 new Vector3(ext03Pos.x, 0f, ext03Pos.z));
-            Debug.Log("[Setup] ✔ 灭火器贴墙落位：01" + ext01Pos.ToString("F2") + "（北墙）/ 02" + ext02Pos.ToString("F2")
-                      + "（西墙·纸张）/ 03" + ext03Pos.ToString("F2") + "（茶水间东墙南段新窗下）"
+            Debug.Log("[Setup] ✔ 灭火器贴墙落位：01" + ext01Pos.ToString("F2") + "（北墙西段）/ 02" + ext02Pos.ToString("F2")
+                      + "（西墙中段）/ 03" + ext03Pos.ToString("F2") + "（茶水间东墙南端墙角）"
                       + "；01↔02=" + d12.ToString("F2") + " 米，02↔03=" + d23.ToString("F2") + " 米"
                       + "；纸张火→02=" + dPaper.ToString("F2") + " 米，茶水间火→03=" + dPantry.ToString("F2")
                       + " 米（危险半径 1.55 米，取瓶站位留余量）");
 
             // ---------------- 操作演练用的原地板火 ----------------
+            FireSource baseFire = null;
             if (template != null)
             {
-                var baseFire = template.GetComponent<FireSource>();
+                baseFire = template.GetComponent<FireSource>();
                 if (baseFire != null)
                 {
                     baseFire.startUnlit = true;                 // 未开始演练时不燃烧
@@ -1599,6 +1614,28 @@ namespace FireSafety.EditorTools
                     baseFire.PrepareAsUnlit();
                 }
             }
+
+            // ---------------- 第 49 轮：独立情形 1/2 的烟雾 + 出生点 + 灭火点位 ----------------
+            // 与电气 / 纸张 / 茶水间三套情景完全分开：固定用大厅地板火，不再随机挑起火点。
+            var caseFirePos = new Vector3(-1.79f, 0.6f, 0.29f);
+            var caseSmokeGo = GameObject.Find("CaseSmoke");
+            if (caseSmokeGo == null) caseSmokeGo = new GameObject("CaseSmoke");
+            caseSmokeGo.transform.position = new Vector3(caseFirePos.x, 1.45f, caseFirePos.z);
+            var caseSmokePs = caseSmokeGo.GetComponent<ParticleSystem>();
+            if (caseSmokePs == null) caseSmokePs = caseSmokeGo.AddComponent<ParticleSystem>();
+            ConfigureSmoke(caseSmokePs, new Color(0.34f, 0.34f, 0.36f, 0.60f),
+                rate: 24f, speed: 0.55f, size: 1.20f, life: 3.6f, additive: false, radius: 0.20f);
+            var caseZone = EnsureRoomSmoke("CaseSmokeZone",
+                new Vector3(-2.90f, 1.55f, 1.20f), new Vector3(-0.70f, 1.55f, -0.60f), 7, 22f);
+            caseZone.autoFollow = false;
+
+            var caseSpawnGroup = EnsureGroup(spawnRoot.transform, "SpawnGroup_Case");
+            var caseLook = new Vector3(caseFirePos.x, 0.8f, caseFirePos.z);
+            var caseS0 = EnsureSpawn(caseSpawnGroup, "CaseSpawn01", new Vector3(-4.60f, 0f, 1.55f), caseLook);
+            var caseS1 = EnsureSpawn(caseSpawnGroup, "CaseSpawn02", new Vector3(-4.30f, 0f, -1.10f), caseLook);
+            var caseS2 = EnsureSpawn(caseSpawnGroup, "CaseSpawn03", new Vector3(0.20f, 0f, 1.40f), caseLook);
+            var casePoint = EnsureExtinguishPoint("ExtinguishPoint_Case",
+                new Vector3(caseFirePos.x, 0.02f, caseFirePos.z - 1.95f), baseFire);
 
             // ---------------- 总控 DrillScenario ----------------
             var scGo = GameObject.Find("DrillScenario");
@@ -1621,6 +1658,14 @@ namespace FireSafety.EditorTools
             sc.deviceExtinguisher = ext01 != null ? ext01.GetComponent<Extinguisher>() : null;
             sc.stage1Smoke = s1;
             sc.rigRoot = rig != null ? rig.transform : null;
+
+            // 第 49 轮：独立情形 1/2 的专用配置（不进入 scenarios 数组）
+            sc.caseFire = baseFire;
+            sc.caseSmoke = caseSmokePs;
+            sc.caseSmokeZone = caseZone;
+            sc.caseExtinguisher = ext01 != null ? ext01.GetComponent<Extinguisher>() : null;
+            sc.caseSpawnPoints = new[] { caseS0, caseS1, caseS2 };
+            sc.caseExtinguishPoint = casePoint;
 
             var e1 = ext01 != null ? ext01.GetComponent<Extinguisher>() : null;
             var e2 = ext02 != null ? ext02.GetComponent<Extinguisher>() : null;

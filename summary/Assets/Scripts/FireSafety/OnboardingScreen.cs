@@ -7,9 +7,9 @@ namespace FireSafety
 {
     /// <summary>
     /// 引导页（온보딩 화면）：开始演练前的分页操作教学。
-    ///   · 共 4 页：演练目标 / 桌面操作 / VR 手柄操作 / 安全考核规则；
+    ///   · 共 6 页：两种身份总原则 / 电气 / 纸张 / 茶水间 / 两种火情情形 / 韩国官方五步；
     ///   · 面板锚定右手手柄正前方（与开始界面同一套跟随逻辑），朝向玩家；
-    ///   · 最后一页按钮变为「开始演练」，直接开始演练；另有「跳过」回到开始界面。
+    ///   · 最后一页按钮为「返回演练面板」，只关闭教学并恢复主面板，不直接开始演练。
     /// 仅在打开时显示，关闭后回到开始界面。
     /// </summary>
     public class OnboardingScreen : MonoBehaviour
@@ -34,50 +34,82 @@ namespace FireSafety
         public float cameraFallbackDistance = 1.0f;
 
         [Header("文案")]
-        public string title = "操作教学 · 开始前必读";
+        public string title = "操作教学 · 身份与情景判断";
         public string prevLabel = "上一步";
         public string nextLabel = "下一步";
-        public string lastLabel = "开始演练";
+        public string lastLabel = "返回演练面板";
         public string skipLabel = "跳过教学";
 
-        [TextArea(4, 12)]
+        [TextArea(6, 16)]
         public string[] pages = BuildDefaultPages();
 
-        /// <summary>四页默认文案（编辑器装配时也调用它，保证场景里的文案与代码同步）。</summary>
+        /// <summary>六页默认文案：总原则 + 电气/纸张/茶水间各一页 + 两种火情情形 + 复盘。</summary>
         public static string[] BuildDefaultPages()
         {
             return new string[]
             {
-                "【演练目标】\n" +
-                "办公区电气起火。你需要在 3 分钟内完成整条流程：\n" +
-                "① 找到红色灭火器（进入视线会高亮，地面有引导箭头）；\n" +
-                "② 通过灭火器常识考核（5 题，答对 60% 才能拿起）；\n" +
-                "③ 拿起 → 拔出保险销 → 按下压把 → 对准火焰根部喷射；\n" +
-                "④ 火焰扑灭后点「继续往下」：烟雾扩散，蹲下潜行到大厅；\n" +
-                "⑤ 大厅复燃，再灭一次火，走进「安全出口 EXIT」门内即通关。",
+                "【先认清身份】\n\n" +
+                "A 普通员工\n" +
+                "  发现火灾第一动作：大声提醒 + 按墙上手动报警按钮；\n" +
+                "  随后立即沿最近安全出口撤离。\n" +
+                "  不尝试灭火，不折返取物，不在现场等待上级指示。\n\n" +
+                "B 火灾初期应对责任人\n" +
+                "  只有「初期小火 + 器材合适 + 视野清楚 + 身后退路安全」\n" +
+                "  四条全部满足时，才可取墙上灭火器尝试初期灭火；\n" +
+                "  任何一条不满足，或火势变大、烟雾变浓，立即停止并撤离。",
 
-                "【桌面操作（无头显时使用）】\n" +
-                "· 右键单击灭火器：弹出常识问答，答完即拿起灭火器；\n" +
-                "· 左键单击：拔出保险销；\n" +
-                "· 左键双击：按下压把（必须手持灭火器才生效）；\n" +
-                "· 右键双击：开始 / 停止喷射；\n" +
-                "· C 键：蹲下 / 站起（第二阶段浓烟中必须蹲下潜行）；\n" +
-                "· P 键：放下灭火器；回车 / 空格：开始演练；问答按 1 / 2 / 3 作答。",
+                "【电气设备起火（配电柜 / 插排）】\n\n" +
+                "A 普通员工\n" +
+                "  报警 → 撤离。不要碰配电柜，不要用水，不尝试灭火。\n\n" +
+                "B 初期应对责任人\n" +
+                "  先切断电源总闸（能安全接近时），\n" +
+                "  再用 CO₂ 或 ABC 干粉灭火器对准火焰根部；\n" +
+                "  不得用水，不得把手伸进带电设备；\n" +
+                "  断电失败或火已蔓延到天花板，立即报警撤离。\n\n" +
+                "逃生：走最近安全出口，走楼梯、不乘电梯，低姿沿墙撤离。",
 
-                "【VR 头显操作】\n" +
-                "· 左摇杆移动：推杆方向就是行走方向（按头显朝向平移）；\n" +
-                "· 右摇杆左右各瞬转 45°，转身后再推杆即朝新方向走；\n" +
-                "· 蹲下：直接真人蹲下（镜头低于 1.15 米自动蹲行），也可按下左摇杆切换蹲 / 站；\n" +
-                "· Grip 抓取灭火器与保险销（再扣一次松开）；\n" +
-                "· Trigger 第一次按下拔保险销，再按一次压下压把持续喷射，松开扳机即停；\n" +
-                "· 右手射线指向按钮扣 Trigger 点按；A 键开始 / 翻页 / 继续往下；问答用 A / B / X 选 A / B / C。",
+                "【纸张 / 档案起火（A 类固体火）】\n\n" +
+                "A 普通员工\n" +
+                "  报警 → 撤离。纸张火看似小，但复燃快、烟大有毒，\n" +
+                "  不承担灭火职责。\n\n" +
+                "B 初期应对责任人\n" +
+                "  用 ABC 干粉或水基灭火器，对准火焰根部，\n" +
+                "  由近到远、由上到下扫射；\n" +
+                "  灭后把纸堆翻开检查，防止阴燃复燃；\n" +
+                "  火已烧到书架 / 天花板时立即撤离。\n\n" +
+                "逃生：不穿过起火桌位，绕开燃烧区，走最近安全出口。",
 
-                "【安全考核规则】\n" +
-                "· 5 道灭火器常识题，每题 A / B / C 三个选项；\n" +
-                "· 每题限时 10 秒，超时按答错处理；\n" +
-                "· 答对 60%（3 / 5 题）即通过，才能拿起灭火器；\n" +
-                "· 未通过可靠近灭火器重新按 Grip 抓取再次作答（桌面模式右键单击），答错会给出知识点讲解。\n\n" +
-                "准备好了就点「开始演练」。"
+                "【茶水间小家电 / 油类起火（F 类）】\n\n" +
+                "A 普通员工\n" +
+                "  报警 → 撤离。不要拔插头（可能已带电 / 烫伤），不要泼水。\n\n" +
+                "B 初期应对责任人\n" +
+                "  能安全断电时先断电；\n" +
+                "  用湿化学（水基）或干粉灭火器从侧面覆盖，\n" +
+                "  绝不能向油火直接泼水（会爆燃飞溅）；\n" +
+                "  火苗窜上橱柜或烟太浓时立即撤离。\n\n" +
+                "逃生：茶水间门口就是出口方向，低姿出门，不乘电梯。",
+
+                "【两种火情情形（独立演练，不绑定三种起火物）】\n\n" +
+                "情形 1 · 火势初起、烟雾开始蔓延\n" +
+                "  A 普通员工：按报警按钮 → 立即撤离；\n" +
+                "  B 初期应对责任人：按报警 → 灭火 → 撤离。\n\n" +
+                "情形 2 · 火势已发展、烟雾弥漫\n" +
+                "  A、B 都不允许灭主火：\n" +
+                "  按报警按钮 → 低姿沿规范逃生路线撤离。\n\n" +
+                "出口门规则\n" +
+                "  情形 1 门前无火，右击门扇即可开门；\n" +
+                "  情形 2 门前有初期火焰，必须先灭掉再开门。",
+
+                "【韩国官方口径（소방청）与注意事项】\n\n" +
+                "① 주변 사람에게 알린다（先提醒周围人）\n" +
+                "② 대피방향을 결정한다（判断最近安全出口，走楼梯、绝不乘电梯）\n" +
+                "③ 신속히 대피한다（低姿快速撤离，不折返取物）\n" +
+                "④ 119 신고（撤到安全地带后再拨打 119）\n" +
+                "⑤ 대피 후 인원 확인（到集合点清点人数）\n\n" +
+                "※ 注意事项\n" +
+                "  门把手很热时不要开门；\n" +
+                "  烟雾中贴墙低姿，不折返取物；\n" +
+                "  灭火器只用于初期小火，火大立即撤离。"
             };
         }
 
@@ -148,12 +180,35 @@ namespace FireSafety
         // ---------------- 打开 / 关闭 ----------------
 
         /// <summary>打开引导页，从第 1 页开始。此时暂时隐藏开始界面，避免两层面板按钮互相遮挡。</summary>
+        bool _hudHidden;
+
+        /// <summary>教学阅读期间收起倒计时/生命值/火焰血条，避免压在正文上。</summary>
+        void HideDrillHud()
+        {
+            if (_hudHidden) return;
+            _hudHidden = true;
+            foreach (var v in FindObjectsByType<PlayerVitals>(FindObjectsSortMode.None)) v.SetHudVisible(false);
+            foreach (var f in FindObjectsByType<FireHealthBar>(FindObjectsSortMode.None)) f.SetHudVisible(false);
+            foreach (var d in FindObjectsByType<DrillCountdown>(FindObjectsSortMode.None)) d.SetHudVisible(false);
+            foreach (var h in FindObjectsByType<VRDrillHud>(FindObjectsSortMode.None)) h.SetVisible(false);
+        }
+
+        void RestoreDrillHud()
+        {
+            if (!_hudHidden) return;
+            _hudHidden = false;
+            foreach (var v in FindObjectsByType<PlayerVitals>(FindObjectsSortMode.None)) v.SetHudVisible(true);
+            foreach (var f in FindObjectsByType<FireHealthBar>(FindObjectsSortMode.None)) f.SetHudVisible(true);
+            foreach (var d in FindObjectsByType<DrillCountdown>(FindObjectsSortMode.None)) d.SetHudVisible(true);
+        }
+
         public void Show()
         {
             if (IsOpen) return;
             if (_canvas == null) BuildUI();
             if (startScreen == null) startScreen = FindObjectOfType<StartScreen>();
             if (startScreen != null) startScreen.SetVisible(false);
+            HideDrillHud();
 
             _page = 0;
             RefreshPage();
@@ -179,6 +234,7 @@ namespace FireSafety
             if (!IsOpen) return;
             IsOpen = false;
             if (_canvas != null) _canvas.gameObject.SetActive(false);
+            RestoreDrillHud();
             if (restoreStart && startScreen != null && !startScreen.Started) startScreen.SetVisible(true);
             onClosed?.Invoke();
             Debug.Log("[Onboarding] 引导页已关闭。");
@@ -192,7 +248,7 @@ namespace FireSafety
             if (PageCount == 0) return;
             if (_page >= PageCount - 1)
             {
-                StartDrill();
+                FinishTutorial();
                 return;
             }
             _page++;
@@ -208,19 +264,18 @@ namespace FireSafety
             Play("Sounds/SFX/ui_click", 0.4f);
         }
 
-        /// <summary>最后一页确认：关闭引导并开始演练。</summary>
-        public void StartDrill()
+        /// <summary>
+        /// 第 49 轮：操作教学只负责讲清「身份 × 三种情景」的决断；
+        /// 读完关闭面板并恢复「办公室消防知识演练」主面板，由玩家自己再选情景 / 情形。
+        /// </summary>
+        public void FinishTutorial()
         {
-            Close(false);
-            if (startScreen == null) startScreen = FindObjectOfType<StartScreen>();
-            if (startScreen != null)
-            {
-                if (!startScreen.Started) startScreen.StartGame();
-            }
-            else Debug.LogWarning("[Onboarding] 找不到 StartScreen，无法开始演练。");
-            onStartDrill?.Invoke();
-            Debug.Log("[Onboarding] 引导完成，开始演练。");
+            Close(true);
+            Debug.Log("[Onboarding] 操作教学阅读完毕，已返回办公室消防知识演练面板。");
         }
+
+        /// <summary>兼容旧入口：现在也只会返回主面板，不再直接开始演练。</summary>
+        public void StartDrill() => FinishTutorial();
 
         // ---------------- UI ----------------
 
@@ -268,13 +323,13 @@ namespace FireSafety
             layout.childForceExpandHeight = false;
 
             _panelRect = panel.GetComponent<RectTransform>();
-            _panelRect.sizeDelta = new Vector2(940, 720);
+            _panelRect.sizeDelta = new Vector2(940, 760);
             _panelRect.anchorMin = _panelRect.anchorMax = new Vector2(0.5f, 0.5f);
             _panelRect.pivot = new Vector2(0.5f, 0.5f);
             _panelRect.anchoredPosition = Vector2.zero;
 
-            _titleText = MakeText(panel.transform, title, 42, new Color(1f, 0.85f, 0.2f), 62f);
-            _bodyText = MakeText(panel.transform, "", 27, Color.white, 360f);
+            _titleText = MakeText(panel.transform, title, 40, new Color(1f, 0.85f, 0.2f), 58f);
+            _bodyText = MakeText(panel.transform, "", 24, Color.white, 420f);
             _bodyText.alignment = TextAnchor.UpperLeft;
 
             _pageText = MakeText(panel.transform, "", 24, new Color(0.72f, 0.78f, 0.9f), 34f);

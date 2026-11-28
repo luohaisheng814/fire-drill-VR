@@ -46,6 +46,14 @@ namespace FireSafety
         float _fillWidth;
         float _fadeTimer = -1f;
         Transform _head;
+        bool _hudForcedHidden;
+
+        /// <summary>教学/开始面板阅读期间隐藏火焰血条。</summary>
+        public void SetHudVisible(bool visible)
+        {
+            _hudForcedHidden = !visible;
+            if (_canvas != null && (!visible || _hudForcedHidden)) _canvas.gameObject.SetActive(false);
+        }
 
         /// <summary>外部（流程脚本/自检）强制刷新一次：AddComponent 当帧 Start 还没跑，先刷出 HP 100。</summary>
         public void RefreshNow() => Refresh(true);
@@ -77,7 +85,7 @@ namespace FireSafety
             {
                 _fadeTimer = -1f;
                 if (_group != null) _group.alpha = 1f;
-                if (_canvas != null && !_canvas.gameObject.activeSelf) _canvas.gameObject.SetActive(true);
+                if (!_hudForcedHidden && _canvas != null && !_canvas.gameObject.activeSelf) _canvas.gameObject.SetActive(true);
             }
 
             if (_fadeTimer >= 0f && _group != null)

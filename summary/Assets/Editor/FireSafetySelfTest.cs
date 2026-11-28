@@ -69,6 +69,8 @@ namespace FireSafety.EditorTools
             TestRound41LanguageAndFlow();
             Debug.Log("[TEST] >> Round48");
             TestRound48Cases();
+            Debug.Log("[TEST] >> 第49轮 独立情形 / 墙面报警 / 操作教学 / 竖挂灭火器");
+            TestRound49Changes();
             Debug.Log("[TEST] >> VRConfig");
             TestVrConfiguration();
 
@@ -503,7 +505,7 @@ namespace FireSafety.EditorTools
             var ob = obGo.AddComponent<OnboardingScreen>();
             InvokeAwake(ob);
 
-            Check("引导页：默认 4 页（实际 " + ob.PageCount + "）", ob.PageCount == 4);
+            Check("引导页：默认 6 页（实际 " + ob.PageCount + "）", ob.PageCount == 6);
             Check("引导页：初始在第 1 页", ob.PageIndex == 0);
 
             ob.Show();
@@ -970,8 +972,8 @@ namespace FireSafety.EditorTools
                     Check("第40轮：纸张灭火器贴西墙面（距墙 ≤ 0.30 米）",
                         Mathf.Abs(ext02.transform.position.x - (-6.55f)) <= 0.30f,
                         "x=" + ext02.transform.position.x.ToString("F2"));
-                    Check("第40轮：纸张灭火器已避开青色办公椅那段墙（z 在 -1.6~-0.8 之间）",
-                        ext02.transform.position.z > -1.60f && ext02.transform.position.z < -0.80f,
+                    Check("第49轮：纸张灭火器已避开文件柜与青色办公椅（z 在 -1.35~-0.95 的净空墙段）",
+                        ext02.transform.position.z > -1.35f && ext02.transform.position.z < -0.95f,
                         "z=" + ext02.transform.position.z.ToString("F2"));
                     var rb02 = ext02.GetComponent<Rigidbody>();
                     Check("第40轮：挂墙的 02 号瓶已关物理（否则一进 Play 就摔回地面）",
@@ -1455,13 +1457,13 @@ namespace FireSafety.EditorTools
             var endingSrc = System.IO.File.ReadAllText("Assets/Scripts/FireSafety/EndingScreen.cs");
             Check("第44轮：结算页不再统计灭火器问答", !endingSrc.Contains("quizLine"));
 
-            // ---- 开始界面：三个入口 ----
+            // ---- 开始界面：决策训练 + 两种独立情形 + 操作教学 ----
             var start = UnityEngine.Object.FindObjectOfType<StartScreen>();
-            Check("开始界面：显示「操作流程训练」入口",
-                start != null && start.showTutorialButton && start.tutorialLabel.Contains("操作流程"));
-            Check("开始界面：操作流程训练标注为「程序性技能训练」",
-                start != null && start.tutorialTypeLabel.Contains("程序性技能训练")
-                && start.tutorialTypeLabel.Contains("知识确认"));
+            Check("开始界面：显示「操作教学」入口",
+                start != null && start.showTutorialButton && start.tutorialLabel.Contains("操作教学"));
+            Check("开始界面：操作教学标注为「身份 × 三种起火情景」",
+                start != null && start.tutorialTypeLabel.Contains("身份")
+                && start.tutorialTypeLabel.Contains("返回"));
             Check("开始界面：正式入口为「决策训练」",
                 start != null && start.buttonLabel.Contains("决策"));
 
@@ -1954,13 +1956,14 @@ namespace FireSafety.EditorTools
             Check("场景：引导页（온보딩）存在", onboarding != null);
             if (onboarding != null)
             {
-                Check("场景：引导页已绑定手柄锚点（正前方）", onboarding.anchorHand != null);
+                Check("场景：引导页不挂手柄锚点，改为相机正前方居中（避免右手偏出画面）",
+                    onboarding.anchorHand == null);
                 Check("场景：引导页拉近到 0.6 米（比上轮 1.0 米更近）",
                     Mathf.Approximately(onboarding.handForwardDistance, 0.6f));
-                Check("场景：引导页距离上限 1.3 米",
-                    Mathf.Approximately(onboarding.maxCameraDistance, 1.3f));
-                Check("场景：引导页相机兜底 1.0 米",
-                    Mathf.Approximately(onboarding.cameraFallbackDistance, 1.0f));
+                Check("场景：引导页距离上限 0.95 米（HUD 隐藏后仍保证正文不被裁）",
+                    Mathf.Approximately(onboarding.maxCameraDistance, 0.95f));
+                Check("场景：引导页相机兜底 0.80 米",
+                    Mathf.Approximately(onboarding.cameraFallbackDistance, 0.80f));
                 Check("场景：引导页至少 4 页（实际 " + onboarding.PageCount + "）", onboarding.PageCount >= 4);
             }
 
@@ -2156,6 +2159,13 @@ namespace FireSafety.EditorTools
 
             if (e1 != null)
             {
+                // 记下墙面挂点，链路测试会把瓶子交给假手并放下，结束后必须还原，
+                // 否则后面的第49轮“竖挂于墙”断言会被测试自身改成地面摆放。
+                var homeParent = e1.transform.parent;
+                var homePos = e1.transform.position;
+                var homeRot = e1.transform.rotation;
+                var homeScale = e1.transform.localScale;
+
                 if (e1.pin != null) e1.pin.hideDelay = 0f;   // 编辑模式不能延迟 Destroy
                 InvokeMethod(e1, "OnEnable"); // 订阅 onPickedUp（编辑模式不自动调用）
                 InvokeAwake(e1.grab);         // 场景里的 Awake 也不会自动跑，缓存刚体等状态
@@ -2224,6 +2234,10 @@ namespace FireSafety.EditorTools
                         rb1 != null && rb1.isKinematic);
                 }
 
+                e1.transform.SetParent(homeParent, true);
+                e1.transform.SetPositionAndRotation(homePos, homeRot);
+                e1.transform.localScale = homeScale;
+
                 UnityEngine.Object.DestroyImmediate(anchor.gameObject);
                 ResetManagerInstance();
                 UnityEngine.Object.DestroyImmediate(mgrGo);
@@ -2240,12 +2254,14 @@ namespace FireSafety.EditorTools
         {
             Debug.Log("[TEST] 第 48 轮：情形 1 / 情形 2 与出口门火情条件");
 
-            var alarm = UnityEngine.Object.FindFirstObjectByType<AlarmCallButton>();
+            var alarm = GameObject.Find("AlarmCallButton_South") != null
+                ? GameObject.Find("AlarmCallButton_South").GetComponent<AlarmCallButton>()
+                : UnityEngine.Object.FindFirstObjectByType<AlarmCallButton>();
             Check("墙上有手动报警按钮", alarm != null);
             if (alarm != null)
             {
                 Check("报警按钮为壁挂式（无落地立柱）", alarm.transform.Find("Column") == null);
-                Check("报警按钮贴在 z=-3.98 的南墙", Mathf.Abs(alarm.transform.position.z + 3.98f) < 0.06f,
+                Check("南墙报警按钮贴在 z≈-3.96 的南墙", Mathf.Abs(alarm.transform.position.z + 3.96f) < 0.06f,
                       alarm.transform.position.ToString("F2"));
             }
 
@@ -2274,6 +2290,86 @@ namespace FireSafety.EditorTools
 
             Check("ExitDoor 支持静默解锁 UnlockSilently",
                   typeof(ExitDoor).GetMethod("UnlockSilently") != null);
+        }
+
+        // ------------------------------------------------------------
+        // 第 49 轮：四种墙面报警按钮 / 独立情形 / 操作教学 / 灭火器竖挂
+        // ------------------------------------------------------------
+        static void TestRound49Changes()
+        {
+            // 1) 四个墙面报警按钮
+            string[] names = { "AlarmCallButton_North", "AlarmCallButton_West", "AlarmCallButton_South", "AlarmCallButton_East" };
+            var buttons = new List<AlarmCallButton>();
+            foreach (var n in names)
+            {
+                var go = GameObject.Find(n);
+                var b = go != null ? go.GetComponent<AlarmCallButton>() : null;
+                Check("第49轮：墙面报警按钮存在 " + n, b != null);
+                if (b != null) buttons.Add(b);
+            }
+            Check("第49轮：四个墙面报警按钮齐全（实际 " + buttons.Count + "）", buttons.Count == 4);
+            foreach (var b in buttons)
+            {
+                Check("第49轮：" + b.name + " 为壁挂式（无落地 Column，有 WallBase）",
+                    b.transform.Find("Column") == null && b.transform.Find("WallBase") != null);
+                var plate = b.transform.Find("AlarmPlate");
+                Check("第49轮：" + b.name + " 面板离地约 1.3 米",
+                    plate != null && Mathf.Abs(plate.localPosition.y - 1.30f) < 0.05f,
+                    plate != null ? plate.localPosition.y.ToString("F2") : "null");
+                Check("第49轮：" + b.name + " 绑定 alert 事件 onPressed",
+                    b.onPressed != null);
+            }
+
+            var sc = UnityEngine.Object.FindFirstObjectByType<DrillScenario>();
+            Check("第49轮：DrillScenario 已收集 4 个报警按钮",
+                sc != null && sc.alarmButtons != null && sc.alarmButtons.Length == 4);
+            Check("第49轮：DrillScenario 支持独立情形 StandaloneCase",
+                sc != null && typeof(DrillScenario).GetProperty("StandaloneCase") != null);
+            Check("第49轮：独立情形专用火源 caseFire 已装配", sc != null && sc.caseFire != null);
+            Check("第49轮：独立情形专用烟雾 caseSmoke / caseSmokeZone 已装配",
+                sc != null && sc.caseSmoke != null && sc.caseSmokeZone != null);
+            Check("第49轮：独立情形出生点 ≥ 2 个",
+                sc != null && sc.caseSpawnPoints != null && sc.caseSpawnPoints.Length >= 2);
+            Check("第49轮：独立情形灭火点位已装配", sc != null && sc.caseExtinguishPoint != null);
+
+            // 2) 操作教学：身份 × 三种情景，读完只回主面板
+            var ob = UnityEngine.Object.FindFirstObjectByType<OnboardingScreen>();
+            Check("第49轮：操作教学至少 6 页（实际 " + (ob != null ? ob.PageCount : 0) + "）",
+                ob != null && ob.PageCount >= 6);
+            if (ob != null)
+            {
+                string joined = string.Join("\n", ob.pages);
+                Check("第49轮：教学讲到普通员工身份", joined.Contains("普通员工"));
+                Check("第49轮：教学讲到初期应对责任人身份", joined.Contains("初期应对责任人"));
+                Check("第49轮：教学覆盖电气", joined.Contains("电气"));
+                Check("第49轮：教学覆盖纸张", joined.Contains("纸张"));
+                Check("第49轮：教学覆盖茶水间", joined.Contains("茶水间"));
+                Check("第49轮：教学覆盖两种火情情形", joined.Contains("情形 1") && joined.Contains("情形 2"));
+                Check("第49轮：末页按钮是「返回演练面板」", ob.lastLabel == "返回演练面板");
+            }
+
+            // 3) 三台灭火器全部竖挂于墙上
+            var exts = new[] { "Extinguisher01", "Extinguisher02", "Extinguisher03" };
+            foreach (var n in exts)
+            {
+                var go = GameObject.Find(n);
+                Check("第49轮：" + n + " 存在", go != null);
+                if (go == null) continue;
+                Check("第49轮：" + n + " 瓶底离地 ≥ 0.25 米（墙上竖挂）",
+                    go.transform.position.y >= 0.40f, "pivot y=" + go.transform.position.y.ToString("F2"));
+                var rb = go.GetComponent<Rigidbody>();
+                Check("第49轮：" + n + " 挂墙后已关物理", rb != null && rb.isKinematic && !rb.useGravity);
+                var rend = go.GetComponentInChildren<Renderer>();
+                Check("第49轮：" + n + " 长轴竖直（竖放）",
+                    rend != null && rend.bounds.size.y >= Mathf.Max(rend.bounds.size.x, rend.bounds.size.z) * 0.95f,
+                    rend != null ? rend.bounds.size.ToString("F2") : "null");
+            }
+
+            // 4) 警报不再开场自动拉响
+            var start = UnityEngine.Object.FindFirstObjectByType<StartScreen>();
+            Check("第49轮：开始界面不再自动拉响警报", start != null && !start.startAlarmOnBegin);
+            var dir = UnityEngine.Object.FindFirstObjectByType<DrillFlowDirector>();
+            Check("第49轮：流程不再发现火灾即自动报警", dir != null && !dir.autoAlarmOnDiscover);
         }
 
         static void TestVrConfiguration()
@@ -3013,7 +3109,7 @@ namespace FireSafety.EditorTools
             if (start42 != null)
             {
                 Check("第42轮：开始界面主入口为「决策训练」", start42.buttonLabel.Contains("决策"), start42.buttonLabel);
-                Check("第42轮：第三入口为「操作流程训练」", start42.tutorialLabel.Contains("操作流程"), start42.tutorialLabel);
+                Check("第42轮：第三入口为「操作教学」", start42.tutorialLabel.Contains("操作教学"), start42.tutorialLabel);
             }
             Check("第42轮：三情景专属知识立牌仍在（与第 28 轮通用知识墙并存）",
                   UnityEngine.Object.FindFirstObjectByType<ScenarioKnowledgeBoards>() != null
