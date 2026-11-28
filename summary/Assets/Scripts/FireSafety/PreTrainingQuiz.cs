@@ -37,8 +37,8 @@ namespace FireSafety
         [Range(0.3f, 1f)] public float passRatio = 0.6f;
         [Tooltip("每题限时（秒），超时计为答错")]
         public float timePerQuestion = 20f;
-        [Tooltip("答完一题的停留秒数（看讲解）")]
-        public float advanceDelay = 1.6f;
+        [Tooltip("每题作答后的停留秒数（第50轮：从 1.6 秒放慢到 4.5 秒，保证讲解能读完）")]
+        public float advanceDelay = 4.5f;
 
         [Header("面板")]
         public float distanceFromCamera = 1.20f;

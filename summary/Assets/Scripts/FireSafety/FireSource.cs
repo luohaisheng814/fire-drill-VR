@@ -147,12 +147,9 @@ namespace FireSafety
             IsBurning = false;
             progress01 = 1f;
 
-            if (particles != null)
-                foreach (var p in particles)
-                    if (p) p.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-
-            if (fireLight) fireLight.intensity = 0f;
-            if (fireAudio) fireAudio.Stop();
+            // 第 50 轮：装饰火（FlameDecor_*）不在 particles 数组里，必须统一停掉自身与全部子粒子，
+            // 否则主火血量归零后，周围几簇小火还会继续烧。
+            ClearFlame();
 
             Debug.Log("[Fire] 火源已被扑灭");
             onExtinguished?.Invoke();

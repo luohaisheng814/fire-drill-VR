@@ -71,6 +71,8 @@ namespace FireSafety.EditorTools
             TestRound48Cases();
             Debug.Log("[TEST] >> 第49轮 独立情形 / 墙面报警 / 操作教学 / 竖挂灭火器");
             TestRound49Changes();
+            Debug.Log("[TEST] >> 第50轮 界面节奏 / 多火焰 / 起火现场 / 避火路线");
+            TestRound50Changes();
             Debug.Log("[TEST] >> VRConfig");
             TestVrConfiguration();
 
@@ -333,6 +335,7 @@ namespace FireSafety.EditorTools
             var quiz = go.AddComponent<ExtinguisherQuizPanel>();
             InvokeAwake(quiz);                       // BuildUI + BuildDefaultQuestions
             quiz.advanceDelay = 0.01f;
+            quiz.resultDwell = 0.01f;
 
             Check("问答：默认 5 题", quiz.QuestionCount == 5);
             Check("问答：每题 A/B/C 三选项", quiz.OptionCount == 3);
@@ -399,6 +402,7 @@ namespace FireSafety.EditorTools
             var quiz = go.AddComponent<ExtinguisherQuizPanel>();
             InvokeAwake(quiz);
             quiz.advanceDelay = 0.01f;
+            quiz.resultDwell = 0.01f;
 
             int failed = 0;
             quiz.onFailed.AddListener(() => failed++);
@@ -2370,6 +2374,118 @@ namespace FireSafety.EditorTools
             Check("第49轮：开始界面不再自动拉响警报", start != null && !start.startAlarmOnBegin);
             var dir = UnityEngine.Object.FindFirstObjectByType<DrillFlowDirector>();
             Check("第49轮：流程不再发现火灾即自动报警", dir != null && !dir.autoAlarmOnDiscover);
+        }
+
+        // ------------------------------------------------------------
+        // 第50轮：界面停留节奏 / 多簇火焰 / 起火现场 / 避火逃生路线
+        // ------------------------------------------------------------
+        static void TestRound50Changes()
+        {
+            // 1) 六屏操作演练：5 道题各停 5 秒，结果页也停 5 秒，不再 1 秒闪走
+            var qGo = new GameObject("TEST_R50_Quiz");
+            var quiz = qGo.AddComponent<ExtinguisherQuizPanel>();
+            Check("第50轮：答题后停留 5 秒（原 1.3 秒）", Mathf.Approximately(quiz.advanceDelay, 5f),
+                "advanceDelay=" + quiz.advanceDelay);
+            Check("第50轮：结果页停留 5 秒（原 1.2 秒）", Mathf.Approximately(quiz.resultDwell, 5f),
+                "resultDwell=" + quiz.resultDwell);
+            UnityEngine.Object.DestroyImmediate(qGo);
+
+            var pGo = new GameObject("TEST_R50_PreQuiz");
+            var pre = pGo.AddComponent<PreTrainingQuiz>();
+            Check("第50轮：事前教学答题停留 4.5 秒（原 1.6 秒）",
+                Mathf.Approximately(pre.advanceDelay, 4.5f), "advanceDelay=" + pre.advanceDelay);
+            UnityEngine.Object.DestroyImmediate(pGo);
+
+            // 2) 每个主要火源都有多簇装饰火 + 多股烟，但只保留一个 FireSource
+            CheckFireCluster("DeviceFire", 5, 3);
+            CheckFireCluster("PaperFire", 4, 2);
+            CheckFireCluster("PantryFire", 3, 2);
+            CheckFireCluster("BaseFire000", 3, 2);
+
+            // 3) 情景一/二起火现场道具齐全，且都不带碰撞体
+            Check("第50轮：情景一有供电电缆", GameObject.Find("PowerCable") != null);
+            Check("第50轮：情景一有柜脚灼烧痕", GameObject.Find("CabinetScorch") != null);
+            Check("第50轮：情景一有烧焦纸箱", GameObject.Find("CharredBox") != null);
+            Check("第50轮：情景一有散落文件", GameObject.Find("ScatteredPapers") != null);
+            Check("第50轮：情景二有焦黑桌面", GameObject.Find("PaperScorch") != null);
+            Check("第50轮：情景二有纸张残骸", GameObject.Find("PaperFireDebris") != null);
+            var props = new[] { "PowerCable", "CabinetScorch", "CharredBox", "ScatteredPapers", "PaperScorch", "PaperFireDebris" };
+            bool noColliders = true;
+            foreach (var n in props)
+            {
+                var go = GameObject.Find(n);
+                if (go == null) continue;
+                if (go.GetComponentsInChildren<Collider>(true).Length > 0)
+                {
+                    noColliders = false;
+                    Debug.LogWarning("[TEST] 火场道具带碰撞体：" + n);
+                }
+            }
+            Check("第50轮：火场道具不挡逃生路线（无 Collider）", noColliders);
+
+            // 4) 避火路径：火焰正好横在玩家与出口之间时，箭头必须折向两侧，而不是穿过火场
+            var fireGo = new GameObject("TEST_R50_PathFire");
+            fireGo.transform.position = new Vector3(20f, 0f, 3f);
+            var fs = fireGo.AddComponent<FireSource>();
+            fs.startUnlit = false;
+            fs.fireLight = null;
+            fs.IgniteNow();
+            if (!FireSource.Active.Contains(fs)) FireSource.Active.Add(fs);
+            var aGo = new GameObject("TEST_R50_Arrows");
+            var arrows = aGo.AddComponent<GuidanceArrows>();
+            arrows.floorY = 0.02f;
+            arrows.pathSideOffsets = new float[] { 0.8f, 1.6f, 2.4f, 3.2f };
+            arrows.fireClearRadius = 1.8f;
+            arrows.avoidBurningFires = true;
+            var build = typeof(GuidanceArrows).GetMethod("BuildPath", BindingFlags.Instance | BindingFlags.NonPublic);
+            Check("第50轮：找到 GuidanceArrows.BuildPath", build != null);
+            if (build != null)
+            {
+                build.Invoke(arrows, new object[] { new Vector3(20f, 0f, 0f), new Vector3(20f, 0f, 6f) });
+                Check("第50轮：火源挡路时路径改为折线", arrows.PathPointCount == 3,
+                    "points=" + arrows.PathPointCount);
+                Check("第50轮：路径标记为已避开火源", arrows.AvoidingFire);
+            }
+            UnityEngine.Object.DestroyImmediate(aGo);
+            FireSource.Active.Remove(fs);
+            UnityEngine.Object.DestroyImmediate(fireGo);
+
+            // 5) 韩国官方口径与逃生注意事项已经写进知识墙
+            var board = UnityEngine.Object.FindFirstObjectByType<PlazaKnowledgeBoard>();
+            if (board != null)
+            {
+                var lines = board.PanelLines();
+                bool hasDoor = false, hasAssembly = false, hasStairs = false;
+                foreach (var l in lines[2])
+                {
+                    if (l.Contains("门把手")) hasDoor = true;
+                    if (l.Contains("集合点")) hasAssembly = true;
+                    if (l.Contains("楼梯") || l.Contains("不乘电梯")) hasStairs = true;
+                }
+                Check("第50轮：知识墙含「门把手烫手不开门」", hasDoor);
+                Check("第50轮：知识墙含「集合点清点」", hasAssembly);
+                Check("第50轮：知识墙含「走楼梯、不乘电梯」", hasStairs);
+            }
+            else Check("第50轮：找到门外知识墙", false);
+        }
+
+        static void CheckFireCluster(string fireName, int minFlames, int minSmokes)
+        {
+            GameObject go = null;
+            foreach (var t in UnityEngine.Object.FindObjectsByType<Transform>(
+                         FindObjectsInactive.Include, FindObjectsSortMode.None))
+                if (t != null && t.name == fireName) { go = t.gameObject; break; }
+            if (go == null) { Check("第50轮：找到火源 " + fireName, false); return; }
+            int flames = 0, smokes = 0;
+            foreach (var t in go.GetComponentsInChildren<Transform>(true))
+            {
+                if (t.name.StartsWith("FlameDecor_")) flames++;
+                if (t.name.StartsWith("SmokeDecor_")) smokes++;
+            }
+            int sources = go.GetComponentsInChildren<FireSource>(true).Length;
+            Check("第50轮：" + fireName + " 至少 " + minFlames + " 簇装饰火", flames >= minFlames, "flames=" + flames);
+            Check("第50轮：" + fireName + " 至少 " + minSmokes + " 股装饰烟", smokes >= minSmokes, "smokes=" + smokes);
+            Check("第50轮：" + fireName + " 只有一个火源组件", sources == 1, "sources=" + sources);
         }
 
         static void TestVrConfiguration()

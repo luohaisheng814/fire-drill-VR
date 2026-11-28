@@ -120,6 +120,10 @@ namespace FireSafety
 
         void ShowInternal(string message, float seconds)
         {
+            // 第 50 轮：答题 / 结果页阅读时需要完整看清 5 题讲解，烟雾伤害等世界提示不要压在面板上。
+            var quiz = FindFirstObjectByType<ExtinguisherQuizPanel>();
+            if (quiz != null && quiz.IsOpen) return;
+
             if (message == null) message = "";
             _text.text = message;
             _accent.color = AccentFor(message);

@@ -109,7 +109,7 @@ namespace FireSafety
                     "② 判断逃生方向：最近的安全出口，走楼梯、绝不乘电梯",
                     "③ 低姿沿墙快速撤离，不折返取物、不贪恋财物",
                     "④ 撤到空旷安全地带后拨打 119（韩国火警/急救电话）",
-                    "⑤ 在集合点清点人数并报告；初期小火且受过训练才用灭火器"
+                    "⑤ 集合点清点；门把手烫手不开门；火大撤离，初期小火才用灭火器"
                 }
             };
         }
@@ -143,7 +143,7 @@ namespace FireSafety
                         "② Decide the way out: nearest exit, stairs only, never the lift",
                         "③ Stay low and evacuate fast; never go back for belongings",
                         "④ Call 119 (Korean fire & rescue) once you are safely outside",
-                        "⑤ Count heads at the assembly point; use an extinguisher only on a small, incipient fire"
+                        "⑤ Count heads at the assembly point; never open a hot handle; use an extinguisher only on incipient fire"
                     };
             }
         }
@@ -177,7 +177,7 @@ namespace FireSafety
                         "② 대피 방향 결정: 가장 가까운 비상구, 계단 이용, 엘리베이터 절대 금지",
                         "③ 낮은 자세로 신속히 대피, 물건을 가지러 돌아가지 않는다",
                         "④ 안전한 곳에 대피한 후 119에 신고한다",
-                        "⑤ 집결지에서 인원을 확인한다; 초기 소화는 불이 작고 교육을 받은 경우에만"
+                        "⑤ 집결지에서 인원 확인; 문손잡이가 뜨거우면 열지 않는다; 초기 소화는 불이 작을 때만"
                     };
             }
         }

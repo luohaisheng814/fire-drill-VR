@@ -703,7 +703,10 @@ namespace FireSafety.EditorTools
             arrows.arrowStartDistance = 0.9f;
             arrows.pathProbeHeight = 0.35f;
             arrows.pathClearRadius = 0.30f;
-            arrows.pathSideOffsets = new float[] { 0.8f, 1.6f, 2.4f };
+            arrows.pathSideOffsets = new float[] { 0.8f, 1.6f, 2.4f, 3.2f };
+            arrows.fireClearRadius = 1.8f;
+            arrows.fireProbeStep = 0.35f;
+            arrows.avoidBurningFires = true;
             arrows.adaptiveExitSign = true;
             arrows.floorY = 0.02f;
             arrows.autoStartOnAlarm = true;
@@ -1413,6 +1416,9 @@ namespace FireSafety.EditorTools
                 new Vector3(0.055f, 0.055f, 0.02f), "Assets/Materials/DeviceLedMat.mat", new Color(1f, 0.25f, 0.18f), 0.6f,
                 emission: new Color(1f, 0.18f, 0.10f) * 3f);
 
+            // 第 50 轮：把起火点从「孤立的黑盒子」补成完整的电气火灾现场（电缆、纸箱、散落纸张、灼烧痕）。
+            SetupScenario1FireStory(devicePos, device.transform);
+
             // ---------------- 设备顶部的火焰（克隆场景自带 BaseFire000） ----------------
             var fireGo = GameObject.Find("DeviceFire");
             var template = GameObject.Find("BaseFire000");
@@ -1446,7 +1452,26 @@ namespace FireSafety.EditorTools
             }
             if (fireSource != null) fireSource.aimTarget = aim;
             if (fireGo.GetComponent<FireHealthBar>() == null) fireGo.AddComponent<FireHealthBar>();
-            Debug.Log("[Setup] ✔ 设备火焰 DeviceFire：断电锁定 + 火焰血量条（HP 100 起）");
+
+            // 第 50 轮：电气机柜不再是一根孤零零的大火柱——
+            // 顶部左右两簇、柜体正面一簇、桌面纸堆一簇、地面电缆一簇，形成「一台机柜向四周蔓延」的火场。
+            // 全部是主火源的子粒子：主火一灭，FireSource.ClearFlame 会连同这些装饰火一起收掉。
+            AddFireDecor(fireGo, "Device",
+                new[]
+                {
+                    new Vector3(-0.34f, -0.02f, 0.20f),
+                    new Vector3(0.36f, -0.03f, -0.18f),
+                    new Vector3(0.02f, -0.05f, 0.34f),
+                    new Vector3(-0.82f, -0.10f, 0.26f),   // 桌面纸堆（飞火引燃）
+                    new Vector3(0.58f, -0.94f, 0.10f)     // 机柜脚下电缆
+                },
+                new[]
+                {
+                    new Vector3(0.02f, 1.45f, 0.04f),
+                    new Vector3(-0.55f, 1.10f, 0.28f),
+                    new Vector3(0.52f, 1.20f, -0.22f)
+                }, 0.38f);
+            Debug.Log("[Setup] ✔ 设备火焰 DeviceFire：断电锁定 + 火焰血量条（HP 100 起）+ 5 簇蔓延火 / 3 股烟");
 
             // ---------------- 设备冒烟（开始演练即播放） ----------------
             var smokeGo = GameObject.Find("DeviceSmoke");
@@ -1496,6 +1521,22 @@ namespace FireSafety.EditorTools
             // ---------------- 情景二 / 三的起火点（克隆 BaseFire000，不继承模板的进度与事件） ----------------
             var paperFire = EnsureScenarioFire("PaperFire", paperFirePos, template, 0.26f,
                 "桌面纸张、档案正在燃烧！这属于 A 类固体火灾");
+            // 第 50 轮：纸张火从「一簇小火苗」扩成桌面多簇火焰 + 两股纸烟，
+            // 并让火舌盖住散落的档案纸，视觉上读得出「纸张向四周延烧」。
+            AddFireDecor(paperFire.gameObject, "Paper",
+                new[]
+                {
+                    new Vector3(-0.38f, 0f, 0.16f),
+                    new Vector3(0.34f, 0.01f, -0.20f),
+                    new Vector3(0.08f, 0.02f, 0.44f),
+                    new Vector3(0.50f, -0.06f, 0.34f)
+                },
+                new[]
+                {
+                    new Vector3(0f, 1.15f, 0f),
+                    new Vector3(-0.45f, 0.85f, 0.28f)
+                }, 0.34f);
+            SetupScenario2FireStory(paperFirePos);
             var paperSmoke = EnsureScenarioSmoke("PaperSmoke",
                 new Vector3(paperFirePos.x, 1.55f, paperFirePos.z), new Color(0.30f, 0.30f, 0.32f, 0.55f), 18f);
             // 第 40 轮：房间级烟雾从 4 个点、15/秒 扩到 9 个点、24/秒，并往东北方向摊开，
@@ -1513,6 +1554,19 @@ namespace FireSafety.EditorTools
 
             var pantryFire = EnsureScenarioFire("PantryFire", pantryFirePos, template, 0.38f,
                 "茶水间台面起火！先断电、再灭火，油类火灾不能用水");
+            // 第 50 轮：茶水间台面多簇火 + 抽油烟方向的两股烟，和电器/纸张火明显区分。
+            AddFireDecor(pantryFire.gameObject, "Pantry",
+                new[]
+                {
+                    new Vector3(-0.40f, 0f, 0.18f),
+                    new Vector3(0.30f, 0.02f, -0.22f),
+                    new Vector3(0.34f, -0.03f, 0.28f)
+                },
+                new[]
+                {
+                    new Vector3(0f, 1.20f, 0f),
+                    new Vector3(0.42f, 0.95f, -0.20f)
+                }, 0.36f);
             var pantrySmoke = EnsureScenarioSmoke("PantrySmoke",
                 new Vector3(pantryFirePos.x, 1.50f, pantryFirePos.z), new Color(0.34f, 0.33f, 0.31f, 0.55f), 18f);
             var pantryZone = EnsureRoomSmoke("Stage1Smoke_Pantry",
@@ -1533,16 +1587,18 @@ namespace FireSafety.EditorTools
             if (lobbySmoke == null) lobbySmoke = lobbyGo.AddComponent<SmokeZone>();
             lobbySmoke.start = new Vector3(-1.20f, 1.62f, 0.10f);
             lobbySmoke.end = new Vector3(6.20f, 1.62f, -2.20f);
-            lobbySmoke.emitterCount = 14;
+            lobbySmoke.emitterCount = 10;
             lobbySmoke.floorClearance = 1.10f;
-            lobbySmoke.particleSize = 2.30f;
-            lobbySmoke.ratePerSecond = 38f;
-            lobbySmoke.lifetime = 9f;
+            lobbySmoke.particleSize = 1.60f;
+            lobbySmoke.ratePerSecond = 16f;
+            lobbySmoke.lifetime = 8f;
             lobbySmoke.emitterShape = new Vector3(3.6f, 1.05f, 1.6f);
-            lobbySmoke.alphaScale = 2.00f;
-            lobbySmoke.particleCap = 420;
-            lobbySmoke.sizeGrowth = 1.7f;
-            lobbySmoke.smokeColor = new Color(0.58f, 0.60f, 0.63f, 0.55f);
+            // 第 50 轮：原 2.0 倍浓度 + 2.3 米粒径把整个大厅糊成灰墙，玩家看不清 HUD 与脚下箭头。
+            // 改为「一层能看见的薄烟」：0.75 倍、1.6 米、16/秒；近火处的浓烟仍由 Stage1Smoke 局部提供。
+            lobbySmoke.alphaScale = 0.75f;
+            lobbySmoke.particleCap = 240;
+            lobbySmoke.sizeGrowth = 1.45f;
+            lobbySmoke.smokeColor = new Color(0.58f, 0.60f, 0.63f, 0.30f);
             lobbySmoke.driftPerSecond = new Vector3(0.22f, 0.06f, 0.10f);
             lobbySmoke.autoFollow = true;
             lobbySmoke.followFires = new[] { fireSource, paperFire, pantryFire };
@@ -1612,6 +1668,20 @@ namespace FireSafety.EditorTools
                     baseFire.startUnlit = true;                 // 未开始演练时不燃烧
                     baseFire.igniteFromStartScreen = false;     // 「开始演练」只点燃设备火
                     baseFire.PrepareAsUnlit();
+                    // 第 50 轮：独立情形/第二阶段复燃火也使用多簇火焰 + 双股烟，
+                    // 第二阶段运行时克隆 BaseFire000 会自动带上这些装饰。
+                    AddFireDecor(template, "Base",
+                        new[]
+                        {
+                            new Vector3(-0.44f, 0f, 0.20f),
+                            new Vector3(0.42f, 0.01f, -0.18f),
+                            new Vector3(0.02f, 0.02f, 0.48f)
+                        },
+                        new[]
+                        {
+                            new Vector3(0f, 0.95f, 0.05f),
+                            new Vector3(-0.38f, 0.75f, -0.16f)
+                        }, 0.46f);
                 }
             }
 
@@ -1957,6 +2027,246 @@ namespace FireSafety.EditorTools
             if (mr != null)
                 mr.sharedMaterial = EnsureSetupMaterial(matPath, color, smoothness, emission);
             return t;
+        }
+
+        /// <summary>
+        /// 第 50 轮：给一个火源克隆添加「多簇火焰 + 多股烟」装饰。
+        /// offsets 是世界坐标偏移（米），函数内部按火源根节点缩放换算成局部位移，
+        /// 这样同一套参数用在设备火（×0.55）、纸张火（×0.26）、茶水间火（×0.38）都不会挤成一团。
+        /// 装饰只复制粒子系统，不复制 FireSource，也不登记到 FireSource.particles；
+        /// 主火熄灭时由 ClearFlame 统一停掉全部子粒子。
+        /// </summary>
+        static void AddFireDecor(GameObject root, string tag, Vector3[] flameOffsets, Vector3[] smokeOffsets,
+                                 float flameScale)
+        {
+            if (root == null) return;
+            float s = Mathf.Max(0.01f, root.transform.localScale.x);
+            var flameTpl = FindDecorParticle(root, "Fire");
+            var smokeTpl = FindDecorParticle(root, "Smoke");
+
+            for (int i = root.transform.childCount - 1; i >= 0; i--)
+            {
+                var c = root.transform.GetChild(i);
+                if (c != null && (c.name.StartsWith("FlameDecor_" + tag) || c.name.StartsWith("SmokeDecor_" + tag)))
+                    UnityEngine.Object.DestroyImmediate(c.gameObject);
+            }
+
+            if (flameTpl != null && flameOffsets != null)
+            {
+                for (int i = 0; i < flameOffsets.Length; i++)
+                {
+                    var off = flameOffsets[i];
+                    var go = UnityEngine.Object.Instantiate(flameTpl.gameObject, root.transform);
+                    go.name = "FlameDecor_" + tag + "_" + (i + 1);
+                    go.transform.localPosition = new Vector3(off.x / s, off.y / s, off.z / s);
+                    go.transform.localRotation = Quaternion.identity;
+                    go.transform.localScale = flameTpl.transform.localScale * flameScale;
+                    var ps = go.GetComponent<ParticleSystem>();
+                    if (ps != null) ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                }
+            }
+
+            if (smokeTpl != null && smokeOffsets != null)
+            {
+                for (int i = 0; i < smokeOffsets.Length; i++)
+                {
+                    var off = smokeOffsets[i];
+                    var go = UnityEngine.Object.Instantiate(smokeTpl.gameObject, root.transform);
+                    go.name = "SmokeDecor_" + tag + "_" + (i + 1);
+                    go.transform.localPosition = new Vector3(off.x / s, off.y / s, off.z / s);
+                    go.transform.localRotation = Quaternion.identity;
+                    go.transform.localScale = smokeTpl.transform.localScale * (flameScale * 1.15f);
+                    var ps = go.GetComponent<ParticleSystem>();
+                    if (ps != null) ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                }
+            }
+
+            UnityEditor.EditorUtility.SetDirty(root);
+            Debug.Log("[Setup] ✔ 火焰装饰 " + tag + "：+" + (flameOffsets != null ? flameOffsets.Length : 0)
+                      + " 簇火 / +" + (smokeOffsets != null ? smokeOffsets.Length : 0) + " 股烟");
+        }
+
+        static ParticleSystem FindDecorParticle(GameObject root, string keyword)
+        {
+            foreach (var p in root.GetComponentsInChildren<ParticleSystem>(true))
+            {
+                if (p == null || p.transform == root.transform) continue;
+                if (p.name.IndexOf(keyword, System.StringComparison.OrdinalIgnoreCase) < 0) continue;
+                if (keyword == "Fire" && p.name.IndexOf("Smoke", System.StringComparison.OrdinalIgnoreCase) >= 0) continue;
+                return p;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// 第 50 轮：情景一「电气机柜起火」的现场叙事：
+        /// 机柜紧贴北墙总闸下方 → 供电电缆从机柜顶部接到总闸 → 柜脚电缆短路引燃纸箱与散落文件 →
+        /// 地面留下灼烧痕迹。这样起火点不是凭空摆在走道中间，玩家一眼能读懂「为什么这里起火」。
+        /// 所有道具都是纯视觉（无碰撞体），不挡逃生路线。
+        /// </summary>
+        static void SetupScenario1FireStory(Vector3 devicePos, Transform cabinet)
+        {
+            // 1) 供电电缆：机柜顶部 → 墙上总闸
+            var cableGo = GameObject.Find("PowerCable");
+            if (cableGo == null) cableGo = new GameObject("PowerCable");
+            var lr = cableGo.GetComponent<LineRenderer>();
+            if (lr == null) lr = cableGo.AddComponent<LineRenderer>();
+            lr.useWorldSpace = true;
+            lr.positionCount = 3;
+            lr.SetPosition(0, new Vector3(devicePos.x + 0.18f, 1.04f, devicePos.z + 0.20f));
+            lr.SetPosition(1, new Vector3(devicePos.x + 0.18f, 0.80f, devicePos.z + 0.46f));
+            lr.SetPosition(2, new Vector3(devicePos.x + 0.18f, 1.06f, 3.58f));
+            lr.widthMultiplier = 0.035f;
+            lr.numCapVertices = 4;
+            lr.numCornerVertices = 4;
+            lr.sharedMaterial = EnsureSetupMaterial("Assets/Materials/PowerCableMat.mat",
+                new Color(0.045f, 0.045f, 0.055f), 0.15f);
+            lr.shadowCastingMode = ShadowCastingMode.Off;
+
+            // 2) 柜脚灼烧痕迹 + 纸箱残骸
+            var scorch = GameObject.Find("CabinetScorch");
+            if (scorch == null)
+            {
+                scorch = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+                scorch.name = "CabinetScorch";
+                var c = scorch.GetComponent<Collider>();
+                if (c != null) UnityEngine.Object.DestroyImmediate(c);
+            }
+            scorch.transform.position = new Vector3(devicePos.x + 0.12f, 0.022f, devicePos.z + 0.10f);
+            scorch.transform.rotation = Quaternion.identity;
+            scorch.transform.localScale = new Vector3(0.72f, 0.006f, 0.64f);
+            var smr = scorch.GetComponent<MeshRenderer>();
+            if (smr != null)
+            {
+                smr.sharedMaterial = EnsureSetupMaterial("Assets/Materials/ScorchMat.mat",
+                    new Color(0.055f, 0.045f, 0.040f), 0.05f);
+                smr.shadowCastingMode = ShadowCastingMode.Off;
+            }
+
+            var box = GameObject.Find("CharredBox");
+            if (box == null)
+            {
+                box = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                box.name = "CharredBox";
+                var c = box.GetComponent<Collider>();
+                if (c != null) UnityEngine.Object.DestroyImmediate(c);
+            }
+            box.transform.position = new Vector3(devicePos.x + 0.58f, 0.17f, devicePos.z + 0.10f);
+            box.transform.rotation = Quaternion.Euler(0f, 18f, 0f);
+            box.transform.localScale = new Vector3(0.40f, 0.32f, 0.34f);
+            var bmr = box.GetComponent<MeshRenderer>();
+            if (bmr != null)
+            {
+                bmr.sharedMaterial = EnsureSetupMaterial("Assets/Materials/CharredBoxMat.mat",
+                    new Color(0.14f, 0.095f, 0.060f), 0.08f);
+                bmr.shadowCastingMode = ShadowCastingMode.On;
+            }
+
+            // 3) 散落文件：从桌面被气流吹落到机柜脚边，让「纸张也是燃料」有画面依据
+            var debris = GameObject.Find("ScatteredPapers");
+            if (debris != null) UnityEngine.Object.DestroyImmediate(debris);
+            debris = new GameObject("ScatteredPapers");
+            debris.transform.SetParent(null, true);
+            var paperMat = EnsureSetupMaterial("Assets/Materials/ScorchPaperMat.mat",
+                new Color(0.72f, 0.68f, 0.58f), 0.25f);
+            Vector3[] paperPositions =
+            {
+                new Vector3(devicePos.x + 0.36f, 0.045f, devicePos.z + 0.26f),
+                new Vector3(devicePos.x + 0.78f, 0.040f, devicePos.z + 0.02f),
+                new Vector3(devicePos.x + 0.42f, 0.038f, devicePos.z - 0.17f),
+                new Vector3(devicePos.x + 0.92f, 0.042f, devicePos.z + 0.20f),
+                new Vector3(devicePos.x - 0.20f, 0.040f, devicePos.z - 0.28f)
+            };
+            for (int i = 0; i < paperPositions.Length; i++)
+            {
+                var p = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                p.name = "ScatteredPaper_" + (i + 1);
+                var pc = p.GetComponent<Collider>();
+                if (pc != null) UnityEngine.Object.DestroyImmediate(pc);
+                p.transform.SetParent(debris.transform, true);
+                p.transform.position = paperPositions[i];
+                p.transform.rotation = Quaternion.Euler(0f, i * 23f - 20f, 0f);
+                p.transform.localScale = new Vector3(0.21f, 0.004f, 0.29f);
+                var pr = p.GetComponent<MeshRenderer>();
+                if (pr != null) pr.sharedMaterial = paperMat;
+            }
+
+            // 4) 机柜侧面加一块「线路过载」警示小牌，起火原因可视化
+            var tag = GameObject.Find("CabinetWarningTag");
+            if (tag == null) tag = new GameObject("CabinetWarningTag");
+            tag.transform.position = cabinet != null
+                ? cabinet.position + new Vector3(0.22f, 0.35f, -0.30f)
+                : new Vector3(devicePos.x + 0.22f, 0.88f, devicePos.z - 0.30f);
+            tag.transform.rotation = Quaternion.Euler(0f, 0f, 0f);
+            var tagText = tag.GetComponent<TextMesh>();
+            if (tagText == null) tagText = tag.AddComponent<TextMesh>();
+            tagText.text = "线路过载\nOVERLOAD";
+            tagText.fontSize = 48;
+            tagText.characterSize = 0.012f;
+            tagText.anchor = TextAnchor.MiddleCenter;
+            tagText.alignment = TextAlignment.Center;
+            tagText.color = new Color(0.95f, 0.72f, 0.22f);
+            Debug.Log("[Setup] ✔ 情景一火场规划：供电电缆 + 柜脚纸箱 + 散落文件 + 灼烧痕迹 + 过载标牌");
+        }
+
+        /// <summary>第 50 轮：情景二纸张火的现场补充——焦黑桌面、散落纸张、烧焦档案夹。</summary>
+        static void SetupScenario2FireStory(Vector3 firePos)
+        {
+            var scorch = GameObject.Find("PaperScorch");
+            if (scorch == null)
+            {
+                scorch = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+                scorch.name = "PaperScorch";
+                var c = scorch.GetComponent<Collider>();
+                if (c != null) UnityEngine.Object.DestroyImmediate(c);
+            }
+            scorch.transform.position = new Vector3(firePos.x, 0.962f, firePos.z);
+            scorch.transform.localScale = new Vector3(0.52f, 0.004f, 0.46f);
+            var smr = scorch.GetComponent<MeshRenderer>();
+            if (smr != null)
+            {
+                smr.sharedMaterial = EnsureSetupMaterial("Assets/Materials/PaperScorchMat.mat",
+                    new Color(0.075f, 0.052f, 0.038f), 0.05f);
+                smr.shadowCastingMode = ShadowCastingMode.Off;
+            }
+
+            var debris = GameObject.Find("PaperFireDebris");
+            if (debris != null) UnityEngine.Object.DestroyImmediate(debris);
+            debris = new GameObject("PaperFireDebris");
+            var matWhite = EnsureSetupMaterial("Assets/Materials/PaperFireSheetMat.mat",
+                new Color(0.78f, 0.74f, 0.63f), 0.3f);
+            var matChar = EnsureSetupMaterial("Assets/Materials/PaperFireCharMat.mat",
+                new Color(0.18f, 0.12f, 0.07f), 0.08f);
+            for (int i = 0; i < 5; i++)
+            {
+                var p = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                p.name = "PaperFireSheet_" + (i + 1);
+                var pc = p.GetComponent<Collider>();
+                if (pc != null) UnityEngine.Object.DestroyImmediate(pc);
+                p.transform.SetParent(debris.transform, true);
+                float ang = i * 31f;
+                p.transform.position = new Vector3(firePos.x + Mathf.Cos(ang * Mathf.Deg2Rad) * (0.28f + 0.08f * i),
+                    0.958f, firePos.z + Mathf.Sin(ang * Mathf.Deg2Rad) * (0.24f + 0.06f * i));
+                p.transform.rotation = Quaternion.Euler(0f, ang, 0f);
+                p.transform.localScale = new Vector3(0.20f, 0.004f, 0.28f);
+                var pr = p.GetComponent<MeshRenderer>();
+                if (pr != null) pr.sharedMaterial = i < 2 ? matChar : matWhite;
+            }
+
+            var folder = GameObject.Find("CharredFolder");
+            if (folder == null)
+            {
+                folder = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                folder.name = "CharredFolder";
+                var fc = folder.GetComponent<Collider>();
+                if (fc != null) UnityEngine.Object.DestroyImmediate(fc);
+            }
+            folder.transform.position = new Vector3(firePos.x + 0.50f, 0.985f, firePos.z - 0.20f);
+            folder.transform.rotation = Quaternion.Euler(0f, -22f, 0f);
+            folder.transform.localScale = new Vector3(0.30f, 0.045f, 0.24f);
+            var fr = folder.GetComponent<MeshRenderer>();
+            if (fr != null) fr.sharedMaterial = matChar;
+            Debug.Log("[Setup] ✔ 情景二火场规划：焦黑桌面 + 5 张散落纸 + 烧焦档案夹");
         }
 
         /// <summary>把克隆出来的火焰整理成「可点燃 / 可锁定 / 血量归零」的新火源。</summary>
@@ -2793,6 +3103,8 @@ namespace FireSafety.EditorTools
             quiz.questionSetIndex = root.name.Contains("03") ? 5 : (root.name.Contains("02") ? 4 : 2);
             quiz.ResetToDefaultQuestions();                 // 只刷本组 5 题，A/B/C 三选项
             quiz.timePerQuestion = 10f;                     // 每题 10 秒
+            quiz.advanceDelay = 5f;                         // 第 50 轮：答完停留 5 秒可读讲解
+            quiz.resultDwell = 5f;                          // 第 50 轮：结果页停留 5 秒
             quiz.passRatio = 0.6f;                          // 答对 60%（3/5）才可通过
             quiz.distanceFromCamera = 1.15f;                // 一臂外阅读距离：字够大、按钮不挡手
             quiz.verticalOffset = -0.05f;                   // 略低于视线，不用仰头

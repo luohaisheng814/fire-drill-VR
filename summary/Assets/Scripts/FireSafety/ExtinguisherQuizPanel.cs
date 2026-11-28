@@ -52,8 +52,10 @@ namespace FireSafety
         [Header("行为")]
         [Tooltip("答错时显示正确答案与讲解，随后进入下一题")]
         public bool teachOnWrong = true;
-        [Tooltip("每道题作答后的停留秒数")]
-        public float advanceDelay = 1.3f;
+        [Tooltip("每道题作答后的停留秒数（第50轮：从 1.3 秒放慢到 5 秒，保证答案解析能读完）")]
+        public float advanceDelay = 5f;
+        [Tooltip("最后一题结束后的结果页停留秒数（第50轮：从 1.2 秒放慢到 5 秒，保证通过/未通过信息能看清）")]
+        public float resultDwell = 5f;
         [Tooltip("答题时是否显示「距灭火器 ×× 米」提示行；第39轮按需求默认关闭，答题界面只留题目与选项")]
         public bool showDistanceHint = false;
 
@@ -913,6 +915,7 @@ namespace FireSafety
                 Play("Sounds/SFX/quiz_wrong");
             }
 
+            if (_timerText != null) _timerText.text = "已作答";
             ScheduleAdvance();
         }
 
@@ -930,6 +933,7 @@ namespace FireSafety
                 (q != null && !string.IsNullOrEmpty(q.explanation) ? q.explanation : "");
             _feedbackText.color = new Color(1f, 0.55f, 0.35f);
             Play("Sounds/SFX/quiz_wrong");
+            if (_timerText != null) _timerText.text = "已作答";
             ScheduleAdvance();
         }
 
@@ -965,9 +969,13 @@ namespace FireSafety
                 onFailed?.Invoke();
             }
 
+            // 结果页不再显示「剩余 10 秒」，避免和“答题结束”自相矛盾
+            if (_timerText != null) _timerText.text = "本轮结束";
+            if (_timerFill != null) _timerFill.fillAmount = 0f;
+
             // 结果停留一会儿再自动收起（AdvanceTime 里推进，便于自检）
             _finished = true;
-            _closeTimer = 1.2f;
+            _closeTimer = Mathf.Max(0.01f, resultDwell);
         }
 
         void Play(string resourcePath)

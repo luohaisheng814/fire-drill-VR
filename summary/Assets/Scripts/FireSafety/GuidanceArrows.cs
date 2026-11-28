@@ -42,10 +42,19 @@ namespace FireSafety
         [Tooltip("路径通畅判定的身体半径（米）：0.3 米能避开椅子、桌腿和窄缝")]
         public float pathClearRadius = 0.30f;
         [Tooltip("直线被挡时，依次尝试的横向绕行距离（米）")]
-        public float[] pathSideOffsets = { 0.8f, 1.6f, 2.4f };
+        public float[] pathSideOffsets = { 0.8f, 1.6f, 2.4f, 3.2f };
         [Tooltip("安全出口牌显示实时距离与相对方向（↑ ↗ → ↘ ↓ ↙ ← ↖）")]
         public bool adaptiveExitSign = true;
 
+        [Header("第 50 轮：火源危险区避让（按韩国消防厅「대피 먼저」原则）")]
+        [Tooltip("路径与正在燃烧的火源保持的最小水平距离（米）：1.8 米约为灭火器有效喷射距离之外的安全余量")]
+        public float fireClearRadius = 1.8f;
+        [Tooltip("沿路径每隔多少米检查一次火源距离")]
+        public float fireProbeStep = 0.35f;
+        [Tooltip("关闭后只按墙体/家具绕行（旧行为），一般保持开启")]
+        public bool avoidBurningFires = true;
+
+        public bool AvoidingFire { get; private set; }
         public int VisibleArrowCount { get; private set; }
         public int PathPointCount => _pathCount;
         public bool UsingDetour { get; private set; }
@@ -104,7 +113,7 @@ namespace FireSafety
         Text _signText;
         Material _arrowMat;
         bool _collected;
-        readonly Vector3[] _path = new Vector3[3];
+        readonly Vector3[] _path = new Vector3[4];
         readonly Collider[] _probeHits = new Collider[32];
         int _pathCount;
 
@@ -255,6 +264,7 @@ namespace FireSafety
         {
             _pathCount = 0;
             UsingDetour = false;
+            AvoidingFire = false;
             _path[0] = start;
             _path[1] = end;
             _pathCount = 2;
@@ -263,7 +273,9 @@ namespace FireSafety
             float length = delta.magnitude;
             if (length < 0.5f) return;
             Vector3 dir = delta / length;
+            bool straightFireBlocked = IsTooCloseToFire(start, end);
             if (IsPathClear(start, end)) return;
+            if (straightFireBlocked) AvoidingFire = true;
 
             Vector3 side = Vector3.Cross(Vector3.up, dir);
             if (side.sqrMagnitude < 0.0001f) side = Vector3.right;
@@ -286,6 +298,81 @@ namespace FireSafety
                     return;
                 }
             }
+
+            // 第 50 轮：横向绕行都被桌子/门框挡住时，再试一条「先退到火源南侧大厅、再走向出口」的
+            // 疏散折线。真实办公室逃生也是先离开燃烧区，再沿大厅开阔面撤向东侧出口。
+            Vector3 safe = new Vector3(
+                Mathf.Min(end.x - 1.0f, start.x + length * 0.7f),
+                start.y,
+                Mathf.Min(start.z, end.z) - Mathf.Max(0.9f, fireClearRadius * 0.65f));
+            if (IsPathClear(start, safe) && IsPathClear(safe, end))
+            {
+                _path[1] = safe;
+                _path[2] = end;
+                _pathCount = 3;
+                UsingDetour = true;
+                AvoidingFire = true;
+                return;
+            }
+
+            // 第 50 轮：再退一步——先沿当前所在一侧向南离开燃烧区，横穿大厅南侧的开放地面，
+            // 最后再折回东侧出口。这是办公室火灾里最常见的“先离开火源、再横向疏散”路线。
+            if (avoidBurningFires)
+            {
+                float southZ = Mathf.Min(start.z, end.z);
+                foreach (var f in FireSource.Active)
+                {
+                    if (f == null || !f.IsBurning || f.IsExtinguished) continue;
+                    southZ = Mathf.Min(southZ, f.transform.position.z - fireClearRadius - 0.35f);
+                }
+                southZ = Mathf.Max(southZ, -3.10f);
+                Vector3 a = new Vector3(start.x, start.y, southZ);
+                Vector3 b = new Vector3(Mathf.Min(end.x - 1.0f, start.x + 2.0f), start.y, southZ);
+                if (IsPathClear(start, a) && IsPathClear(a, b) && IsPathClear(b, end))
+                {
+                    _path[1] = a;
+                    _path[2] = b;
+                    _path[3] = end;
+                    _pathCount = 4;
+                    UsingDetour = true;
+                    AvoidingFire = true;
+                    return;
+                }
+            }
+
+            // 所有横向绕行点都被挡：仍保留直线（至少箭头不会消失），但记录未避开火源，便于自检报警。
+            if (straightFireBlocked)
+            {
+                AvoidingFire = false;
+                Debug.LogWarning("[Arrows] 找不到避开火焰的折线路径，保留直线引导。start=" + start + " end=" + end
+                    + " fireR=" + fireClearRadius + "，请检查火源与出口的相对位置。");
+            }
+        }
+
+        /// <summary>路径上任一点是否进入正在燃烧火源的危险半径（水平面距离）。</summary>
+        bool IsTooCloseToFire(Vector3 a, Vector3 b)
+        {
+            if (!avoidBurningFires || fireClearRadius <= 0.01f) return false;
+            Vector3 start = new Vector3(a.x, 0f, a.z);
+            Vector3 end = new Vector3(b.x, 0f, b.z);
+            float segLen = Vector3.Distance(start, end);
+            if (segLen < 0.05f) return false;
+            float step = Mathf.Clamp(fireProbeStep, 0.15f, 1f);
+            int steps = Mathf.Max(1, Mathf.CeilToInt(segLen / step));
+            var fires = FireSource.Active;
+            for (int i = 1; i < steps; i++)   // 两端各留一格：玩家脚下与目标点允许贴近
+            {
+                Vector3 p = Vector3.Lerp(start, end, (float)i / steps);
+                foreach (var f in fires)
+                {
+                    if (f == null || !f.IsBurning || f.IsExtinguished) continue;
+                    Vector3 fp = f.transform.position;
+                    float dx = p.x - fp.x;
+                    float dz = p.z - fp.z;
+                    if (dx * dx + dz * dz < fireClearRadius * fireClearRadius) return true;
+                }
+            }
+            return false;
         }
 
         bool IsPathClear(Vector3 a, Vector3 b)
@@ -295,6 +382,8 @@ namespace FireSafety
             Vector3 seg = end - start;
             float dist = seg.magnitude;
             if (dist < 0.4f) return true;
+            // 第 50 轮：先按火源危险区判一遍——不要求火有碰撞体，火场本身就不该被踩过去。
+            if (IsTooCloseToFire(a, b)) return false;
             Vector3 dir = seg / dist;
 
             // 两端各留 0.35 米余量：玩家自己站的位置、门框/出口目标本身不算挡路。
