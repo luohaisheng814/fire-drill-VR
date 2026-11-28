@@ -92,6 +92,21 @@ namespace FireSafety
         [Tooltip("标识沿门横向再挪开多少米：避免正对火源、把门和火焰挡住（0 = 正对门口）")]
         public float floorSignSideOffset = 0f;
 
+        [Header("第 51 轮：第二条逃生路线（青色备用线）")]
+        [Tooltip("第 2/3 阶段显示第二条独立绕行路线；两条都通往同一个安全出口")]
+        public bool showAlternateExitRoute = true;
+        public int alternateArrowCount = 7;
+        public Color alternateArrowColor = new Color(0.16f, 0.86f, 0.96f);
+        [Tooltip("备用箭头相对主箭头的缩放（主箭头在第 2 阶段已放大 2.2 倍）")]
+        public float alternateArrowScale = 0.78f;
+        public float alternateSpacing = 1.20f;
+        public float alternateStartDistance = 1.25f;
+
+        public bool HasAlternateRoute => _altPathCount >= 2;
+        public int AlternatePathPointCount => _altPathCount;
+        public int VisibleAlternateArrowCount { get; private set; }
+        public bool AlternateAvoidingFire { get; private set; }
+
         [Header("事件")]
         public UnityEvent onGuidanceStarted;
         public UnityEvent onGuidanceStopped;
@@ -109,13 +124,17 @@ namespace FireSafety
         Camera _cam;
         Transform _player;
         GameObject[] _arrows;
+        GameObject[] _altArrows;
         GameObject _signRoot;
         Text _signText;
         Material _arrowMat;
+        Material _altArrowMat;
         bool _collected;
         readonly Vector3[] _path = new Vector3[4];
+        readonly Vector3[] _altPath = new Vector3[8];
         readonly Collider[] _probeHits = new Collider[32];
         int _pathCount;
+        int _altPathCount;
 
         private void Awake()
         {
@@ -258,6 +277,10 @@ namespace FireSafety
             // 再把箭头沿折线等距铺开；玩家从大厅、茶水间或门口侧面来都能得到正确朝向。
             BuildPath(flatPlayer, flatTarget);
             PlaceArrowsAlongPath();
+
+            // 第 51 轮：第 2/3 阶段再铺一条独立绕行的青色备用路线。
+            BuildAlternatePath(flatPlayer, flatTarget);
+            PlaceAlternateArrows();
         }
 
         void BuildPath(Vector3 start, Vector3 end)
@@ -274,7 +297,8 @@ namespace FireSafety
             if (length < 0.5f) return;
             Vector3 dir = delta / length;
             bool straightFireBlocked = IsTooCloseToFire(start, end);
-            if (IsPathClear(start, end)) return;
+            // 物理上无遮挡但穿过火焰安全半径时不能直接放行：必须继续算绕火折线。
+            if (IsPathClear(start, end) && !straightFireBlocked) return;
             if (straightFireBlocked) AvoidingFire = true;
 
             Vector3 side = Vector3.Cross(Vector3.up, dir);
@@ -349,7 +373,132 @@ namespace FireSafety
             }
         }
 
-        /// <summary>路径上任一点是否进入正在燃烧火源的危险半径（水平面距离）。</summary>
+        /// <summary>
+        /// 第 51 轮：第二条逃生路线。主箭头由动态寻路决定（通常走最短可行线），
+        /// 备用线优先从玩家所在侧绕到火源北侧，再横穿大厅到东门；北侧被桌子挡住时改走南侧。
+        /// 两条线共用同一个出口，但走不同的通道面，浓烟里一条被遮住还有另一条可读。
+        /// </summary>
+        void BuildAlternatePath(Vector3 start, Vector3 end)
+        {
+            _altPathCount = 0;
+            AlternateAvoidingFire = false;
+            if (!showAlternateExitRoute || !(LobbyMode || ExitMode)) return;
+
+            float y = floorY;
+            // 第 51 轮实测：原来把备用线推到“最北边”会撞上整排工位，备用线根本铺不出来。
+            // 现改为贴着主火源南北两侧的开放通道：北线 z≈火源北侧 1.9 m，南线 z≈火源南侧 1.9 m。
+            float northZ = 2.15f;
+            float southZ = -1.65f;
+            foreach (var f in FireSource.Active)
+            {
+                if (f == null || !f.IsBurning || f.IsExtinguished) continue;
+                northZ = Mathf.Max(northZ, f.transform.position.z + fireClearRadius + 0.35f);
+                southZ = Mathf.Min(southZ, f.transform.position.z - fireClearRadius - 0.35f);
+            }
+            northZ = Mathf.Min(3.00f, northZ);
+            southZ = Mathf.Max(-3.00f, southZ);
+            float laneEndX = end.x - 0.80f;
+            Vector3 northA = new Vector3(start.x, y, northZ);
+            Vector3 northB = new Vector3(laneEndX, y, northZ);
+            if (IsPathClear(start, northA) && IsPathClear(northA, northB) && IsPathClear(northB, end))
+            {
+                _altPath[0] = start;
+                _altPath[1] = northA;
+                _altPath[2] = northB;
+                _altPath[3] = end;
+                _altPathCount = 4;
+                return;
+            }
+
+            Vector3 southA = new Vector3(start.x, y, southZ);
+            Vector3 southB = new Vector3(laneEndX, y, southZ);
+            if (IsPathClear(start, southA) && IsPathClear(southA, southB) && IsPathClear(southB, end))
+            {
+                _altPath[0] = start;
+                _altPath[1] = southA;
+                _altPath[2] = southB;
+                _altPath[3] = end;
+                _altPathCount = 4;
+                return;
+            }
+
+            // 两条横向绕行都失败：沿主路径向侧面平移，至少给玩家一条“并行的第二车道”。
+            // 第 51 轮：西侧出生点到东门的主路径本身有 7 个折点，单侧平移常撞桌子；
+            // 改为左右各试两个偏移，取第一条整段可行的平行线。
+            if (_pathCount >= 2 && _pathCount <= _altPath.Length)
+            {
+                Vector3 delta = end - start; delta.y = 0f;
+                Vector3 side = Vector3.Cross(Vector3.up, delta.normalized);
+                if (side.sqrMagnitude < 0.0001f) side = Vector3.right;
+                side.Normalize();
+                float[] offsets = { 0.45f, -0.45f, 0.80f, -0.80f, 1.15f, -1.15f };
+                for (int o = 0; o < offsets.Length; o++)
+                {
+                    bool okay = true;
+                    _altPath[0] = start;
+                    _altPath[_pathCount - 1] = end;
+                    for (int i = 1; i < _pathCount - 1; i++)
+                    {
+                        _altPath[i] = _path[i] + side * offsets[o];
+                        _altPath[i].y = y;
+                        if (!IsPathClear(_altPath[i - 1], _altPath[i])) { okay = false; break; }
+                    }
+                    if (okay)
+                    {
+                        if (_pathCount > 2 && !IsPathClear(_altPath[_pathCount - 2], end)) okay = false;
+                    }
+                    if (okay)
+                    {
+                        _altPathCount = _pathCount;
+                        return;
+                    }
+                }
+            }
+
+            _altPathCount = 0;
+        }
+
+        void PlaceAlternateArrows()
+        {
+            VisibleAlternateArrowCount = 0;
+            if (!showAlternateExitRoute || _altArrows == null || _altPathCount < 2) return;
+
+            float total = 0f;
+            for (int i = 0; i < _altPathCount - 1; i++) total += Vector3.Distance(_altPath[i], _altPath[i + 1]);
+            if (total < 0.2f) return;
+            AlternateAvoidingFire = true;
+
+            int seg = 0;
+            for (int i = 0; i < _altArrows.Length; i++)
+            {
+                float travel = alternateStartDistance + alternateSpacing * i;
+                if (travel > total - 0.35f)
+                {
+                    if (_altArrows[i] != null) _altArrows[i].SetActive(false);
+                    continue;
+                }
+                seg = 0;
+                float acc = 0f;
+                while (seg < _altPathCount - 2)
+                {
+                    float walkLen = Vector3.Distance(_altPath[seg], _altPath[seg + 1]);
+                    if (travel <= acc + walkLen) break;
+                    acc += walkLen;
+                    seg++;
+                }
+                float segLen = Vector3.Distance(_altPath[seg], _altPath[seg + 1]);
+                float local = Mathf.Clamp(travel - acc, 0f, segLen);
+                Vector3 dir = (_altPath[seg + 1] - _altPath[seg]).normalized;
+                Vector3 pos = _altPath[seg] + dir * local;
+                pos.y = floorY;
+                _altArrows[i].SetActive(true);
+                _altArrows[i].transform.position = pos;
+                _altArrows[i].transform.rotation = Quaternion.LookRotation(dir, Vector3.up);
+                VisibleAlternateArrowCount++;
+            }
+        }
+
+
         bool IsTooCloseToFire(Vector3 a, Vector3 b)
         {
             if (!avoidBurningFires || fireClearRadius <= 0.01f) return false;
@@ -492,18 +641,8 @@ namespace FireSafety
 
             // 地面箭头必须「自发光」：场景在浓烟里几乎没有环境光，用 Lit 材质会渲成一团黑，
             // 玩家在雾里看不到任何指引。这里用 URP Unlit，颜色不随光照变化。
-            var shader = Shader.Find("Universal Render Pipeline/Unlit");
-            if (shader == null) shader = Shader.Find("Unlit/Color");
-            if (shader == null) shader = Shader.Find("Standard");
-            _arrowMat = new Material(shader);
-            _arrowMat.name = "GuideArrowMat";
-            var lit = new Color(arrowColor.r, arrowColor.g, arrowColor.b, 1f);
-            if (_arrowMat.HasProperty("_BaseColor")) _arrowMat.SetColor("_BaseColor", lit);
-            if (_arrowMat.HasProperty("_Color")) _arrowMat.SetColor("_Color", lit);
-            _arrowMat.color = lit;
-            if (_arrowMat.HasProperty("_Surface")) _arrowMat.SetFloat("_Surface", 0f);   // 不透明
-            if (_arrowMat.HasProperty("_Cull")) _arrowMat.SetFloat("_Cull", 0f);          // 双面可见
-            _arrowMat.renderQueue = 2000;
+            _arrowMat = BuildArrowMaterial("GuideArrowMat", arrowColor);
+            _altArrowMat = BuildArrowMaterial("GuideArrowMat_B", alternateArrowColor);
 
             Mesh arrowMesh = BuildArrowMesh();
 
@@ -521,6 +660,39 @@ namespace FireSafety
                 go.SetActive(false);
                 _arrows[i] = go;
             }
+
+            _altArrows = new GameObject[Mathf.Max(0, alternateArrowCount)];
+            for (int i = 0; i < _altArrows.Length; i++)
+            {
+                var go = new GameObject("GuideArrowB_" + (i + 1));
+                go.layer = 2; // Ignore Raycast
+
+                var filter = go.AddComponent<MeshFilter>();
+                filter.sharedMesh = arrowMesh;
+                var renderer = go.AddComponent<MeshRenderer>();
+                renderer.sharedMaterial = _altArrowMat;
+
+                go.transform.SetParent(transform, false);
+                go.SetActive(false);
+                _altArrows[i] = go;
+            }
+        }
+
+        static Material BuildArrowMaterial(string name, Color color)
+        {
+            var shader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (shader == null) shader = Shader.Find("Unlit/Color");
+            if (shader == null) shader = Shader.Find("Standard");
+            var mat = new Material(shader);
+            mat.name = name;
+            var lit = new Color(color.r, color.g, color.b, 1f);
+            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", lit);
+            if (mat.HasProperty("_Color")) mat.SetColor("_Color", lit);
+            mat.color = lit;
+            if (mat.HasProperty("_Surface")) mat.SetFloat("_Surface", 0f);   // 不透明
+            if (mat.HasProperty("_Cull")) mat.SetFloat("_Cull", 0f);          // 双面可见
+            mat.renderQueue = 2000;
+            return mat;
         }
 
         /// <summary>在 XZ 平面构建朝 +Z 的箭头网格（箭杆矩形 + 三角箭头），双面。</summary>
@@ -557,17 +729,24 @@ namespace FireSafety
 
         private void SetArrowsVisible(bool visible)
         {
-            if (_arrows == null) return;
-            foreach (var a in _arrows)
-                if (a != null) a.SetActive(visible);
+            if (_arrows != null)
+                foreach (var a in _arrows)
+                    if (a != null) a.SetActive(visible);
+            if (_altArrows != null)
+                foreach (var a in _altArrows)
+                    if (a != null) a.SetActive(visible);
+            if (!visible) VisibleAlternateArrowCount = 0;
         }
 
         /// <summary>整体缩放箭头：第二阶段烟雾里放大到 1.6 倍，更容易看见。</summary>
         private void SetArrowScale(float scale)
         {
-            if (_arrows == null) return;
-            foreach (var a in _arrows)
-                if (a != null) a.transform.localScale = Vector3.one * scale;
+            if (_arrows != null)
+                foreach (var a in _arrows)
+                    if (a != null) a.transform.localScale = Vector3.one * scale;
+            if (_altArrows != null)
+                foreach (var a in _altArrows)
+                    if (a != null) a.transform.localScale = Vector3.one * scale * alternateArrowScale;
         }
 
         /// <summary>
@@ -628,7 +807,8 @@ namespace FireSafety
             toPlayer.Normalize();
 
             // 第 36 轮：牌面按玩家实际来向更新「距离 + 相对方向」，不再永远写死 →。
-            if (ExitMode && adaptiveExitSign && _signText != null)
+            // 大厅阶段也按玩家实际来向更新「距离 + 相对方向」，避免墙上写着 → 而出口在左侧。
+            if (adaptiveExitSign && _signText != null)
             {
                 Vector3 playerToExit = -toPlayer;
                 float planarDistance = Vector2.Distance(

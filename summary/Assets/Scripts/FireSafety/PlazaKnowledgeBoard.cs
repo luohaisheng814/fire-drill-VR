@@ -93,7 +93,7 @@ namespace FireSafety
                     "纸张·木材（A 类）→ 水基 / ABC 干粉",
                     "油锅·小家电（F 类）→ 湿化学 / 干粉",
                     "※ 油火严禁直接泼水，会爆燃飞溅",
-                    "喷射对准火焰根部，不是火苗顶端"
+                    "※ 韩国 NFTC 101：小型灭火器步行≤20 m、取用高度≤1.5 m、挂「소화기」标识、前方净空"
                 },
                 new[]
                 {
@@ -106,10 +106,10 @@ namespace FireSafety
                 new[]
                 {
                     "① 先按墙上手动报警按钮，并大声提醒周围的人「着火了」",
-                    "② 判断逃生方向：最近的安全出口，走楼梯、绝不乘电梯",
-                    "③ 低姿沿墙快速撤离，不折返取物、不贪恋财物",
+                    "② 判断逃生方向：最近安全出口；A 线沿北侧（黄箭头）、B 线沿南侧（青箭头），走楼梯、绝不乘电梯",
+                    "③ 低姿沿墙快速撤离，不折返取物；两条线都到东侧出口，不穿过火焰",
                     "④ 撤到空旷安全地带后拨打 119（韩国火警/急救电话）",
-                    "⑤ 集合点清点；门把手烫手不开门；火大撤离，初期小火才用灭火器"
+                    "⑤ 集合点清点；门前无火，右击门扇直接开门（不要求灭火/答题）；门把手烫手不开"
                 }
             };
         }
@@ -125,7 +125,7 @@ namespace FireSafety
                         "Paper / wood (Class A) → water-based / ABC powder",
                         "Cooking oil / appliances (Class F) → wet chemical / powder",
                         "※ Never pour water on oil fires — violent splashing",
-                        "Aim at the base of the flames, not the tips"
+                        "※ Korea NFTC 101: small extinguisher walking distance ≤20 m, mounting height ≤1.5 m, “소화기” sign, clear access"
                     };
                 case 1:
                     return new[]
@@ -140,10 +140,10 @@ namespace FireSafety
                     return new[]
                     {
                         "① Press the wall-mounted manual call point and shout “Fire!”",
-                        "② Decide the way out: nearest exit, stairs only, never the lift",
-                        "③ Stay low and evacuate fast; never go back for belongings",
+                        "② Choose the nearest exit: Route A north (yellow), Route B south (cyan); stairs only, never the lift",
+                        "③ Stay low and evacuate fast; both routes lead to the east exit — never cross the flames",
                         "④ Call 119 (Korean fire & rescue) once you are safely outside",
-                        "⑤ Count heads at the assembly point; never open a hot handle; use an extinguisher only on incipient fire"
+                        "⑤ Count heads at the assembly point; no fire at the door — right-click to open (no extinguishing required); never open a hot handle"
                     };
             }
         }
@@ -159,7 +159,7 @@ namespace FireSafety
                         "종이·목재(A급) → 수계 / ABC 분말",
                         "식용유·소형 가전(F급) → 습식 화학 / 분말",
                         "※ 기름 화재에 물을 붓지 마세요 — 폭발적 비산",
-                        "불꽃 끝이 아니라 불꽃 밑동을 향해 분사"
+                        "※ 한국 NFTC 101: 소형 소화기 보행거리 ≤20 m, 거치 높이 ≤1.5 m, 「소화기」 표지, 앞쪽 적치물 금지"
                     };
                 case 1:
                     return new[]
@@ -174,10 +174,10 @@ namespace FireSafety
                     return new[]
                     {
                         "① 벽면 수동 발신기를 먼저 누르고 “불이야!”라고 외친다",
-                        "② 대피 방향 결정: 가장 가까운 비상구, 계단 이용, 엘리베이터 절대 금지",
-                        "③ 낮은 자세로 신속히 대피, 물건을 가지러 돌아가지 않는다",
+                        "② 대피 방향 결정: 가장 가까운 비상구; A선 북측(노란 화살표), B선 남측(청록 화살표); 계단 이용, 엘리베이터 절대 금지",
+                        "③ 낮은 자세로 신속히 대피, 물건을 가지러 돌아가지 않는다; 두 노선 모두 동측 출구로, 불꽃을 가로지르지 않는다",
                         "④ 안전한 곳에 대피한 후 119에 신고한다",
-                        "⑤ 집결지에서 인원 확인; 문손잡이가 뜨거우면 열지 않는다; 초기 소화는 불이 작을 때만"
+                        "⑤ 집결지에서 인원 확인; 문 앞에 불이 없으면 문을 오른쪽 클릭해 바로 연다(소화 불필요); 뜨거운 손잡이는 열지 않는다"
                     };
             }
         }

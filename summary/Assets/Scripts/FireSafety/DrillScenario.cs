@@ -394,7 +394,7 @@ namespace FireSafety
             var flow = DrillFlowDirector.Instance;
             bool roleCanAttack = flow != null && flow.RoleAllowsAttack;
             Stage1AttackForbidden = operationCase == OperationCase.Developed || !roleCanAttack;
-            if (stageTwo != null) stageTwo.exitFirePresent = operationCase == OperationCase.Developed;
+            if (stageTwo != null) stageTwo.exitFirePresent = false;
             // 第 48 轮：出口门是否解锁只由第 2 阶段火情决定；关闭旧流程的「一疏散/一灭火就开门」，
             // 否则情形 2 会在门前火还没灭时就把门打开。
             if (flow != null)
@@ -470,12 +470,12 @@ namespace FireSafety
                 Hint((operationCase == OperationCase.Developed ? "情形 2 · 独立火情演练 · 火势已发展" : "情形 1 · 独立火情演练 · 火势初起")
                      + "（与电气/纸张/茶水间情景无关）：先按墙上的任意一个手动报警按钮；"
                      + (operationCase == OperationCase.Developed
-                         ? "主火扑不灭，报警后低姿沿安全出口撤离，门前火灭掉再开门"
+                         ? "主火扑不灭，报警后低姿沿安全出口撤离；门前无火，右击门扇直接开门"
                          : (Stage1AttackForbidden
                              ? "作为普通员工，报警后直接撤离，不尝试灭火"
                              : "作为初期应对负责人，报警后取墙上灭火器灭初期火，再撤离")));
             else if (operationCase == OperationCase.Developed)
-                Hint("情形 2 · 火势已发展（" + title + "）：烟雾弥漫、主火无法扑灭——先按墙上的手动报警按钮，再沿安全出口低姿撤离；出口门前有初期火焰，灭掉后才能开门");
+                Hint("情形 2 · 火势已发展（" + title + "）：烟雾弥漫、主火无法扑灭——先按墙上的手动报警按钮，再沿安全出口低姿撤离；门前无火，右击门扇直接开门");
             else if (Stage1AttackForbidden)
                 Hint("情形 1 · 火势初起（" + title + "）：作为普通员工，先按墙上的手动报警按钮，随后立即沿安全出口撤离到空旷集合点");
             else
@@ -530,7 +530,9 @@ namespace FireSafety
 
             if (stageTwo != null)
             {
-                stageTwo.exitFirePresent = operationCase == OperationCase.Developed;
+                // 第 51 轮：情形 2 是“火势已发展、无法灭火”，门前不再设火。
+                // 玩家按完报警即可撤离，到门口右击门扇直接开门；不再要求先灭火。
+                stageTwo.exitFirePresent = false;
                 stageTwo.BeginAfterAlarm();
             }
             else if (arrows != null)
@@ -539,8 +541,8 @@ namespace FireSafety
             }
 
             Hint(operationCase == OperationCase.Developed
-                ? "情形 2 · 火势已发展：报警完成 ✓ 不要尝试灭火——低姿沿绿色安全出口标识撤离（不乘电梯），到集合点后拨打 119 并清点人数"
-                : "情形 1 · 普通员工：报警完成 ✓ 立即低姿沿安全出口撤离，不折返取物；出口门前没有火焰，右击门扇开门，到集合点后清点人数");
+                ? "情形 2 · 火势已发展：报警完成 ✓ 不要尝试灭火——低姿沿黄色主路线或青色备用路线撤向东侧出口；门前无火，右击门扇直接开门，到集合点后拨打 119 并清点人数"
+                : "情形 1 · 普通员工：报警完成 ✓ 立即低姿沿黄色主路线或青色备用路线撤离，不折返取物；门前没有火焰，右击门扇开门，到集合点后清点人数");
             Debug.Log("[Drill] 报警后转入疏散（operationCase=" + operationCase + "）。");
         }
 

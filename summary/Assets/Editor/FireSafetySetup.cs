@@ -1136,8 +1136,12 @@ namespace FireSafety.EditorTools
 
             var plateMat = EnsureSetupMaterial("Assets/Materials/ExtinguisherBracketMat.mat",
                 new Color(0.60f, 0.10f, 0.10f), 0.30f, new Color(0.26f, 0.02f, 0.02f));
+            var signMat = EnsureSetupMaterial("Assets/Materials/ExtinguisherSignMat.mat",
+                new Color(0.78f, 0.08f, 0.06f), 0.25f, new Color(0.34f, 0.02f, 0.01f));
 
             bool alongZ = Mathf.Abs(wallNormal.z) > 0.5f;
+            // 第 51 轮：瓶体从 0.46 m 抬到 0.82 m；挂板/挂钩同步抬高，保持“瓶底落在挂钩上”。
+            float lift = bottlePos.y - 0.46f;
 
             // 背板（贴墙）
             Transform plate = root.transform.Find(name);
@@ -1150,7 +1154,7 @@ namespace FireSafety.EditorTools
                 var c = go.GetComponent<Collider>();
                 if (c != null) UnityEngine.Object.DestroyImmediate(c);
             }
-            plate.position = new Vector3(bottlePos.x, 0.55f, bottlePos.z) + wallNormal * plateOffset;
+            plate.position = new Vector3(bottlePos.x, 0.55f + lift, bottlePos.z) + wallNormal * plateOffset;
             plate.rotation = Quaternion.identity;
             plate.localScale = alongZ ? new Vector3(0.50f, 0.90f, 0.03f) : new Vector3(0.03f, 0.90f, 0.50f);
             var mr = plate.GetComponent<MeshRenderer>();
@@ -1167,11 +1171,71 @@ namespace FireSafety.EditorTools
                 var c = go.GetComponent<Collider>();
                 if (c != null) UnityEngine.Object.DestroyImmediate(c);
             }
-            hook.position = new Vector3(bottlePos.x, 0.70f, bottlePos.z) + wallNormal * hookOffset;
+            hook.position = new Vector3(bottlePos.x, 0.70f + lift, bottlePos.z) + wallNormal * hookOffset;
             hook.rotation = Quaternion.identity;
             hook.localScale = alongZ ? new Vector3(0.36f, 0.05f, 0.05f) : new Vector3(0.05f, 0.05f, 0.36f);
             var hmr = hook.GetComponent<MeshRenderer>();
             if (hmr != null) { hmr.sharedMaterial = plateMat; hmr.shadowCastingMode = ShadowCastingMode.On; }
+
+            // 第 51 轮：NFTC 101 要求「소화기」标识放在容易看见的位置。
+            // 红底白字小牌挂在瓶体正上方，不挡瓶身，也不超出 1.5 m 的可取用范围太多。
+            string signName = name.EndsWith("_Bracket") ? name.Substring(0, name.Length - "_Bracket".Length) + "_Sign" : name + "_Sign";
+            Transform sign = root.transform.Find(signName);
+            if (sign == null)
+            {
+                var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                go.name = signName;
+                sign = go.transform;
+                sign.SetParent(root.transform, false);
+                var c = go.GetComponent<Collider>();
+                if (c != null) UnityEngine.Object.DestroyImmediate(c);
+            }
+            sign.position = new Vector3(bottlePos.x, 1.46f, bottlePos.z) + wallNormal * 0.035f;
+            sign.rotation = Quaternion.LookRotation(wallNormal, Vector3.up);
+            sign.localScale = new Vector3(0.42f, 0.26f, 0.025f);
+            var smr = sign.GetComponent<MeshRenderer>();
+            if (smr != null) { smr.sharedMaterial = signMat; smr.shadowCastingMode = ShadowCastingMode.Off; }
+
+            // 旧版整串 TextMesh 在窄牌上会逐字换行成竖排；改为「一字符一个 TextMesh」横排，
+            // 保证韩国现场标识「소화기」从左到右可读。
+            var oldText = sign.Find("Text");
+            if (oldText != null) UnityEngine.Object.DestroyImmediate(oldText.gameObject);
+            Transform chars = sign.Find("Chars");
+            if (chars == null)
+            {
+                var go = new GameObject("Chars");
+                chars = go.transform;
+                chars.SetParent(sign, false);
+            }
+            chars.localPosition = new Vector3(0f, 0f, 0.52f);
+            chars.localRotation = Quaternion.identity;
+            chars.localScale = new Vector3(1f / 0.42f, 1f / 0.26f, 1f);
+            string[] glyphs = { "소", "화", "기" };
+            for (int i = 0; i < glyphs.Length; i++)
+            {
+                string cn = "Char" + i;
+                Transform ct = chars.Find(cn);
+                if (ct == null)
+                {
+                    var go = new GameObject(cn);
+                    ct = go.transform;
+                    ct.SetParent(chars, false);
+                }
+                ct.localPosition = new Vector3((i - 1) * 0.092f, 0f, 0f);
+                ct.localRotation = Quaternion.identity;
+                ct.localScale = Vector3.one;
+                var tm = ct.GetComponent<TextMesh>();
+                if (tm == null) tm = ct.gameObject.AddComponent<TextMesh>();
+                tm.text = glyphs[i];
+                tm.font = UIFont.Resolve();
+                tm.fontSize = 78;
+                tm.characterSize = 0.0065f;
+                tm.anchor = TextAnchor.MiddleCenter;
+                tm.alignment = TextAlignment.Center;
+                tm.color = new Color(0.98f, 0.97f, 0.92f);
+                var tr = ct.GetComponent<MeshRenderer>();
+                if (tr != null && tm.font != null) tr.sharedMaterial = tm.font.material;
+            }
         }
 
         /// <summary>
@@ -1359,9 +1423,14 @@ namespace FireSafety.EditorTools
             // 灭火器一律「贴墙」摆放（第 25 轮）：靠近墙面、固定在自己的挂钩板上，
             // 不占走道中线 —— 玩家按就近原则取最近的那台。
             // 第 49 轮：三台灭火器全部改为「墙上竖挂」——瓶底离地 0.30 米、挂钩板贴墙，不再落地
-            Vector3 ext01Pos = new Vector3(-4.85f, 0.46f, 3.42f);     // 电气：北墙西段（避开座椅遮挡）
-            Vector3 ext02Pos = new Vector3(-6.26f, 0.46f, -1.15f);    // 纸张：西墙柜旁净空（避开柜门与办公椅，距火源 3.47 米）
-            Vector3 ext03Pos = new Vector3(6.75f, 0.46f, -3.87f);     // 茶水间：东墙南端（桌凳与南墙之间的净空）
+            // 第 51 轮：按韩国《소화기구 및 자동소화장치의 화재안전기술기준(NFTC 101)》重排。
+            // 官方硬指标：小型灭火器任何点到最近一台的“步行距离”≤20 m；瓶体/取用高度≤1.5 m；
+            // 放在容易取用、看得见的位置并挂「소화기」标识，前方不得堆物。
+            // 本办公室约 13.6×9.8 m，最远点到最近灭火器 7.9 m，按 1:2.5 缩小后≈19.8 m，
+            // 正好落在 20 m 上限内；三台分别守住电气区、纸张区、茶水间三个独立隔间。
+            Vector3 ext01Pos = new Vector3(-4.85f, 0.75f, 3.42f);    // 电气：北墙西段（顶沿≤1.5 m）
+            Vector3 ext02Pos = new Vector3(-6.26f, 0.75f, -1.15f);   // 纸张：西墙柜旁净空（避开柜门与办公椅，距火源 3.47 米）
+            Vector3 ext03Pos = new Vector3(6.75f, 0.75f, -3.87f);    // 茶水间：东墙南端（桌凳与南墙之间的净空）
 
             // ---------------- 出生点：每套情景 3 个候选（随机取一个，尽量避开上一次） ----------------
             var spawnRoot = GameObject.Find("DrillSpawnPoints");
@@ -1652,11 +1721,12 @@ namespace FireSafety.EditorTools
                 new Vector3(ext02Pos.x, 0f, ext02Pos.z));
             float dPantry = Vector3.Distance(new Vector3(pantryFirePos.x, 0f, pantryFirePos.z),
                 new Vector3(ext03Pos.x, 0f, ext03Pos.z));
-            Debug.Log("[Setup] ✔ 灭火器贴墙落位：01" + ext01Pos.ToString("F2") + "（北墙西段）/ 02" + ext02Pos.ToString("F2")
+            Debug.Log("[Setup] ✔ 韩国 NFTC 101 灭火器布置：01" + ext01Pos.ToString("F2") + "（北墙西段）/ 02" + ext02Pos.ToString("F2")
                       + "（西墙中段）/ 03" + ext03Pos.ToString("F2") + "（茶水间东墙南端墙角）"
                       + "；01↔02=" + d12.ToString("F2") + " 米，02↔03=" + d23.ToString("F2") + " 米"
                       + "；纸张火→02=" + dPaper.ToString("F2") + " 米，茶水间火→03=" + dPantry.ToString("F2")
-                      + " 米（危险半径 1.55 米，取瓶站位留余量）");
+                      + " 米；瓶体取用高度 0.75 m（≤1.5 m），每台挂「소화기」标识并留 0.3 m 净空"
+                      + "（危险半径 1.55 米，取瓶站位留余量）");
 
             // ---------------- 操作演练用的原地板火 ----------------
             FireSource baseFire = null;
@@ -1673,15 +1743,19 @@ namespace FireSafety.EditorTools
                     AddFireDecor(template, "Base",
                         new[]
                         {
-                            new Vector3(-0.44f, 0f, 0.20f),
-                            new Vector3(0.42f, 0.01f, -0.18f),
-                            new Vector3(0.02f, 0.02f, 0.48f)
+                            new Vector3(-0.58f, 0f, 0.18f),
+                            new Vector3(-0.20f, 0.01f, -0.44f),
+                            new Vector3(0.30f, 0.02f, 0.40f),
+                            new Vector3(0.58f, 0f, 0.02f),
+                            new Vector3(0.02f, 0.03f, 0.55f),
+                            new Vector3(-0.30f, 0.02f, -0.10f)
                         },
                         new[]
                         {
-                            new Vector3(0f, 0.95f, 0.05f),
-                            new Vector3(-0.38f, 0.75f, -0.16f)
-                        }, 0.46f);
+                            new Vector3(0f, 1.00f, 0.05f),
+                            new Vector3(-0.40f, 0.82f, -0.18f),
+                            new Vector3(0.44f, 0.86f, 0.22f)
+                        }, 0.55f);
                 }
             }
 
@@ -1693,17 +1767,34 @@ namespace FireSafety.EditorTools
             caseSmokeGo.transform.position = new Vector3(caseFirePos.x, 1.45f, caseFirePos.z);
             var caseSmokePs = caseSmokeGo.GetComponent<ParticleSystem>();
             if (caseSmokePs == null) caseSmokePs = caseSmokeGo.AddComponent<ParticleSystem>();
-            ConfigureSmoke(caseSmokePs, new Color(0.34f, 0.34f, 0.36f, 0.60f),
-                rate: 24f, speed: 0.55f, size: 1.20f, life: 3.6f, additive: false, radius: 0.20f);
+            // 第 51 轮玩家视角：原来的 1.45 m 大粒径会在火源正上方糊成一团近黑色圆球，
+            // 既挡火又不像烟。改为更多、更小、更浅的半透明烟团，配合 CaseSmokeZone 的整体烟层，
+            // 近火处看得到翻滚的烟，但不会整块遮死火焰与路线。
+            ConfigureSmoke(caseSmokePs, new Color(0.58f, 0.58f, 0.60f, 0.38f),
+                rate: 44f, speed: 0.58f, size: 0.92f, life: 3.8f, additive: false, radius: 0.30f);
             var caseZone = EnsureRoomSmoke("CaseSmokeZone",
-                new Vector3(-2.90f, 1.55f, 1.20f), new Vector3(-0.70f, 1.55f, -0.60f), 7, 22f);
+                new Vector3(-3.20f, 1.55f, 1.60f), new Vector3(-0.40f, 1.55f, -0.90f), 10, 30f);
             caseZone.autoFollow = false;
+            // 第 51 轮：烟“看得见”但不把整条逃生路线糊死——
+            // 发射区加宽、粒子加大、浓度提高；底部仍留 1.05 m 清晰层，地面箭头与门牌从烟底透出来。
+            caseZone.floorClearance = 1.05f;
+            caseZone.particleSize = 1.55f;
+            caseZone.alphaScale = 1.10f;
+            caseZone.particleCap = 420;
+            caseZone.sizeGrowth = 1.65f;
+            caseZone.emitterShape = new Vector3(1.50f, 0.55f, 1.10f);
+            caseZone.driftPerSecond = new Vector3(0.10f, 0.06f, -0.06f);
 
             var caseSpawnGroup = EnsureGroup(spawnRoot.transform, "SpawnGroup_Case");
-            var caseLook = new Vector3(caseFirePos.x, 0.8f, caseFirePos.z);
-            var caseS0 = EnsureSpawn(caseSpawnGroup, "CaseSpawn01", new Vector3(-4.60f, 0f, 1.55f), caseLook);
-            var caseS1 = EnsureSpawn(caseSpawnGroup, "CaseSpawn02", new Vector3(-4.30f, 0f, -1.10f), caseLook);
-            var caseS2 = EnsureSpawn(caseSpawnGroup, "CaseSpawn03", new Vector3(0.20f, 0f, 1.40f), caseLook);
+            // 第 51 轮：按玩家视角实测重选。西北工位、西南档案区都会被桌板/柜体怼在镜头前，
+            // 最终三个点都放在大厅东侧的无遮挡开阔面（火源 4.4~6.4 m），
+            // 画面里同时能看到火情、烟雾与东侧出口方向。
+            // 初始视角保留第 50 轮「看向火源一侧」的构图：出生点正前方就是火情与烟雾，
+            // 转身即可看到东侧安全出口与地面黄/青两条撤离箭头。
+            var caseLook = new Vector3(-0.60f, 0.95f, 0.35f);
+            var caseS0 = EnsureSpawn(caseSpawnGroup, "CaseSpawn01", new Vector3(0.80f, 0f, 3.50f), caseLook);
+            var caseS1 = EnsureSpawn(caseSpawnGroup, "CaseSpawn02", new Vector3(2.80f, 0f, 2.50f), caseLook);
+            var caseS2 = EnsureSpawn(caseSpawnGroup, "CaseSpawn03", new Vector3(3.30f, 0f, 3.00f), caseLook);
             var casePoint = EnsureExtinguishPoint("ExtinguishPoint_Case",
                 new Vector3(caseFirePos.x, 0.02f, caseFirePos.z - 1.95f), baseFire);
 
@@ -3573,3 +3664,4 @@ namespace FireSafety.EditorTools
     }
 }
 #endif
+

@@ -73,6 +73,8 @@ namespace FireSafety.EditorTools
             TestRound49Changes();
             Debug.Log("[TEST] >> 第50轮 界面节奏 / 多火焰 / 起火现场 / 避火路线");
             TestRound50Changes();
+            Debug.Log("[TEST] >> 第51轮 韩国灭火器标准 / 情形2出生点 / 双逃生路线");
+            TestRound51Changes();
             Debug.Log("[TEST] >> VRConfig");
             TestVrConfiguration();
 
@@ -2400,7 +2402,7 @@ namespace FireSafety.EditorTools
             CheckFireCluster("DeviceFire", 5, 3);
             CheckFireCluster("PaperFire", 4, 2);
             CheckFireCluster("PantryFire", 3, 2);
-            CheckFireCluster("BaseFire000", 3, 2);
+            CheckFireCluster("BaseFire000", 6, 3);
 
             // 3) 情景一/二起火现场道具齐全，且都不带碰撞体
             Check("第50轮：情景一有供电电缆", GameObject.Find("PowerCable") != null);
@@ -2468,6 +2470,130 @@ namespace FireSafety.EditorTools
             }
             else Check("第50轮：找到门外知识墙", false);
         }
+
+        // ------------------------------------------------------------
+        // 第51轮：韩国 NFTC 101 灭火器布置 / 情形2出生点 / 双逃生路线
+        // ------------------------------------------------------------
+        static void TestRound51Changes()
+        {
+            // 1) 三台灭火器都按韩国标准抬高到 1.5 m 以内，并挂「소화기」标识
+            var exts = new[] { "Extinguisher01", "Extinguisher02", "Extinguisher03" };
+            foreach (var n in exts)
+            {
+                var go = GameObject.Find(n);
+                Check("第51轮：" + n + " 存在", go != null);
+                if (go == null) continue;
+                var rend = go.GetComponentInChildren<Renderer>();
+                float top = rend != null ? rend.bounds.max.y : 0f;
+                Check("第51轮：" + n + " 顶部落在地面以上 1.5 m 以内",
+                    top > 0.9f && top <= 1.5f, "top=" + top.ToString("F2"));
+                var sign = GameObject.Find(n + "_Sign");
+                Check("第51轮：" + n + " 有「소화기」标识牌", sign != null);
+                if (sign != null)
+                {
+                    // 第 51 轮标牌改为「一字符一个 TextMesh」横排，这里把三个字拼起来校验。
+                    var txts = sign.GetComponentsInChildren<TextMesh>(true);
+                    string signStr = "";
+                    foreach (var t in txts) if (t != null) signStr += t.text;
+                    Check("第51轮：" + n + " 标识文字为「소화기」", signStr.Contains("소화기"),
+                        "text=" + signStr);
+                    Check("第51轮：" + n + " 标识高度≤1.6 m", sign.transform.position.y <= 1.6f,
+                        "y=" + sign.transform.position.y.ToString("F2"));
+                }
+            }
+
+            // 2) 情形2 火场：6 簇附加火、加浓的局部烟，出生点退到火源 4 m 外
+            CheckFireCluster("BaseFire000", 6, 3);
+            var sc = UnityEngine.Object.FindFirstObjectByType<DrillScenario>();
+            Check("第51轮：找到 DrillScenario", sc != null);
+            if (sc != null)
+            {
+                Check("第51轮：情形2出生点共 3 个", sc.caseSpawnPoints != null && sc.caseSpawnPoints.Length == 3);
+                if (sc.caseSpawnPoints != null && sc.caseFire != null)
+                {
+                    for (int i = 0; i < sc.caseSpawnPoints.Length; i++)
+                    {
+                        var s = sc.caseSpawnPoints[i];
+                        if (s == null) { Check("第51轮：出生点 " + (i + 1) + " 存在", false); continue; }
+                        float d = Vector3.Distance(
+                            new Vector3(s.position.x, 0f, s.position.z),
+                            new Vector3(sc.caseFire.transform.position.x, 0f, sc.caseFire.transform.position.z));
+                        Check("第51轮：情形2出生点 " + (i + 1) + " 离火源 ≥4 m",
+                            d >= 4.0f, "d=" + d.ToString("F2"));
+                    }
+                }
+                if (sc.caseSmoke != null)
+                {
+                    var em = sc.caseSmoke.emission;
+                    var main = sc.caseSmoke.main;
+                    Check("第51轮：情形2局部烟速率≥40（更多小烟团，避免大黑球）", em.rateOverTime.constant >= 40f,
+                        "rate=" + em.rateOverTime.constant);
+                    Check("第51轮：情形2局部烟粒径 0.8~1.1 m（可见但不糊死火焰）", main.startSize.constant >= 0.8f && main.startSize.constant <= 1.1f,
+                        "size=" + main.startSize.constant);
+                }
+                if (sc.caseSmokeZone != null)
+                {
+                    Check("第51轮：情形2烟雾区 10 个发射点", sc.caseSmokeZone.emitterCount >= 10,
+                        "emitters=" + sc.caseSmokeZone.emitterCount);
+                    Check("第51轮：情形2烟雾区底部留出≥1 m 清晰层", sc.caseSmokeZone.floorClearance >= 1.0f,
+                        "clear=" + sc.caseSmokeZone.floorClearance);
+                }
+            }
+
+            // 3) 双路线：备用箭头至少能铺出来，且两条都指向出口
+            var targetGo = new GameObject("TEST_R51_Target");
+            targetGo.transform.position = new Vector3(25f, 0f, 6f);
+            var aGo = new GameObject("TEST_R51_Arrows");
+            var instField = typeof(GuidanceArrows).GetField("Instance", BindingFlags.Static | BindingFlags.NonPublic);
+            var oldInstance = instField != null ? instField.GetValue(null) : null;
+            if (instField != null) instField.SetValue(null, null);
+            var arrows = aGo.AddComponent<GuidanceArrows>();
+            var buildArrows = typeof(GuidanceArrows).GetMethod("BuildArrows", BindingFlags.Instance | BindingFlags.NonPublic);
+            if (buildArrows != null) buildArrows.Invoke(arrows, null);
+            arrows.lobbyTarget = targetGo.transform;
+            arrows.exitTarget = targetGo.transform;
+            arrows.showAlternateExitRoute = true;
+            arrows.BeginLobbyGuidance();
+            var buildAlt = typeof(GuidanceArrows).GetMethod("BuildAlternatePath", BindingFlags.Instance | BindingFlags.NonPublic);
+            var placeAlt = typeof(GuidanceArrows).GetMethod("PlaceAlternateArrows", BindingFlags.Instance | BindingFlags.NonPublic);
+            Check("第51轮：找到 GuidanceArrows.BuildAlternatePath", buildAlt != null);
+            Check("第51轮：找到 GuidanceArrows.PlaceAlternateArrows", placeAlt != null);
+            if (buildAlt != null && placeAlt != null)
+            {
+                buildAlt.Invoke(arrows, new object[] { new Vector3(20f, 0f, 0f), new Vector3(25f, 0f, 6f) });
+                placeAlt.Invoke(arrows, null);
+                Check("第51轮：备用路线至少 2 个路径点", arrows.AlternatePathPointCount >= 2,
+                    "altPoints=" + arrows.AlternatePathPointCount);
+                Check("第51轮：备用路线实际铺出箭头", arrows.VisibleAlternateArrowCount >= 2,
+                    "altVisible=" + arrows.VisibleAlternateArrowCount);
+            }
+            UnityEngine.Object.DestroyImmediate(aGo);
+            UnityEngine.Object.DestroyImmediate(targetGo);
+            if (instField != null) instField.SetValue(null, oldInstance);
+
+            // 4) 教学/知识墙已写入「门右击直接开 + 两条路线 + NFTC 101」
+            var ob = UnityEngine.Object.FindFirstObjectByType<OnboardingScreen>();
+            if (ob != null)
+            {
+                string joined = string.Join("\n", ob.pages);
+                Check("第51轮：教学说明情形2不灭火、直接撤离", joined.Contains("情形 2") && joined.Contains("不允许灭主火"));
+                Check("第51轮：教学说明门右击直接开、无其他条件",
+                    joined.Contains("右击即可开门") && joined.Contains("不需要其他条件"));
+                Check("第51轮：教学写入路线 A / 路线 B", joined.Contains("路线 A") && joined.Contains("路线 B"));
+                Check("第51轮：教学写入 NFTC 101 灭火器标准", joined.Contains("NFTC 101") && joined.Contains("1.5 m"));
+            }
+            var board = UnityEngine.Object.FindFirstObjectByType<PlazaKnowledgeBoard>();
+            if (board != null)
+            {
+                var lines = board.PanelLines();
+                string p0 = string.Join("\n", lines[0]);
+                string p2 = string.Join("\n", lines[2]);
+                Check("第51轮：知识墙写入 NFTC 101 步行距离/高度", p0.Contains("NFTC 101") && p0.Contains("20 m"));
+                Check("第51轮：知识墙写入 A/B 双路线", p2.Contains("A 线") && p2.Contains("B 线"));
+                Check("第51轮：知识墙写入「右击门扇直接开门」", p2.Contains("右击门扇直接开门"));
+            }
+        }
+
 
         static void CheckFireCluster(string fireName, int minFlames, int minSmokes)
         {

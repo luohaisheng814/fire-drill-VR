@@ -213,7 +213,7 @@ namespace FireSafety
 
             Hint(exitFirePresent
                 ? "已报警：火势已发展，不要尝试灭火——低姿沿安全出口撤离；出口门前有火，灭掉它再开门"
-                : "已报警：低姿沿安全出口撤离；出口门前没有火焰，走近后右击门扇直接开门", true);
+                : "已报警：火势已发展，不要尝试灭火——转身朝东侧「安全出口」，低姿跟着地面黄色主线或青色备用线撤离；门前无火，右击门扇直接开门", true);
             onStageTwoBegin?.Invoke();
             Debug.Log("[Stage2] 报警后直接撤离（exitFirePresent=" + exitFirePresent + "）。");
         }
@@ -251,7 +251,7 @@ namespace FireSafety
             else if (exitFirePresent)
                 Hint("第 2 阶段：沿「安全出口」标识与地面箭头前往出口，门前有初期火焰——灭掉它，门就会打开", true);
             else
-                Hint("第 2 阶段：沿「安全出口」标识与地面箭头前往出口，门前没有火焰——走近右击门扇即可开门", true);
+                Hint("第 2 阶段：沿黄色主路线或青色备用路线撤向东侧出口；门前没有火焰——走近右击门扇即可开门", true);
             onStageTwoBegin?.Invoke();
             Debug.Log("[Stage2] 第二阶段开始：安全出口标识 + 箭头（useSmoke=" + useSmoke + " / requireCrouch=" + requireCrouch + "）。");
         }
