@@ -196,9 +196,9 @@ namespace FireSafety.EditorTools
             kb.EnsureDefaults();
             Debug.Log("[Setup] ✔ 情景专属知识板：" + kb.boards.Length + " 块（电气 / 纸张 / 茶水间）");
 
-            // 4) 手动火灾报警按钮（走廊，玩家必经位置）
-            var btn = BuildAlarmCallButton(new Vector3(2.55f, 0f, 1.92f), 180f);
-            Debug.Log("[Setup] ✔ 手动报警按钮：走廊 " + btn.transform.position.ToString("F2"));
+            // 4) 手动火灾报警按钮：第 48 轮改为壁挂式，贴在大厅南墙（z=-4.10）北侧墙面
+            var btn = BuildAlarmCallButton(new Vector3(2.55f, 0f, -3.98f), 0f);
+            Debug.Log("[Setup] ✔ 手动报警按钮（壁挂）：大厅南墙 " + btn.transform.position.ToString("F2"));
 
             // 5) 7 步流程编排
             var dirGo = GameObject.Find("DrillFlowDirector") ?? new GameObject("DrillFlowDirector");
@@ -250,7 +250,10 @@ namespace FireSafety.EditorTools
             }
         }
 
-        /// <summary>走廊里的手动火灾报警按钮：灰色立柱 + 红色报警面板 + 世界空间文字牌。</summary>
+        /// <summary>
+        /// 第 48 轮：手动火灾报警按钮改为「壁挂式」——贴在走廊南墙（z=-4.10）北侧墙面，
+        /// 红色面板 + 凸起按钮 + 世界空间文字牌，不再用落地立柱。
+        /// </summary>
         static AlarmCallButton BuildAlarmCallButton(Vector3 pos, float yaw)
         {
             var existing = GameObject.Find("AlarmCallButton");
@@ -260,19 +263,20 @@ namespace FireSafety.EditorTools
             root.transform.position = pos;
             root.transform.rotation = Quaternion.Euler(0f, yaw, 0f);
 
-            var column = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            column.name = "Column";
-            column.transform.SetParent(root.transform, false);
-            column.transform.localPosition = new Vector3(0f, 0.55f, 0f);
-            column.transform.localScale = new Vector3(0.18f, 1.10f, 0.18f);
-            UnityEngine.Object.DestroyImmediate(column.GetComponent<Collider>());
-            Tint(column, new Color(0.30f, 0.31f, 0.33f));
+            // 壁挂底座（贴墙的薄板，让面板不像悬空）
+            var basePlate = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            basePlate.name = "WallBase";
+            basePlate.transform.SetParent(root.transform, false);
+            basePlate.transform.localPosition = new Vector3(0f, 1.30f, 0.02f);
+            basePlate.transform.localScale = new Vector3(0.34f, 0.52f, 0.04f);
+            UnityEngine.Object.DestroyImmediate(basePlate.GetComponent<Collider>());
+            Tint(basePlate, new Color(0.86f, 0.86f, 0.84f));
 
             var plate = GameObject.CreatePrimitive(PrimitiveType.Cube);
             plate.name = "AlarmPlate";
             plate.transform.SetParent(root.transform, false);
-            plate.transform.localPosition = new Vector3(0f, 1.26f, 0f);
-            plate.transform.localScale = new Vector3(0.46f, 0.46f, 0.12f);
+            plate.transform.localPosition = new Vector3(0f, 1.30f, 0.06f);
+            plate.transform.localScale = new Vector3(0.30f, 0.38f, 0.06f);
             UnityEngine.Object.DestroyImmediate(plate.GetComponent<Collider>());
             var plateRenderer = plate.GetComponent<Renderer>();
             if (plateRenderer != null)
@@ -282,27 +286,27 @@ namespace FireSafety.EditorTools
                 plateRenderer.sharedMaterial = mat;
             }
 
-            // 按钮圆心（凸起的小方块）
+            // 按钮圆心（凸起的小方块，朝 +Z 面向走廊里的玩家）
             var knob = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
             knob.name = "AlarmKnob";
             knob.transform.SetParent(root.transform, false);
-            knob.transform.localPosition = new Vector3(0f, 1.26f, -0.08f);
+            knob.transform.localPosition = new Vector3(0f, 1.30f, 0.105f);
             knob.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-            knob.transform.localScale = new Vector3(0.16f, 0.03f, 0.16f);
+            knob.transform.localScale = new Vector3(0.14f, 0.025f, 0.14f);
             UnityEngine.Object.DestroyImmediate(knob.GetComponent<Collider>());
             Tint(knob, new Color(0.92f, 0.24f, 0.18f));
 
-            // 文字牌（世界空间 Canvas）
+            // 文字牌（世界空间 Canvas），贴在面板上方
             var labelGo = new GameObject("AlarmLabel", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler));
             labelGo.transform.SetParent(root.transform, false);
-            labelGo.transform.localPosition = new Vector3(0f, 1.62f, 0f);
-            labelGo.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);   // 面向从走廊过来的玩家
+            labelGo.transform.localPosition = new Vector3(0f, 1.70f, 0.08f);
+            labelGo.transform.localRotation = Quaternion.Euler(0f, 0f, 0f);   // 与墙面同向，面向走廊
             var canvas = labelGo.GetComponent<Canvas>();
             canvas.renderMode = RenderMode.WorldSpace;
             canvas.sortingOrder = 260;
             var rt = labelGo.GetComponent<RectTransform>();
             rt.sizeDelta = new Vector2(1000f, 320f);
-            float s = 0.62f / 1000f;
+            float s = 0.52f / 1000f;
             rt.localScale = new Vector3(s, s, s);
 
             var bg = labelGo.AddComponent<UnityEngine.UI.Image>();
@@ -2601,6 +2605,8 @@ namespace FireSafety.EditorTools
             // 第 43 轮：玻璃固定排在排烟粒子（queue 3000）之前，避免两者同队列时
             // 每帧按距离重排、窗面忽明忽暗（第 43 轮玩家反馈的「窗户闪烁」主因之一）。
             mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent - 10;
+            // URP 的透明材质会按 _Surface 归一化 renderQueue，额外用 _QueueOffset 把玻璃稳定压到排烟粒子之前
+            if (mat.HasProperty("_QueueOffset")) mat.SetFloat("_QueueOffset", -10f);
             EditorUtility.SetDirty(mat);
             return mat;
         }

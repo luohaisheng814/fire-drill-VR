@@ -29,6 +29,9 @@ namespace FireSafety
         public Color pressedColor = new Color(0.12f, 0.72f, 0.34f);
 
         public bool Triggered { get; private set; }
+
+        [Header("第 48 轮：按下事件（DrillScenario 用它触发疏散 / 灭火分支）")]
+        public UnityEngine.Events.UnityEvent onPressed = new UnityEngine.Events.UnityEvent();
         public float DwellProgress => Triggered ? 1f : Mathf.Clamp01(_dwell / Mathf.Max(0.01f, dwellSeconds));
         public float PlayerDistance { get; private set; } = float.PositiveInfinity;
 
@@ -106,6 +109,8 @@ namespace FireSafety
 
             if (_renderer != null && _renderer.material != null)
                 _renderer.material.color = pressedColor;
+
+            if (onPressed != null) onPressed.Invoke();
 
             DrillToast.Show(DrillLocale.T(
                 "已按下手动报警按钮：警报响起，同时拨打 119 报告起火位置与火势。",

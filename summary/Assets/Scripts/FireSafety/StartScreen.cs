@@ -240,15 +240,27 @@ namespace FireSafety
             // 三套起火情景的快选行：随机 / 电气 / 纸张 / 茶水间
             BuildScenarioRow(panel.transform);
 
-            // 操作演练入口：原第一阶段的完整流程，玩家可先练熟再进正式演练
+            // 第 48 轮：操作流程页点开后分两种火情情形
             if (showTutorialButton)
             {
-                var tutorialBtn = MakeButton(panel.transform,
-                    DrillLocale.T(tutorialLabel, tutorialLabelEnglish), 30,
-                    new Color(0.78f, 0.42f, 0.12f, 1f), 62f);
-                tutorialBtn.onClick.AddListener(OpenTutorial);
+                var case1Btn = MakeButton(panel.transform,
+                    DrillLocale.T("情形 1 · 火势初起（烟雾蔓延）",
+                                  "Case 1 · Incipient fire (smoke spreading)",
+                                  "상황 1 · 초기 화재 (연기 확산)"), 28,
+                    new Color(0.72f, 0.38f, 0.10f, 1f), 60f);
+                case1Btn.onClick.AddListener(() => OpenOperationCase(0));
+
+                var case2Btn = MakeButton(panel.transform,
+                    DrillLocale.T("情形 2 · 火势已发展（无法灭火）",
+                                  "Case 2 · Developed fire (cannot extinguish)",
+                                  "상황 2 · 화재 확대 (소화 불가)"), 28,
+                    new Color(0.60f, 0.18f, 0.14f, 1f), 60f);
+                case2Btn.onClick.AddListener(() => OpenOperationCase(1));
+
                 _tutorialTypeText = MakeText(panel.transform,
-                    DrillLocale.T(tutorialTypeLabel, tutorialTypeLabelEnglish), 20,
+                    DrillLocale.T("情形 1：员工报警后撤离 / 负责人灭火后撤离 · 情形 2：两种身份都只报警并撤离",
+                                  "Case 1: employee alarms then evacuates / lead extinguishes then evacuates · Case 2: both alarm and evacuate",
+                                  "상황 1: 일반 직원은 경보 후 대피 / 담당자는 소화 후 대피 · 상황 2: 두 역할 모두 경보 후 대피"), 19,
                     new Color(0.76f, 0.86f, 1f), 34f);
             }
 
@@ -445,6 +457,32 @@ namespace FireSafety
             }
             onboarding.startScreen = this;
             onboarding.Show();
+        }
+
+        /// <summary>
+        /// 第 48 轮：操作流程页的两个情形按钮。0 = 火势初起（烟雾蔓延），1 = 火势已发展（无法灭火）。
+        /// 进入正式演练，身份由 DrillFlowDirector 提前分配，流程按「情形 × 身份」分叉。
+        /// </summary>
+        public void OpenOperationCase(int caseIndex)
+        {
+            if (Started) return;
+            PlayClick();
+            var scenario = DrillScenario.Instance != null ? DrillScenario.Instance : FindObjectOfType<DrillScenario>();
+            if (scenario == null)
+            {
+                Debug.LogWarning("[StartScreen] 场景中没有 DrillScenario，无法开始情形演练。");
+                return;
+            }
+
+            Started = true;
+            FireAlarm();
+            SwitchBgm();
+
+            var opCase = caseIndex == 1
+                ? DrillScenario.OperationCase.Developed
+                : DrillScenario.OperationCase.Incipient;
+            scenario.StartFormalWithCase(opCase, -1, -1);
+            StartCoroutine(ExitRoutine());
         }
 
         /// <summary>「操作演练」按钮：原第一阶段的完整实操流程（拿瓶 → 答题 → 拔销 → 压把 → 喷射）。</summary>

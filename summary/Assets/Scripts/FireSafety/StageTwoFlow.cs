@@ -59,6 +59,8 @@ namespace FireSafety
         public bool autoCreateFire = true;
         [Tooltip("第三阶段开始时，把最近的一台空闲灭火器挪到 spareExtinguisherSpot")]
         public bool autoMoveSpareExtinguisher = false;
+        [Tooltip("第 48 轮：出口门前是否生成火焰。情形1（火势初起）= false，右击即可开门；情形2（火势蔓延）= true，灭掉门火才开门")]
+        public bool exitFirePresent = true;
 
         [Header("流程开关（本轮重构后的第 2 阶段）")]
         [Tooltip("第 2 阶段是否开浓烟：新流程只要安全标识 + 出口火情，默认关")]
@@ -189,6 +191,33 @@ namespace FireSafety
 
         // ---------------- 流程 ----------------
 
+        /// <summary>
+        /// 第 48 轮：按下手动报警按钮后的直接撤离入口（普通员工，或情形 2 火势已发展）。
+        /// 不经过第 1 阶段的灭火，直接从烟雾中沿安全出口撤离；
+        /// exitFirePresent = false 时门前无火，走到门口右击开门；= true 时门前有火，先灭火。
+        /// </summary>
+        public void BeginAfterAlarm()
+        {
+            Resolve();
+            if (CurrentStage == Stage.Evacuating || CurrentStage == Stage.StageThree
+                || CurrentStage == Stage.ExitOpen || CurrentStage == Stage.Done) return;
+
+            CurrentStage = Stage.Evacuating;
+            _warnedStandingAtLobby = false;
+            SmokeExposureSeconds = 0f;
+            SmokeWarnings = 0;
+            _smokeTimer = 0f;
+
+            if (smoke != null && useSmoke) smoke.Begin();
+            if (arrows != null) arrows.BeginLobbyGuidance();
+
+            Hint(exitFirePresent
+                ? "已报警：火势已发展，不要尝试灭火——低姿沿安全出口撤离；出口门前有火，灭掉它再开门"
+                : "已报警：低姿沿安全出口撤离；出口门前没有火焰，走近后右击门扇直接开门", true);
+            onStageTwoBegin?.Invoke();
+            Debug.Log("[Stage2] 报警后直接撤离（exitFirePresent=" + exitFirePresent + "）。");
+        }
+
         /// <summary>① 阶段一完成面板点「继续往下」时调用。</summary>
         public void Begin()
         {
@@ -206,7 +235,9 @@ namespace FireSafety
             if (skipEvacuation)
             {
                 if (arrows != null) arrows.BeginExitGuidance();
-                Hint("本情景就近撤离：直接前往「安全出口」门，门前已复燃——灭掉它就能开门", true);
+                Hint(exitFirePresent
+                    ? "本情景就近撤离：直接前往「安全出口」门，门前已复燃——灭掉它就能开门"
+                    : "本情景就近撤离：直接前往「安全出口」门，门前没有火焰——走近后右击门扇开门", true);
                 onStageTwoBegin?.Invoke();
                 EnterStageThree();
                 Debug.Log("[Stage2] 跳过第 2 阶段（就近原则）：直接进入第 3 阶段，火源在安全出口门前。");
@@ -217,8 +248,10 @@ namespace FireSafety
 
             if (requireCrouch)
                 Hint("第二阶段：烟雾扩散，蹲下潜行（桌面按 C），沿安全出口箭头前往大厅", true);
+            else if (exitFirePresent)
+                Hint("第 2 阶段：沿「安全出口」标识与地面箭头前往出口，门前有初期火焰——灭掉它，门就会打开", true);
             else
-                Hint("第 2 阶段：沿「安全出口」标识与地面箭头前往出口，门前会升起火焰——灭掉它，门就会打开", true);
+                Hint("第 2 阶段：沿「安全出口」标识与地面箭头前往出口，门前没有火焰——走近右击门扇即可开门", true);
             onStageTwoBegin?.Invoke();
             Debug.Log("[Stage2] 第二阶段开始：安全出口标识 + 箭头（useSmoke=" + useSmoke + " / requireCrouch=" + requireCrouch + "）。");
         }
@@ -245,6 +278,12 @@ namespace FireSafety
         {
             if (CurrentStage == Stage.StageThree || CurrentStage == Stage.ExitOpen || CurrentStage == Stage.Done)
                 return;
+            // 第 48 轮：情形 1（火势初起）出口门前不生成火焰 → 直接进入「右击开门」状态
+            if (!exitFirePresent)
+            {
+                OpenExitWithoutFire();
+                return;
+            }
             CurrentStage = Stage.StageThree;
             _warnedStandingAtLobby = false;
 
@@ -351,8 +390,31 @@ namespace FireSafety
         }
 
         /// <summary>③ 复燃火源扑灭后解锁出口。</summary>
+        /// <summary>
+        /// 第 48 轮：出口门前没有火焰（情形 1）—— 只解锁、不开门，玩家右击门扇自己打开。
+        /// </summary>
+        public void OpenExitWithoutFire()
+        {
+            if (CurrentStage == Stage.ExitOpen || CurrentStage == Stage.Done) return;
+            CurrentStage = Stage.ExitOpen;
+            _warnedStandingAtLobby = false;
+
+            if (smoke != null) smoke.Stop();
+            // 情形 1 不生成门前火源；不要调用 Extinguish()，否则会触发 onExtinguished → Unlock() 自动开门
+            if (exitDoor != null) exitDoor.UnlockSilently();
+            if (arrows != null) arrows.BeginExitGuidance();
+
+            Hint("出口前没有火焰：走近安全出口，右击门扇把门打开，走出门到集合点", true);
+            onExitOpened?.Invoke();
+            Debug.Log("[Stage2] 出口门前无火：已解锁但门仍关闭，等待玩家右击开门。");
+        }
+
+        /// <summary>③ 门前复燃火源扑灭 → 解锁出口门。</summary>
         public void OnStageTwoFireExtinguished()
         {
+            // 第 48 轮：只有真的进入「门前火情」阶段才允许火灭 → 开门；
+            // 避免第 1 阶段的灭火事件误把出口门提前解锁/打开。
+            if (CurrentStage != Stage.StageThree) return;
             if (CurrentStage != Stage.StageThree) return;
             CurrentStage = Stage.ExitOpen;
             if (exitDoor != null) exitDoor.Unlock();
@@ -367,6 +429,8 @@ namespace FireSafety
         {
             if (CurrentStage != Stage.ExitOpen) return false;
             if (exitDoor == null || !exitDoor.IsUnlocked) return false;
+            // 第 48 轮：门被解锁但还没被右击打开时，不能靠瞬移判定「走出去」
+            if (!exitDoor.IsOpen) return false;
             if (exitDoor.PlayerEntered) return false;
             exitDoor.TryEnter();
             return true;
@@ -377,8 +441,14 @@ namespace FireSafety
             if (CurrentStage == Stage.Done) return;
             if (CurrentStage != Stage.ExitOpen)
             {
-                // 门没解锁就走到门口：提示先灭火
-                Hint("安全出口尚未开启——先扑灭门前的火焰", true);
+                // 门没解锁（或门后仍有火）：提示先灭火 / 先开门
+                Hint(exitFirePresent ? "安全出口尚未开启——先扑灭门前的火焰" : "安全出口已解锁——右击门扇把门打开", true);
+                return;
+            }
+            // 第 48 轮：已解锁但门仍关闭（情形 1 的「右击才开门」），不允许直接穿过门板
+            if (exitDoor != null && !exitDoor.IsOpen)
+            {
+                Hint("门还关着：走近门，右击门扇把门打开", true);
                 return;
             }
             Complete();

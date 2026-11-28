@@ -25,27 +25,51 @@ namespace FireSafety.EditorTools
             Debug.Log("[TEST] ==== 开始自检 ====");
 
             // 顺序：先测不依赖全局状态的部分，最后测状态链（会建立并销毁单例）
+            Debug.Log("[TEST] >> HandleLever");
             TestHandleLeverLogic();
+            Debug.Log("[TEST] >> Spray");
             TestSprayParticles();
+            Debug.Log("[TEST] >> DesktopMouse");
             TestDesktopMouseFlow();
+            Debug.Log("[TEST] >> DesktopHud");
             TestDesktopHud();
+            Debug.Log("[TEST] >> Quiz");
             TestQuizLogic();
+            Debug.Log("[TEST] >> QuizFail");
             TestQuizFailThenRetry();
+            Debug.Log("[TEST] >> StageOnePanel");
             TestStageOnePanel();
+            Debug.Log("[TEST] >> LobbyGuidance");
             TestLobbyGuidance();
+            Debug.Log("[TEST] >> Onboarding");
             TestOnboardingAndEnding();
+            Debug.Log("[TEST] >> StageTwoFlow");
             TestStageTwoFlow();
+            Debug.Log("[TEST] >> FlameClear");
             TestFlameClearAll();
+            Debug.Log("[TEST] >> StepChain");
             TestStepChain();
+            Debug.Log("[TEST] >> SceneWiring");
             TestSceneWiring();
+            Debug.Log("[TEST] >> ExtKind");
             TestExtinguisherKindRound28();
+            Debug.Log("[TEST] >> DeviceMode");
             TestRuntimeDeviceModeRound29();
+            Debug.Log("[TEST] >> InputFeedback");
             TestInputFeedbackRound30();
+            Debug.Log("[TEST] >> Connection");
             TestConnectionRound31();
+            Debug.Log("[TEST] >> DrillScenario");
             TestDrillScenario();
+            Debug.Log("[TEST] >> Round37Ui");
             TestRound37Ui();
+            Debug.Log("[TEST] >> Round38Vitals");
             TestRound38PlayerVitals();
+            Debug.Log("[TEST] >> Round41");
             TestRound41LanguageAndFlow();
+            Debug.Log("[TEST] >> Round48");
+            TestRound48Cases();
+            Debug.Log("[TEST] >> VRConfig");
             TestVrConfiguration();
 
             if (_fail == 0) Debug.Log("[TEST] ==== 全部通过 ====");
@@ -1310,9 +1334,15 @@ namespace FireSafety.EditorTools
                 eastSmoke != null && eastSmoke.transform.position.x > 7.25f,
                 eastSmoke != null ? eastSmoke.transform.position.ToString("F2") : "null");
             var glassMat = AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/WindowGlassMat.mat");
-            Check("第43轮：窗玻璃渲染队列固定在排烟粒子之前（< 3000）",
-                glassMat != null && glassMat.renderQueue < 3000,
-                glassMat != null ? glassMat.renderQueue.ToString() : "null");
+            bool queueBeforeSmoke = glassMat != null &&
+                                    (glassMat.renderQueue < 3000 ||
+                                     (glassMat.HasProperty("_QueueOffset") && glassMat.GetFloat("_QueueOffset") < 0f));
+            Check("第43轮：窗玻璃渲染排在排烟粒子之前（queue<3000 或 _QueueOffset<0）",
+                queueBeforeSmoke,
+                glassMat != null
+                    ? "queue=" + glassMat.renderQueue + " offset=" +
+                      (glassMat.HasProperty("_QueueOffset") ? glassMat.GetFloat("_QueueOffset").ToString("F0") : "n/a")
+                    : "null");
             // ---- 第 45 轮：北窗「一直闪」的两个真因一起封住 ----
             // ① 玻璃原来是 smoothness 0.88 的强高光面 → 日光点光在窗面打出小白斑，头一动就跳；
             // ② 设备情景烟雾区一直铺到窗前 0.4 米 → 半透明粒子贴玻璃、透明排序逐帧重排。
@@ -2203,6 +2233,49 @@ namespace FireSafety.EditorTools
         // ------------------------------------------------------------
         // 头显接入配置：OpenXR 运行时 + 手柄动作绑定 + 移动/交互组件
         // ------------------------------------------------------------
+        // ------------------------------------------------------------
+        // 第 48 轮：两种火情情形 + 壁挂报警按钮 + 出口门条件判断
+        // ------------------------------------------------------------
+        static void TestRound48Cases()
+        {
+            Debug.Log("[TEST] 第 48 轮：情形 1 / 情形 2 与出口门火情条件");
+
+            var alarm = UnityEngine.Object.FindFirstObjectByType<AlarmCallButton>();
+            Check("墙上有手动报警按钮", alarm != null);
+            if (alarm != null)
+            {
+                Check("报警按钮为壁挂式（无落地立柱）", alarm.transform.Find("Column") == null);
+                Check("报警按钮贴在 z=-3.98 的南墙", Mathf.Abs(alarm.transform.position.z + 3.98f) < 0.06f,
+                      alarm.transform.position.ToString("F2"));
+            }
+
+            Check("AlarmCallButton 提供按下事件 onPressed",
+                  typeof(AlarmCallButton).GetField("onPressed") != null);
+            Check("DrillScenario 有 StartFormalWithCase",
+                  typeof(DrillScenario).GetMethod("StartFormalWithCase") != null);
+            Check("DrillScenario 有报警回调 OnAlarmPressed",
+                  typeof(DrillScenario).GetMethod("OnAlarmPressed") != null);
+            Check("DrillScenario 有报警后撤离入口 BeginAlarmEvacuation",
+                  typeof(DrillScenario).GetMethod("BeginAlarmEvacuation") != null);
+            Check("情形枚举共 2 种",
+                  Enum.GetValues(typeof(DrillScenario.OperationCase)).Length == 2);
+
+            var stage = UnityEngine.Object.FindFirstObjectByType<StageTwoFlow>();
+            Check("StageTwoFlow 存在", stage != null);
+            if (stage != null)
+            {
+                Check("StageTwoFlow 有 exitFirePresent 开关",
+                      stage.GetType().GetField("exitFirePresent") != null);
+                Check("StageTwoFlow 有无火开门分支 OpenExitWithoutFire",
+                      stage.GetType().GetMethod("OpenExitWithoutFire") != null);
+                Check("StageTwoFlow 有报警后直接撤离 BeginAfterAlarm",
+                      stage.GetType().GetMethod("BeginAfterAlarm") != null);
+            }
+
+            Check("ExitDoor 支持静默解锁 UnlockSilently",
+                  typeof(ExitDoor).GetMethod("UnlockSilently") != null);
+        }
+
         static void TestVrConfiguration()
         {
             if (!Application.isBatchMode)

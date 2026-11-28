@@ -97,19 +97,19 @@ namespace FireSafety
                 },
                 new[]
                 {
-                    "① 提：提起灭火器，站到上风口",
-                    "② 拔：拔掉保险销（喷嘴别对人）",
-                    "③ 握：握紧喷管，对准火焰根部",
-                    "④ 压：压下压把，左右扫射推进",
-                    "※ 灭完留守观察，防止复燃"
+                    "① 拔：拔掉保险销（喷嘴不要对人）",
+                    "② 握：握住喷管，对准火焰根部",
+                    "③ 压：压下压把，左右横扫推进",
+                    "④ 扫：由近到远、由上到下覆盖燃烧面",
+                    "※ 背风站位、背后留好退路；只灭初期小火，火大立即撤离打 119"
                 },
                 new[]
                 {
-                    "低姿弯腰、湿毛巾捂口鼻，别吸浓烟",
-                    "沿绿色「安全出口」标志撤离，不乘电梯",
-                    "到集合点清点人数，拨打 119 报警",
-                    "门打不开先试门温，别盲目开门",
-                    "※ 撤离时不折返取物，生命第一"
+                    "① 先大声提醒周围的人「着火了」",
+                    "② 判断逃生方向：最近的安全出口，走楼梯、绝不乘电梯",
+                    "③ 低姿沿墙快速撤离，不折返取物、不贪恋财物",
+                    "④ 撤到空旷安全地带后拨打 119（韩国火警/急救电话）",
+                    "⑤ 在集合点清点人数并报告；初期小火且受过训练才用灭火器"
                 }
             };
         }
@@ -130,20 +130,20 @@ namespace FireSafety
                 case 1:
                     return new[]
                     {
-                        "① Pull: lift the extinguisher, stand upwind",
-                        "② Pin: pull the safety pin (never point at people)",
-                        "③ Aim: grip the hose, aim at the base of the fire",
-                        "④ Squeeze: press the lever, sweep side to side",
-                        "※ Watch the area afterwards to prevent re-ignition"
+                        "① Pull the safety pin (never point the nozzle at people)",
+                        "② Grip the hose and aim at the base of the fire",
+                        "③ Squeeze the lever, sweep side to side",
+                        "④ Sweep close-to-far, top-to-bottom over the burning surface",
+                        "※ Stand with your back to the wind and keep an escape route behind you; only for a small incipient fire"
                     };
                 default:
                     return new[]
                     {
-                        "Keep low, cover nose and mouth with a wet towel",
-                        "Follow green EXIT signs, never use the lift",
-                        "Report to the assembly point, count people, call 119",
-                        "Feel the door before opening — don't open it blindly",
-                        "※ Never go back for belongings — life first"
+                        "① Warn people around you first: “Fire!”",
+                        "② Decide the way out: nearest exit, stairs only, never the lift",
+                        "③ Stay low and evacuate fast; never go back for belongings",
+                        "④ Call 119 (Korean fire & rescue) once you are safely outside",
+                        "⑤ Count heads at the assembly point; use an extinguisher only on a small, incipient fire"
                     };
             }
         }
@@ -164,20 +164,20 @@ namespace FireSafety
                 case 1:
                     return new[]
                     {
-                        "① 들기: 소화기를 들고 상풍 위치에 서기",
-                        "② 뽑기: 안전핀을 뽑기 (사람에게 겨눔 금지)",
-                        "③ 겨냥: 호스를 잡고 불꽃 밑동을 겨냥",
-                        "④ 누르기: 손잡이를 눌러 좌우로 훑으며 접근",
-                        "※ 소화 후 잔불 감시로 재점화 방지"
+                        "① 안전핀을 뽑는다 (노즐을 사람에게 겨누지 않는다)",
+                        "② 노즐을 잡고 불꽃 밑동을 향한다",
+                        "③ 손잡이를 움켜쥔다",
+                        "④ 분말을 골고루 뿌리며 가까운 곳에서 먼 곳으로, 위에서 아래로 덮는다",
+                        "※ 바람을 등지고 문(퇴로)을 등지고 서기; 초기 소화에만 사용하고 불이 크면 즉시 대피 후 119"
                     };
                 default:
                     return new[]
                     {
-                        "낮은 자세로 몸을 숙이고 습한 수건으로 코와 입을 가리기",
-                        "녹색 비상구 표지를 따라 이동, 엘리베이터 사용 금지",
-                        "집결지에서 인원 확인 후 119에 신고",
-                        "문이 안 열리면 손등으로 온도를 확인, 무작정 열지 않기",
-                        "※ 대피 중 물건을 가지러 돌아가지 않기 — 생명 우선"
+                        "① 먼저 주변 사람에게 “불이야!”라고 알린다",
+                        "② 대피 방향 결정: 가장 가까운 비상구, 계단 이용, 엘리베이터 절대 금지",
+                        "③ 낮은 자세로 신속히 대피, 물건을 가지러 돌아가지 않는다",
+                        "④ 안전한 곳에 대피한 후 119에 신고한다",
+                        "⑤ 집결지에서 인원을 확인한다; 초기 소화는 불이 작고 교육을 받은 경우에만"
                     };
             }
         }

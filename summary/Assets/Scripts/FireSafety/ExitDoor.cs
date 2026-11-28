@@ -83,6 +83,20 @@ namespace FireSafety
             _existingRotSaved = true;
         }
 
+        /// <summary>
+        /// 第 48 轮：只解锁、不自动开门 —— 用于「门前没有火焰」的情形，
+        /// 玩家必须自己右击门扇（TryOpenByPlayer）才把门打开。
+        /// </summary>
+        public void UnlockSilently()
+        {
+            if (IsUnlocked) return;
+            IsUnlocked = true;
+            if (_signText != null) _signText.color = signOpenColor;
+            // 不碰 _panel / _openT：门保持关闭，等玩家右击
+            onUnlocked?.Invoke();
+            Debug.Log("[ExitDoor] 安全出口已解锁（门仍关着，需玩家右击开门）。");
+        }
+
         /// <summary>解锁出口：指示牌变绿、门扇打开。</summary>
         public void Unlock()
         {

@@ -32,6 +32,16 @@ namespace FireSafety
             Done = 4
         }
 
+        /// <summary>
+        /// 第 48 轮：操作流程页点开后的两种火情情形。
+        /// Incipient = 情形 1：火势初起、烟雾开始蔓延；Developed = 情形 2：火势已发展、烟雾弥漫、主火无法扑灭。
+        /// </summary>
+        public enum OperationCase
+        {
+            Incipient = 0,
+            Developed = 1
+        }
+
         public static DrillScenario Instance { get; private set; }
 
         /// <summary>
@@ -123,8 +133,17 @@ namespace FireSafety
         [Header("规则")]
         [Tooltip("出生点是否随机（关闭则固定第 1 个，自检用）")]
         public bool randomSpawn = true;
+        [Tooltip("第 48 轮：当前火情情形（1=初起 / 2=已发展）；开始界面两个按钮分别设它")]
+        public OperationCase operationCase = OperationCase.Incipient;
+        [Tooltip("第 48 轮：墙上的手动火灾报警按钮（按下后按身份/情形进入疏散或灭火分支）")]
+        public AlarmCallButton alarmButton;
+        /// <summary>第 48 轮：玩家是否已按下手动报警按钮。</summary>
+        public bool AlarmPressed { get; private set; }
         [Tooltip("未切断电源时火焰不灭火（电气火灾硬规则）")]
         public bool requirePowerCutBeforeExtinguish = true;
+
+        /// <summary>第 48 轮：本情形/本身份禁止尝试扑灭主火（情形 2 与普通员工）。</summary>
+        public bool Stage1AttackForbidden { get; private set; }
 
         public Mode CurrentMode { get; private set; } = Mode.None;
         public Phase CurrentPhase { get; private set; } = Phase.Idle;
@@ -157,6 +176,7 @@ namespace FireSafety
             if (deviceFire != null) deviceFire.onExtinguished.RemoveListener(OnDeviceFireExtinguished);
             if (deviceFire != null) deviceFire.onExtinguishBlocked.RemoveListener(OnDeviceFireBlocked);
             if (tutorialFire != null) tutorialFire.onExtinguished.RemoveListener(OnTutorialFireExtinguished);
+            if (alarmButton != null) alarmButton.onPressed.RemoveListener(OnAlarmPressed);
             if (Instance == this) Instance = null;
         }
 
@@ -169,6 +189,7 @@ namespace FireSafety
             if (countdown == null) countdown = FindObjectOfType<DrillCountdown>();
             if (endingScreen == null) endingScreen = FindObjectOfType<EndingScreen>();
             if (hud == null) hud = FindObjectOfType<VRDrillHud>();
+            if (alarmButton == null) alarmButton = FindObjectOfType<AlarmCallButton>();
 
             if (rigRoot == null)
             {
@@ -199,6 +220,11 @@ namespace FireSafety
             {
                 powerSwitch.onCut.RemoveListener(OnPowerCut);
                 powerSwitch.onCut.AddListener(OnPowerCut);
+            }
+            if (alarmButton != null)
+            {
+                alarmButton.onPressed.RemoveListener(OnAlarmPressed);
+                alarmButton.onPressed.AddListener(OnAlarmPressed);
             }
         }
 
@@ -281,6 +307,16 @@ namespace FireSafety
         public void StartFormal(int forceSpawn = -1) => StartFormal(forceSpawn, -1);
 
         /// <summary>
+        /// 第 48 轮：从「操作流程」页选择火情情形后进入正式演练。
+        /// Incipient = 火势初起、烟雾开始蔓延；Developed = 火势已发展、烟雾弥漫、主火无法扑灭。
+        /// </summary>
+        public void StartFormalWithCase(OperationCase opCase, int forceSpawn = -1, int forceScenario = -1)
+        {
+            operationCase = opCase;
+            StartFormal(forceSpawn, forceScenario);
+        }
+
+        /// <summary>
         /// 正式演练入口。
         /// forceScenario &gt;= 0 时固定情景（自检 / 探针逐套验收用），否则按 randomScenario 随机挑一套。
         /// </summary>
@@ -297,6 +333,23 @@ namespace FireSafety
 
             CurrentMode = Mode.Formal;
             CurrentPhase = Phase.Stage1;
+            AlarmPressed = false;
+            if (alarmButton != null) alarmButton.ResetButton();
+
+            // 第 48 轮：情形 / 身份决定「能不能尝试扑灭主火」
+            //   情形 1 + 初期应对负责人 → 可以灭火；情形 1 + 普通员工 → 只报警撤离；
+            //   情形 2（火势已发展）→ 任何身份都不能灭主火，只能报警撤离。
+            var flow = DrillFlowDirector.Instance;
+            bool roleCanAttack = flow != null && flow.RoleAllowsAttack;
+            Stage1AttackForbidden = operationCase == OperationCase.Developed || !roleCanAttack;
+            if (stageTwo != null) stageTwo.exitFirePresent = operationCase == OperationCase.Developed;
+            // 第 48 轮：出口门是否解锁只由第 2 阶段火情决定；关闭旧流程的「一疏散/一灭火就开门」，
+            // 否则情形 2 会在门前火还没灭时就把门打开。
+            if (flow != null)
+            {
+                flow.unlockOnEvacuate = false;
+                flow.unlockOnExtinguished = false;
+            }
 
             // 第 27 轮：重开演练时把情景二/三那扇房间门关回去（上一次演练可能已经把它打开了）
             if (RoomDoor.Instance == null) RoomDoor.Instance = FindObjectOfType<RoomDoor>();
@@ -335,7 +388,7 @@ namespace FireSafety
             if (deviceFire != null)
             {
                 deviceFire.gameObject.SetActive(true);
-                deviceFire.SetExtinguishLocked(requirePowerCutBeforeExtinguish);
+                deviceFire.SetExtinguishLocked(Stage1AttackForbidden || requirePowerCutBeforeExtinguish);
                 deviceFire.IgniteNow();
             }
             if (deviceSmoke != null)
@@ -352,12 +405,68 @@ namespace FireSafety
 
             string spawnText = SpawnCount > 0 ? "出生点 " + (LastSpawnIndex + 1) + "/" + SpawnCount : "出生点未配置";
             string title = CurrentScenario != null ? CurrentScenario.title : "设备起火";
-            Hint("第 1 阶段 · " + title + "（" + spawnText + "）：" + ScenarioStepHint());
-            Debug.Log("[Drill] 正式演练第 1 阶段开始，情景 index=" + CurrentScenarioIndex
+            if (operationCase == OperationCase.Developed)
+                Hint("情形 2 · 火势已发展（" + title + "）：烟雾弥漫、主火无法扑灭——先按墙上的手动报警按钮，再沿安全出口低姿撤离；出口门前有初期火焰，灭掉后才能开门");
+            else if (Stage1AttackForbidden)
+                Hint("情形 1 · 火势初起（" + title + "）：作为普通员工，先按墙上的手动报警按钮，随后立即沿安全出口撤离到空旷集合点");
+            else
+                Hint("情形 1 · 火势初起（" + title + "）：作为初期应对负责人，先按报警按钮提醒他人，再取灭火器灭火，灭完后撤到安全地带");
+            Debug.Log("[Drill] 正式演练开始，情景 index=" + CurrentScenarioIndex
                       + "（" + title + "），出生点 index=" + LastSpawnIndex
                       + "（共 " + SpawnCount + " 个候选），起火点="
                       + (deviceFire != null ? deviceFire.transform.position.ToString("F2") : "null")
                       + "，电源锁定=" + requirePowerCutBeforeExtinguish);
+        }
+
+        /// <summary>
+        /// 第 48 轮：玩家按下墙上的手动报警按钮（AlarmCallButton.onPressed 回调）。
+        /// 情形 1 + 初期应对负责人：只提醒先报警，之后仍可取灭火器灭火；
+        /// 情形 1 + 普通员工 / 情形 2（任何身份）：报警后立即进入疏散。
+        /// </summary>
+        public void OnAlarmPressed()
+        {
+            if (CurrentMode != Mode.Formal || CurrentPhase != Phase.Stage1) return;
+            if (AlarmPressed) return;
+            AlarmPressed = true;
+
+            var flow = DrillFlowDirector.Instance;
+            bool isLead = flow != null && flow.RoleAllowsAttack;
+            if (operationCase == OperationCase.Incipient && isLead)
+            {
+                Hint("已按下手动报警按钮，警报响起并通知周围人 ✓ 你是初期应对负责人：火势还小，取最近的灭火器灭火后再撤离");
+                Debug.Log("[Drill] 情形1 · 负责人报警：允许继续初期灭火。");
+                return;
+            }
+
+            BeginAlarmEvacuation();
+        }
+
+        /// <summary>
+        /// 第 48 轮：报警后直接转入第 2 阶段（不灭主火）。
+        /// 情形 1 出口门前无火（右击开门），情形 2 出口门前有初期火焰（先灭再出门）。
+        /// </summary>
+        public void BeginAlarmEvacuation()
+        {
+            if (CurrentMode != Mode.Formal || CurrentPhase != Phase.Stage1) return;
+            CurrentPhase = Phase.Stage2;
+
+            // 主火不再要求扑灭：只作为「火势已发展」的背景，避免玩家继续尝试
+            if (deviceFire != null) deviceFire.SetExtinguishLocked(true);
+
+            if (stageTwo != null)
+            {
+                stageTwo.exitFirePresent = operationCase == OperationCase.Developed;
+                stageTwo.BeginAfterAlarm();
+            }
+            else if (arrows != null)
+            {
+                arrows.BeginLobbyGuidance();
+            }
+
+            Hint(operationCase == OperationCase.Developed
+                ? "情形 2 · 火势已发展：报警完成 ✓ 不要尝试灭火——低姿沿绿色安全出口标识撤离（不乘电梯），到集合点后拨打 119 并清点人数"
+                : "情形 1 · 普通员工：报警完成 ✓ 立即低姿沿安全出口撤离，不折返取物；出口门前没有火焰，右击门扇开门，到集合点后清点人数");
+            Debug.Log("[Drill] 报警后转入疏散（operationCase=" + operationCase + "）。");
         }
 
         /// <summary>当前情景的操作提示（电气要断电，其它情景直接取瓶答题灭火）。</summary>
@@ -553,6 +662,11 @@ namespace FireSafety
 
         private void OnPowerCut()
         {
+            if (Stage1AttackForbidden)
+            {
+                Hint("本情形不允许尝试灭火：断电后立即按手动报警按钮，沿安全出口撤离");
+                return;
+            }
             if (deviceFire != null) deviceFire.SetExtinguishLocked(false);
             Hint("电源已切断 ✓ 现在拿起灭火器：右键单击答题（VR 按 Grip）→ 拔销 → 压把 → 对准火焰根部喷射");
         }
@@ -560,12 +674,27 @@ namespace FireSafety
         private void OnDeviceFireBlocked()
         {
             if (CurrentPhase != Phase.Stage1) return;
+            if (Stage1AttackForbidden)
+            {
+                Hint(operationCase == OperationCase.Developed
+                    ? "火势已经发展，主火无法用灭火器扑灭——立即按手动报警按钮，低姿撤离"
+                    : "你是普通员工，没有初期灭火职责——立即按手动报警按钮，沿安全出口撤离");
+                return;
+            }
             Hint("火焰仍带电，喷射无效！先切断电源（就在设备旁边的电源箱）");
         }
 
         private void OnDeviceFireExtinguished()
         {
             if (CurrentPhase != Phase.Stage1) return;
+            // 情形 2 / 普通员工不允许灭主火，若被脚本强行扑灭也不进入第 2 阶段
+            if (Stage1AttackForbidden)
+            {
+                Hint(operationCase == OperationCase.Developed
+                    ? "本情形主火不应被扑灭：按报警按钮后沿安全出口撤离"
+                    : "普通员工不承担初期灭火：按报警按钮后立即撤离");
+                return;
+            }
             CurrentPhase = Phase.Stage2;
 
             if (deviceSmoke != null)
@@ -582,11 +711,12 @@ namespace FireSafety
                     stageTwo.spareExtinguisher = spare;
                     spare.SetQuizSet(3, true);
                 }
+                stageTwo.exitFirePresent = false;
                 stageTwo.Begin();
             }
             else if (arrows != null) arrows.BeginLobbyGuidance();
 
-            Hint("「" + ScenarioTitle + "」已扑灭！第 2 阶段：沿「安全出口」标识撤离，出口前有火情——灭掉它，门就会打开");
+            Hint("「" + ScenarioTitle + "」已扑灭！第 2 阶段：沿「安全出口」标识撤离——出口门前没有火焰，右击门扇开门，到集合点清点人数");
             Debug.Log("[Drill] 第 1 阶段完成（情景=" + ScenarioTitle + "），进入第 2 阶段。");
         }
 
